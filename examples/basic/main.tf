@@ -13,22 +13,19 @@ provider "streamsec" {
 
 module "streamsec_google_projects" {
   source = "../../"
+  # enable_real_time_events = true
   projects = {
     staging = {
       project_id      = "xxxxxxxx"
-      sa_account_id   = "xxxxxx"
-      sa_display_name = "xxxxxx"
+      # flowlogs_bucket_name = "xxxxxxxx"
+      # sa_account_id   = "xxxxxx"
+      # sa_display_name = "xxxxxx"
     },
     production = {
       project_id      = "xxxxxxxx"
-      sa_account_id   = "xxxxxx"
-      sa_display_name = "xxxxxx"
+      # sa_account_id   = "xxxxxx"
+      # sa_display_name = "xxxxxx"
     }
   }
 }
 
-module "streamsec_real_time_events" {
-  source     = "../../modules/real-time-events"
-  projects   = module.streamsec_google_projects.projects
-  depends_on = [module.streamsec_google_projects]
-}

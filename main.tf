@@ -58,3 +58,18 @@ resource "streamsec_gcp_project_ack" "this" {
 
   depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, google_project_iam_member.this, google_project_iam_member.security_reviewer]
 }
+
+
+module "real-time-events" {
+  count      = var.enable_real_time_events ? 1 : 0
+  source     = "./modules/real-time-events"
+  projects   = var.projects
+  depends_on = [streamsec_gcp_project_ack.this]
+}
+
+module "flowlogs" {
+  count      = length([for k, v in var.projects : 1 if contains(keys(v), "flowlogs_bucket_name")])
+  source     = "./modules/flowlogs"
+  projects   = var.projects
+  depends_on = [streamsec_gcp_project_ack.this]
+}
