@@ -1,4 +1,3 @@
-data "google_project" "current" {}
 
 resource "streamsec_gcp_project" "this" {
   for_each     = { for k, v in var.projects : k => v }
@@ -57,4 +56,19 @@ resource "streamsec_gcp_project_ack" "this" {
   private_key  = var.org_level_permissions ? jsondecode(base64decode(google_service_account_key.this["org"].private_key)).private_key : jsondecode(base64decode(google_service_account_key.this[each.key].private_key)).private_key
 
   depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, google_project_iam_member.this, google_project_iam_member.security_reviewer]
+}
+
+
+module "real_time_events" {
+  count      = var.enable_real_time_events ? 1 : 0
+  source     = "./modules/real-time-events"
+  projects   = var.projects
+  depends_on = [streamsec_gcp_project_ack.this]
+}
+
+module "flowlogs" {
+  count      = length([for k, v in var.projects : 1 if contains(keys(v), "flowlogs_bucket_name")])
+  source     = "./modules/flowlogs"
+  projects   = var.projects
+  depends_on = [streamsec_gcp_project_ack.this]
 }

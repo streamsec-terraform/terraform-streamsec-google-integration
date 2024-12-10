@@ -47,3 +47,13 @@ variable "sa_description" {
   type        = string
   default     = "Stream Security Service Account"
 }
+
+################################################################################
+# Real Time Events Module
+################################################################################
+
+variable "enable_real_time_events" {
+  description = "Boolean to determine if Real Time Events should be enabled."
+  type        = bool
+  default     = true
+}
