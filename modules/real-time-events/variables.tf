@@ -5,7 +5,6 @@
 variable "projects" {
   description = "A list of projects to create Service Accounts for."
   type        = any
-  default     = {}
 }
 
 ################################################################################
