@@ -1,4 +1,3 @@
-data "google_project" "current" {}
 
 resource "streamsec_gcp_project" "this" {
   for_each     = { for k, v in var.projects : k => v }
@@ -60,7 +59,7 @@ resource "streamsec_gcp_project_ack" "this" {
 }
 
 
-module "real-time-events" {
+module "real_time_events" {
   count      = var.enable_real_time_events ? 1 : 0
   source     = "./modules/real-time-events"
   projects   = var.projects
