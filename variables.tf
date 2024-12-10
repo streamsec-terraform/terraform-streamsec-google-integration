@@ -8,6 +8,24 @@ variable "projects" {
   default     = {}
 }
 
+variable "org_level_permissions" {
+  description = "Boolean to determine if the Service Account should have Organization Level Permissions."
+  type        = bool
+  default     = false
+}
+
+variable "org_id" {
+  description = "The Organization ID to create the Service Account in (REQUIRED if org_level_permissions is true)."
+  type        = string
+  default     = null
+}
+
+variable "project_for_sa" {
+  description = "The project to create the Service Account in (if not set and org_level_permissions is true, will take provider project id)."
+  type        = string
+  default     = null
+}
+
 ################################################################################
 # Stream Security Application Registration Variables
 ################################################################################

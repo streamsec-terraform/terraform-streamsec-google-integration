@@ -1,5 +1,5 @@
-# StreamSec - GCP Project Integration using Terraform
-Terraform module for gcp project
+# StreamSec - Google Integration using Terraform
+Terraform module for google integration with Stream Security.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
