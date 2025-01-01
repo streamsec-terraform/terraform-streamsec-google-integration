@@ -7,15 +7,6 @@ variable "projects" {
   type        = any
 }
 
-################################################################################
-# FlowLogs Log Sink Variables
-################################################################################
-
-variable "log_sink_name" {
-  description = "The name of the log sink to create."
-  type        = string
-  default     = "stream-security-flowlogs-sink"
-}
 
 ################################################################################
 # FlowLogs Cloud Function Variables
@@ -31,6 +22,12 @@ variable "function_runtime" {
   description = "The runtime of the Cloud Function to create."
   type        = string
   default     = "nodejs20"
+}
+
+variable "ingress_settings" {
+  description = "The ingress settings of the Cloud Function to create."
+  type        = string
+  default     = "ALLOW_INTERNAL_ONLY"
 }
 
 variable "function_entry_point" {

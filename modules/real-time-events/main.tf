@@ -36,6 +36,7 @@ resource "google_cloudfunctions_function" "this" {
   for_each              = { for k, v in var.projects : k => v }
   name                  = try(each.value.function_name, var.function_name)
   runtime               = var.function_runtime
+  ingress_settings      = var.ingress_settings
   entry_point           = var.function_entry_point
   source_archive_bucket = var.source_bucket_name
   source_archive_object = var.source_archive_name

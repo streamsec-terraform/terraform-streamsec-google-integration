@@ -49,6 +49,12 @@ variable "function_runtime" {
   default     = "nodejs20"
 }
 
+variable "ingress_settings" {
+  description = "The ingress settings of the Cloud Function to create."
+  type        = string
+  default     = "ALLOW_INTERNAL_ONLY"
+}
+
 variable "function_entry_point" {
   description = "The entry point of the Cloud Function to create."
   type        = string

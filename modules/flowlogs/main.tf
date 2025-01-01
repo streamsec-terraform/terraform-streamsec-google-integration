@@ -15,6 +15,7 @@ resource "google_cloudfunctions_function" "this" {
   entry_point           = var.function_entry_point
   source_archive_bucket = var.source_bucket_name
   source_archive_object = var.source_archive_name
+  ingress_settings      = var.ingress_settings
   timeout               = var.function_timeout
   event_trigger {
     event_type = "google.storage.object.finalize"
