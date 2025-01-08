@@ -17,7 +17,7 @@ resource "google_logging_project_sink" "this" {
   for_each    = { for k, v in var.projects : k => v }
   name        = try(each.value.log_sink_name, var.log_sink_name)
   destination = "pubsub.googleapis.com/projects/${each.value.project_id}/topics/${google_pubsub_topic.this[each.key].name}"
-  filter      = "logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
+  filter      = "(logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR (logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\" AND NOT protoPayload.methodName=~\"(?i).list\")) AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
   project     = each.value.project_id
   depends_on  = [google_pubsub_topic.this]
 }
