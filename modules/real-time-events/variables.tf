@@ -46,7 +46,7 @@ variable "function_name" {
 variable "function_runtime" {
   description = "The runtime of the Cloud Function to create."
   type        = string
-  default     = "nodejs20"
+  default     = "nodejs22"
 }
 
 variable "ingress_settings" {
