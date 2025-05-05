@@ -1,4 +1,3 @@
-
 resource "streamsec_gcp_project" "this" {
   for_each     = { for k, v in var.projects : k => v }
   display_name = each.key
@@ -6,7 +5,7 @@ resource "streamsec_gcp_project" "this" {
 }
 
 resource "google_service_account" "this" {
-  for_each     = var.org_level_permissions ? { "org" = { project_id = var.project_for_sa } } : { for k, v in var.projects : k => v }
+  for_each     = var.create_sa ? (var.org_level_permissions ? { "org" = { project_id = var.project_for_sa } } : { for k, v in var.projects : k => v }) : {}
   account_id   = try(each.value.sa_account_id, var.sa_account_id)
   display_name = try(each.value.sa_display_name, var.sa_display_name)
   description  = try(each.value.sa_description, var.sa_description)
@@ -15,19 +14,19 @@ resource "google_service_account" "this" {
 
 # create service account key for each service account
 resource "google_service_account_key" "this" {
-  for_each           = google_service_account.this
+  for_each           = var.create_sa ? google_service_account.this : {}
   service_account_id = each.value.id
 }
 
 resource "google_organization_iam_member" "this" {
-  count  = var.org_level_permissions ? 1 : 0
+  count  = var.org_level_permissions && var.create_sa ? 1 : 0
   role   = "roles/viewer"
   member = "serviceAccount:${google_service_account.this["org"].email}"
   org_id = var.org_id
 }
 
 resource "google_organization_iam_member" "security_reviewer" {
-  count  = var.org_level_permissions ? 1 : 0
+  count  = var.org_level_permissions && var.create_sa ? 1 : 0
   role   = "roles/iam.securityReviewer"
   member = "serviceAccount:${google_service_account.this["org"].email}"
   org_id = var.org_id
@@ -35,7 +34,7 @@ resource "google_organization_iam_member" "security_reviewer" {
 
 # assign viewer role to service account
 resource "google_project_iam_member" "this" {
-  for_each = var.org_level_permissions ? {} : google_service_account.this
+  for_each = var.create_sa ? (var.org_level_permissions ? {} : google_service_account.this) : {}
   role     = "roles/viewer"
   member   = "serviceAccount:${each.value.email}"
   project  = each.value.project
@@ -43,7 +42,7 @@ resource "google_project_iam_member" "this" {
 
 # assign roles/iam.securityReviewer
 resource "google_project_iam_member" "security_reviewer" {
-  for_each = var.org_level_permissions ? {} : google_service_account.this
+  for_each = var.create_sa ? (var.org_level_permissions ? {} : google_service_account.this) : {}
   role     = "roles/iam.securityReviewer"
   member   = "serviceAccount:${each.value.email}"
   project  = each.value.project
@@ -52,8 +51,8 @@ resource "google_project_iam_member" "security_reviewer" {
 resource "streamsec_gcp_project_ack" "this" {
   for_each     = { for k, v in var.projects : k => v }
   project_id   = each.value.project_id
-  client_email = var.org_level_permissions ? google_service_account.this["org"].email : google_service_account.this[each.key].email
-  private_key  = var.org_level_permissions ? jsondecode(base64decode(google_service_account_key.this["org"].private_key)).private_key : jsondecode(base64decode(google_service_account_key.this[each.key].private_key)).private_key
+  client_email = var.create_sa ? (var.org_level_permissions ? google_service_account.this["org"].email : google_service_account.this[each.key].email) : jsondecode(file(var.existing_sa_json_file_path)).client_email
+  private_key  = var.create_sa ? (var.org_level_permissions ? jsondecode(base64decode(google_service_account_key.this["org"].private_key)).private_key : jsondecode(base64decode(google_service_account_key.this[each.key].private_key)).private_key) : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
   depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, google_project_iam_member.this, google_project_iam_member.security_reviewer]
 }

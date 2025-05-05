@@ -8,14 +8,14 @@ Terraform module for google integration with Stream Security.
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
-| <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.7 |
+| <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.10 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
-| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.7 |
+| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.10 |
 
 ## Modules
 
@@ -41,7 +41,9 @@ Terraform module for google integration with Stream Security.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_create_sa"></a> [create\_sa](#input\_create\_sa) | Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions. | `bool` | `true` | no |
 | <a name="input_enable_real_time_events"></a> [enable\_real\_time\_events](#input\_enable\_real\_time\_events) | Boolean to determine if Real Time Events should be enabled. | `bool` | `true` | no |
+| <a name="input_existing_sa_json_file_path"></a> [existing\_sa\_json\_file\_path](#input\_existing\_sa\_json\_file\_path) | The path to the JSON file for the existing Service Account. | `string` | `null` | no |
 | <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID to create the Service Account in (REQUIRED if org\_level\_permissions is true). | `string` | `null` | no |
 | <a name="input_org_level_permissions"></a> [org\_level\_permissions](#input\_org\_level\_permissions) | Boolean to determine if the Service Account should have Organization Level Permissions. | `bool` | `false` | no |
 | <a name="input_project_for_sa"></a> [project\_for\_sa](#input\_project\_for\_sa) | The project to create the Service Account in (if not set and org\_level\_permissions is true, will take provider project id). | `string` | `null` | no |
