@@ -30,6 +30,18 @@ variable "project_for_sa" {
 # Stream Security Application Registration Variables
 ################################################################################
 
+variable "create_sa" {
+  description = "Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions."
+  type        = bool
+  default     = true
+}
+
+variable "existing_sa_json_file_path" {
+  description = "The path to the JSON file for the existing Service Account."
+  type        = string
+  default     = null
+}
+
 variable "sa_account_id" {
   description = "The account ID for the Service Account to be created for Stream Security."
   type        = string
