@@ -48,13 +48,19 @@ resource "google_project_iam_member" "security_reviewer" {
   project  = each.value.project
 }
 
+# add sleep to wait for the service account to be created
+resource "time_sleep" "this" {
+  create_duration = "10s"
+  depends_on      = [streamsec_gcp_project.this]
+}
+
 resource "streamsec_gcp_project_ack" "this" {
   for_each     = { for k, v in var.projects : k => v }
   project_id   = each.value.project_id
   client_email = var.create_sa ? (var.org_level_permissions ? google_service_account.this["org"].email : google_service_account.this[each.key].email) : jsondecode(file(var.existing_sa_json_file_path)).client_email
   private_key  = var.create_sa ? (var.org_level_permissions ? jsondecode(base64decode(google_service_account_key.this["org"].private_key)).private_key : jsondecode(base64decode(google_service_account_key.this[each.key].private_key)).private_key) : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
-  depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, google_project_iam_member.this, google_project_iam_member.security_reviewer]
+  depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, google_project_iam_member.this, google_project_iam_member.security_reviewer, time_sleep.this]
 }
 
 

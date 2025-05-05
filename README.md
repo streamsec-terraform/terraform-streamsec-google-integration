@@ -9,6 +9,7 @@ Terraform module for google integration with Stream Security.
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
 | <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.10 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
 
 ## Providers
 
@@ -16,6 +17,7 @@ Terraform module for google integration with Stream Security.
 |------|---------|
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
 | <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.10 |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
 
 ## Modules
 
@@ -36,6 +38,7 @@ Terraform module for google integration with Stream Security.
 | [google_service_account_key.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_key) | resource |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
 | [streamsec_gcp_project_ack.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project_ack) | resource |
+| [time_sleep.this](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 
 ## Inputs
 
