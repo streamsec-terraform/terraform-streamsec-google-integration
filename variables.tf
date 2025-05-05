@@ -8,20 +8,32 @@ variable "projects" {
   default     = {}
 }
 
-variable "org_level_permissions" {
+variable "org_integration" {
   description = "Boolean to determine if the Service Account should have Organization Level Permissions."
   type        = bool
   default     = false
 }
 
+variable "exclude_projects" {
+  description = "A list of projects to exclude from the Organization Integration."
+  type        = list(string)
+  default     = []
+}
+
+variable "include_projects" {
+  description = "A list of projects to include from the Organization Integration. If not set, all projects will be included."
+  type        = list(string)
+  default     = []
+}
+
 variable "org_id" {
-  description = "The Organization ID to create the Service Account in (REQUIRED if org_level_permissions is true)."
+  description = "The Organization ID to create the Service Account in (REQUIRED if org_integration is true)."
   type        = string
   default     = null
 }
 
 variable "project_for_sa" {
-  description = "The project to create the Service Account in (if not set and org_level_permissions is true, will take provider project id)."
+  description = "The project to create the Service Account in (if not set and org_integration is true, will take provider project id)."
   type        = string
   default     = null
 }
