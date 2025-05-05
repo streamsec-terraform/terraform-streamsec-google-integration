@@ -10,7 +10,7 @@ locals {
 
 resource "streamsec_gcp_project" "this" {
   for_each     = { for k, v in local.projects : k => v }
-  display_name = each.key
+  display_name = each.value.name
   project_id   = each.value.project_id
 }
 
