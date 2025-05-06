@@ -1,4 +1,4 @@
 output "projects" {
   description = "The projects map"
-  value       = var.projects
+  value       = local.projects
 }
