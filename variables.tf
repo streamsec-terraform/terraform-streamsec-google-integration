@@ -9,9 +9,15 @@ variable "projects" {
 }
 
 variable "org_integration" {
-  description = "Boolean to determine if the Service Account should have Organization Level Permissions."
+  description = "Organization Integration Boolean. If true, the Service Account will be created in the Organization and the projects will be discovered using the projects list API."
   type        = bool
   default     = false
+}
+
+variable "projects_filter" {
+  description = "The filter to use to find projects in the Organization. you can also use the include_projects and exclude_projects variables to further filter the projects."
+  type        = string
+  default     = "name:*"
 }
 
 variable "exclude_projects" {

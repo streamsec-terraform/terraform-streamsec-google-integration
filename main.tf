@@ -1,7 +1,7 @@
 # if var.org_integration is true, find all of the projects in the organization and add them to the var.projects map
 data "google_projects" "this" {
   count  = var.org_integration ? 1 : 0
-  filter = "name:*"
+  filter = var.projects_filter
 }
 
 locals {
