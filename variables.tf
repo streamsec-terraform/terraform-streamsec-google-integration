@@ -1,19 +1,6 @@
 ################################################################################
 # Stream Security GCP Project Variables
 ################################################################################
-
-variable "projects" {
-  description = "A list of projects to create Service Accounts for."
-  type        = any
-  default     = {}
-}
-
-variable "org_integration" {
-  description = "Organization Integration Boolean. If true, the Service Account will be created in the Organization and the projects will be discovered using the projects list API."
-  type        = bool
-  default     = false
-}
-
 variable "projects_filter" {
   description = "The filter to use to find projects in the Organization. you can also use the include_projects and exclude_projects variables to further filter the projects."
   type        = string
@@ -33,13 +20,13 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID to create the Service Account in (REQUIRED if org_integration is true)."
+  description = "The Organization ID to create the Service Account in (REQUIRED if create_sa is true)."
   type        = string
   default     = null
 }
 
 variable "project_for_sa" {
-  description = "The project to create the Service Account in (if not set and org_integration is true, will take provider project id)."
+  description = "The project to create the Service Account in (if not set and create_sa is true, will take provider project id)."
   type        = string
   default     = null
 }

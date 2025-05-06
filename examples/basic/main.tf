@@ -14,18 +14,9 @@ provider "streamsec" {
 module "streamsec_google_projects" {
   source = "../../"
   # enable_real_time_events = true
-  projects = {
-    staging = {
-      project_id      = "xxxxxxxx"
-      # flowlogs_bucket_name = "xxxxxxxx"
-      # sa_account_id   = "xxxxxx"
-      # sa_display_name = "xxxxxx"
-    },
-    production = {
-      project_id      = "xxxxxxxx"
-      # sa_account_id   = "xxxxxx"
-      # sa_display_name = "xxxxxx"
-    }
-  }
+  # org_id                = "xxxxxxxx"
+  # create_sa             = false
+  # existing_sa_json_file_path = "/xxxx/xxxx"
+  # exclude_projects      = ["xxxxx", "xxxxx"] # will exclude these projects from the integration
+  # include_projects      = ["xxxxxx", "xxxxxx"] # will include all projects in the organization if not set
 }
-
