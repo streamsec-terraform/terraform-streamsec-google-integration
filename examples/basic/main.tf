@@ -18,7 +18,7 @@ module "streamsec_google_projects" {
   # exclude_projects      = ["xxxxx", "xxxxx"] # will exclude these projects from the integration
   # include_projects      = ["xxxxxx", "xxxxxx"] # will include all projects in the organization if not set
   # enable_real_time_events = true
-  # org_id                = "xxxxxxxx" # required if create_sa is false
+  # org_id                = "xxxxxxxx" # required if create_sa is true
   # create_sa             = false
   # sa_display_name = "xxxxx" # optional, will only be used if create_sa is true
   # sa_description = "xxxxx" # optional, will only be used if create_sa is true
