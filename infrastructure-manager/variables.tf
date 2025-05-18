@@ -46,6 +46,11 @@ variable "streamsec_api_token" {
   sensitive   = true
 }
 
+variable "projects_filter" {
+  description = "The filter to use to find projects in the Organization. you can also use the include_projects and exclude_projects variables to further filter the projects."
+  type        = string
+  default     = "name:*"
+}
 
 
 variable "exclude_projects" {
