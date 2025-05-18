@@ -1,5 +1,18 @@
 
 ################################################################################
+# Google Provider Variables
+################################################################################
+variable "google_project_id" {
+  description = "The Google Project ID to use for the integration."
+  type        = string
+}
+
+variable "google_region" {
+  description = "The Google Region to use for the integration."
+  type        = string
+}
+
+################################################################################
 # Stream Security Provider Variables
 ################################################################################
 variable "streamsec_host" {

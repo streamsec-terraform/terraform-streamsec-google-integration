@@ -6,5 +6,9 @@ terraform {
       source  = "streamsec-terraform/streamsec"
       version = ">= 1.10"
     }
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 6.0"
+    }
   }
 }

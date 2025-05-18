@@ -1,3 +1,8 @@
+provider "google" {
+  project = var.google_project_id
+  region  = var.google_region
+}
+
 provider "streamsec" {
   host         = var.streamsec_host
   username     = var.streamsec_username
