@@ -55,7 +55,7 @@ resource "time_sleep" "this" {
 resource "streamsec_gcp_project_ack" "this" {
   for_each     = { for k, v in local.projects : k => v }
   project_id   = each.value.project_id
-  client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+  client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0] : jsondecode(file(var.existing_sa_json_file_path)).client_email
   private_key  = var.create_sa ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
   depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, time_sleep.this]
