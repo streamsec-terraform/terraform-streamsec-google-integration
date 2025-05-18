@@ -31,25 +31,39 @@ resource "google_pubsub_topic_iam_binding" "this" {
   project  = each.value.project_id
 }
 
-# function that triggers on log entries
-resource "google_cloudfunctions_function" "this" {
-  for_each              = { for k, v in var.projects : k => v }
-  name                  = try(each.value.function_name, var.function_name)
-  runtime               = var.function_runtime
-  ingress_settings      = var.ingress_settings
-  entry_point           = var.function_entry_point
-  source_archive_bucket = var.source_bucket_name
-  source_archive_object = var.source_archive_name
-  timeout               = var.function_timeout
+# Gen2 Cloud Function that triggers on Pub/Sub log entries
+resource "google_cloudfunctions2_function" "this" {
+  for_each = { for k, v in var.projects : k => v }
+  name     = try(each.value.function_name, var.function_name)
+  location = "us-central1" # You may want to make this configurable
+  build_config {
+    runtime     = var.function_runtime
+    entry_point = var.function_entry_point
+    source {
+      storage_source {
+        bucket = var.source_bucket_name
+        object = var.source_archive_name
+      }
+    }
+    environment_variables = {
+      API_URL   = data.streamsec_host.this.host
+      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+    }
+  }
+  service_config {
+    timeout_seconds = var.function_timeout
+    environment_variables = {
+      API_URL   = data.streamsec_host.this.host
+      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+    }
+    ingress_settings = var.ingress_settings
+  }
   event_trigger {
-    event_type = "google.pubsub.topic.publish"
-    resource   = google_pubsub_topic.this[each.key].name
+    trigger_region = "us-central1"
+    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic   = google_pubsub_topic.this[each.key].id
+    retry_policy   = "RETRY_POLICY_RETRY"
   }
-  environment_variables = {
-    API_URL   = data.streamsec_host.this.host
-    API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
-  }
-
   labels  = var.labels
   project = each.value.project_id
 }
