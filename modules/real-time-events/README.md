@@ -22,7 +22,7 @@ No modules.
 
 | Name | Type |
 |------|------|
-| [google_cloudfunctions_function.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions_function) | resource |
+| [google_cloudfunctions2_function.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions2_function) | resource |
 | [google_logging_project_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_project_sink) | resource |
 | [google_pubsub_topic.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic) | resource |
 | [google_pubsub_topic_iam_binding.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_binding) | resource |
@@ -35,7 +35,7 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | <a name="input_function_entry_point"></a> [function\_entry\_point](#input\_function\_entry\_point) | The entry point of the Cloud Function to create. | `string` | `"streamsec-audit-logs-collector"` | no |
 | <a name="input_function_name"></a> [function\_name](#input\_function\_name) | The name of the Cloud Function to create. | `string` | `"stream-security-events-function"` | no |
-| <a name="input_function_runtime"></a> [function\_runtime](#input\_function\_runtime) | The runtime of the Cloud Function to create. | `string` | `"nodejs20"` | no |
+| <a name="input_function_runtime"></a> [function\_runtime](#input\_function\_runtime) | The runtime of the Cloud Function to create. | `string` | `"nodejs22"` | no |
 | <a name="input_function_timeout"></a> [function\_timeout](#input\_function\_timeout) | The timeout of the Cloud Function to create. | `number` | `5` | no |
 | <a name="input_ingress_settings"></a> [ingress\_settings](#input\_ingress\_settings) | The ingress settings of the Cloud Function to create. | `string` | `"ALLOW_INTERNAL_ONLY"` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | The labels to apply to the Stream Security GCP Project resources. | `map(string)` | `{}` | no |
