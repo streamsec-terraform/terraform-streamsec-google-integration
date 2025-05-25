@@ -81,3 +81,11 @@ resource "google_cloudfunctions2_function" "this" {
   labels  = var.labels
   project = each.value.project_id
 }
+
+resource "google_secret_manager_secret_iam_member" "function_secret_access" {
+  for_each  = var.use_secret_manager ? { for k, v in var.projects : k => v } : {}
+  secret_id = var.secret_name
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_cloudfunctions2_function.this[each.key].service_config[0].service_account_email}"
+  project   = each.value.project_id
+}
