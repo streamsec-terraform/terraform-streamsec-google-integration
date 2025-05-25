@@ -1,5 +1,7 @@
 data "streamsec_host" "this" {}
 
+data "google_client_config" "this" {}
+
 data "streamsec_gcp_project" "this" {
   for_each   = { for k, v in var.projects : k => v }
   project_id = each.value.project_id
@@ -45,17 +47,33 @@ resource "google_cloudfunctions2_function" "this" {
         object = var.source_archive_name
       }
     }
-    environment_variables = {
-      API_URL   = data.streamsec_host.this.host
-      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
-    }
+    environment_variables = merge(
+      {
+        API_URL = data.streamsec_host.this.host
+      },
+      var.use_secret_manager ? {
+        USE_SECRET_MANAGER = "true"
+        SECRET_NAME        = var.secret_name
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
+        } : {
+        API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+      }
+    )
   }
   service_config {
     timeout_seconds = var.function_timeout
-    environment_variables = {
-      API_URL   = data.streamsec_host.this.host
-      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
-    }
+    environment_variables = merge(
+      {
+        API_URL = data.streamsec_host.this.host
+      },
+      var.use_secret_manager ? {
+        USE_SECRET_MANAGER = "true"
+        SECRET_NAME        = var.secret_name
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
+        } : {
+        API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+      }
+    )
     ingress_settings = var.ingress_settings
   }
   event_trigger {
@@ -66,4 +84,12 @@ resource "google_cloudfunctions2_function" "this" {
   }
   labels  = var.labels
   project = each.value.project_id
+}
+
+resource "google_secret_manager_secret_iam_member" "function_secret_access" {
+  for_each  = var.use_secret_manager ? { for k, v in var.projects : k => v } : {}
+  secret_id = var.secret_name
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_cloudfunctions2_function.this[each.key].service_config[0].service_account_email}"
+  project   = var.secret_project_id
 }

@@ -26,6 +26,8 @@ No modules.
 | [google_logging_project_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_project_sink) | resource |
 | [google_pubsub_topic.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic) | resource |
 | [google_pubsub_topic_iam_binding.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_binding) | resource |
+| [google_secret_manager_secret_iam_member.function_secret_access](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
+| [google_client_config.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/gcp_project) | data source |
 | [streamsec_host.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/host) | data source |
 
@@ -42,9 +44,12 @@ No modules.
 | <a name="input_log_sink_name"></a> [log\_sink\_name](#input\_log\_sink\_name) | The name of the log sink to create. | `string` | `"stream-security-events-sink"` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | A list of projects to create Service Accounts for. | `any` | n/a | yes |
 | <a name="input_pubsub_topic_name"></a> [pubsub\_topic\_name](#input\_pubsub\_topic\_name) | The name of the Pub/Sub topic to create. | `string` | `"stream-security-events-topic"` | no |
+| <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the secret in Secret Manager containing the API token. | `string` | `"stream-security"` | no |
+| <a name="input_secret_project_id"></a> [secret\_project\_id](#input\_secret\_project\_id) | The project ID where the secret is located. | `string` | `null` | no |
 | <a name="input_source_archive_name"></a> [source\_archive\_name](#input\_source\_archive\_name) | The name of the archive containing the Cloud Function source code. | `string` | `"gcp-events-collection.zip"` | no |
 | <a name="input_source_bucket_name"></a> [source\_bucket\_name](#input\_source\_bucket\_name) | The name of the bucket containing the Cloud Function source code. | `string` | `"streamsec-production-public-artifacts"` | no |
 | <a name="input_topic_message_retention_duration"></a> [topic\_message\_retention\_duration](#input\_topic\_message\_retention\_duration) | The duration to retain messages in the Pub/Sub topic. | `string` | `"259200s"` | no |
+| <a name="input_use_secret_manager"></a> [use\_secret\_manager](#input\_use\_secret\_manager) | Whether to use Secret Manager for the API token instead of direct value. | `bool` | `false` | no |
 
 ## Outputs
 
