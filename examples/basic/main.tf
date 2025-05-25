@@ -27,4 +27,5 @@ module "streamsec_google_projects" {
   # existing_sa_json_file_path = "/xxxx/xxxx" # if not set and create_sa is false, a new service account key will be created
   # use_secret_manager = false
   # secret_name = "xxxxx"
+  # secret_project_id = "xxxxx" # optional, will only be used if use_secret_manager is true if not passed will use the project of provider
 }

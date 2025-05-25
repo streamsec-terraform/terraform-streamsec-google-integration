@@ -56,6 +56,7 @@ Terraform module for google integration with Stream Security.
 | <a name="input_sa_description"></a> [sa\_description](#input\_sa\_description) | The description for the Service Account to be created for Stream Security. | `string` | `"Stream Security Service Account"` | no |
 | <a name="input_sa_display_name"></a> [sa\_display\_name](#input\_sa\_display\_name) | The display name for the Service Account to be created for Stream Security. | `string` | `"Stream Security"` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the Secret Manager secret to store the API token. | `string` | `"stream-security"` | no |
+| <a name="input_secret_project_id"></a> [secret\_project\_id](#input\_secret\_project\_id) | The project ID where the secret is located. | `string` | `null` | no |
 | <a name="input_use_secret_manager"></a> [use\_secret\_manager](#input\_use\_secret\_manager) | Boolean to determine if the Secret Manager should be used to store the API token. | `bool` | `false` | no |
 
 ## Outputs

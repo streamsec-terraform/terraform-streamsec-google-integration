@@ -27,4 +27,5 @@ module "streamsec_google_projects" {
   existing_sa_json_file_path = var.existing_sa_json_file_path
   use_secret_manager         = var.use_secret_manager
   secret_name                = var.secret_name
+  secret_project_id          = var.secret_project_id
 }

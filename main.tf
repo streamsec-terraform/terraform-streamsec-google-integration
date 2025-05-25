@@ -68,6 +68,7 @@ module "real_time_events" {
   projects           = local.projects
   use_secret_manager = var.use_secret_manager
   secret_name        = var.secret_name
+  secret_project_id  = var.secret_project_id
   depends_on         = [streamsec_gcp_project_ack.this]
 }
 

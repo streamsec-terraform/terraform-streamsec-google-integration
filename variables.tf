@@ -86,3 +86,9 @@ variable "secret_name" {
   type        = string
   default     = "stream-security"
 }
+
+variable "secret_project_id" {
+  description = "The project ID where the secret is located."
+  type        = string
+  default     = null
+}
