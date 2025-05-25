@@ -63,10 +63,12 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count      = var.enable_real_time_events ? 1 : 0
-  source     = "./modules/real-time-events"
-  projects   = local.projects
-  depends_on = [streamsec_gcp_project_ack.this]
+  count              = var.enable_real_time_events ? 1 : 0
+  source             = "./modules/real-time-events"
+  projects           = local.projects
+  use_secret_manager = var.use_secret_manager
+  secret_name        = var.secret_name
+  depends_on         = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {

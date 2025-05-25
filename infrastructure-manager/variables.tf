@@ -52,6 +52,17 @@ variable "projects_filter" {
   default     = "name:*"
 }
 
+variable "use_secret_manager" {
+  description = "Boolean to determine if the Secret Manager should be used to store the API token."
+  type        = bool
+  default     = false
+}
+
+variable "secret_name" {
+  description = "The name of the Secret Manager secret to store the API token."
+  type        = string
+  default     = "stream-security"
+}
 
 variable "exclude_projects" {
   description = "A list of projects to exclude from the Organization Integration."
