@@ -1,5 +1,7 @@
 data "streamsec_host" "this" {}
 
+data "google_client_config" "this" {}
+
 data "streamsec_gcp_project" "this" {
   for_each   = { for k, v in var.projects : k => v }
   project_id = each.value.project_id
@@ -52,6 +54,7 @@ resource "google_cloudfunctions2_function" "this" {
       var.use_secret_manager ? {
         USE_SECRET_MANAGER = "true"
         SECRET_NAME        = var.secret_name
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -66,6 +69,7 @@ resource "google_cloudfunctions2_function" "this" {
       var.use_secret_manager ? {
         USE_SECRET_MANAGER = "true"
         SECRET_NAME        = var.secret_name
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
