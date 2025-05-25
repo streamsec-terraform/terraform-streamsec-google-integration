@@ -136,3 +136,15 @@ variable "secret_project_id" {
   type        = string
   default     = null
 }
+
+variable "org_level_sink" {
+  description = "If true, create a single org-level log sink, topic, and function. Otherwise, create per-project."
+  type        = bool
+  default     = false
+}
+
+variable "project_for_resources" {
+  description = "The project ID to use for resources. Required if org_level_sink is true."
+  type        = string
+  default     = ""
+}

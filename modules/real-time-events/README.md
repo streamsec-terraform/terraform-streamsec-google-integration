@@ -23,11 +23,12 @@ No modules.
 | Name | Type |
 |------|------|
 | [google_cloudfunctions2_function.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions2_function) | resource |
+| [google_logging_organization_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_organization_sink) | resource |
 | [google_logging_project_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_project_sink) | resource |
 | [google_pubsub_topic.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic) | resource |
 | [google_pubsub_topic_iam_binding.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_binding) | resource |
 | [google_secret_manager_secret_iam_member.function_secret_access](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
-| [google_client_config.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
+| [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/gcp_project) | data source |
 | [streamsec_host.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/host) | data source |
 
@@ -42,6 +43,9 @@ No modules.
 | <a name="input_ingress_settings"></a> [ingress\_settings](#input\_ingress\_settings) | The ingress settings of the Cloud Function to create. | `string` | `"ALLOW_INTERNAL_ONLY"` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | The labels to apply to the Stream Security GCP Project resources. | `map(string)` | `{}` | no |
 | <a name="input_log_sink_name"></a> [log\_sink\_name](#input\_log\_sink\_name) | The name of the log sink to create. | `string` | `"stream-security-events-sink"` | no |
+| <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `false` | no |
+| <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | The organization ID to use for org-level log sink. Required if org\_level\_sink is true. | `string` | `""` | no |
+| <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | A list of projects to create Service Accounts for. | `any` | n/a | yes |
 | <a name="input_pubsub_topic_name"></a> [pubsub\_topic\_name](#input\_pubsub\_topic\_name) | The name of the Pub/Sub topic to create. | `string` | `"stream-security-events-topic"` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the secret in Secret Manager containing the API token. | `string` | `"stream-security"` | no |
