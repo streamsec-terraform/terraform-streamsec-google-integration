@@ -1,6 +1,8 @@
 data "streamsec_host" "this" {}
 
-data "google_client_config" "this" {}
+data "google_project" "this" {
+  project_id = var.project_for_resources
+}
 
 data "streamsec_gcp_project" "this" {
   for_each   = { for k, v in var.projects : k => v }
@@ -8,15 +10,28 @@ data "streamsec_gcp_project" "this" {
 }
 
 resource "google_pubsub_topic" "this" {
-  for_each                   = { for k, v in var.projects : k => v }
+  for_each                   = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this.project_id } : { for k, v in var.projects : k => v }
   name                       = try(each.value.pubsub_topic_name, var.pubsub_topic_name)
   message_retention_duration = var.topic_message_retention_duration
   labels                     = var.labels
   project                    = each.value.project_id
 }
 
+resource "google_logging_organization_sink" "this" {
+  count       = var.org_level_sink ? 1 : 0
+  name        = var.log_sink_name
+  destination = "pubsub.googleapis.com/projects/${data.google_project.this.project_id}/topics/${google_pubsub_topic.this[data.google_project.this.project_id].name}"
+  filter = "${join(" OR ", [
+    for project in var.projects :
+    "(logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\")"
+  ])} AND NOT protoPayload.methodName=~\"(?i).list\" AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
+  org_id           = var.organization_id
+  depends_on       = [google_pubsub_topic.this]
+  include_children = true
+}
+
 resource "google_logging_project_sink" "this" {
-  for_each    = { for k, v in var.projects : k => v }
+  for_each    = var.org_level_sink ? {} : { for k, v in var.projects : k => v }
   name        = try(each.value.log_sink_name, var.log_sink_name)
   destination = "pubsub.googleapis.com/projects/${each.value.project_id}/topics/${google_pubsub_topic.this[each.key].name}"
   filter      = "(logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR (logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\" AND NOT protoPayload.methodName=~\"(?i).list\")) AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
@@ -26,16 +41,16 @@ resource "google_logging_project_sink" "this" {
 
 # permissions for the log sink
 resource "google_pubsub_topic_iam_binding" "this" {
-  for_each = { for k, v in var.projects : k => v }
+  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this.project_id } : { for k, v in var.projects : k => v }
   role     = "roles/pubsub.publisher"
-  members  = [google_logging_project_sink.this[each.key].writer_identity]
+  members  = var.org_level_sink ? [google_logging_organization_sink.this[0].writer_identity] : [google_logging_project_sink.this[each.key].writer_identity]
   topic    = google_pubsub_topic.this[each.key].name
   project  = each.value.project_id
 }
 
 # Gen2 Cloud Function that triggers on Pub/Sub log entries
 resource "google_cloudfunctions2_function" "this" {
-  for_each = { for k, v in var.projects : k => v }
+  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this.project_id } : { for k, v in var.projects : k => v }
   name     = try(each.value.function_name, var.function_name)
   location = "us-central1" # You may want to make this configurable
   build_config {
@@ -54,7 +69,7 @@ resource "google_cloudfunctions2_function" "this" {
       var.use_secret_manager ? {
         USE_SECRET_MANAGER = "true"
         SECRET_NAME        = var.secret_name
-        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_project.this.project_id : var.secret_project_id
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -69,7 +84,7 @@ resource "google_cloudfunctions2_function" "this" {
       var.use_secret_manager ? {
         USE_SECRET_MANAGER = "true"
         SECRET_NAME        = var.secret_name
-        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_client_config.this.project : var.secret_project_id
+        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_project.this.project_id : var.secret_project_id
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -87,7 +102,7 @@ resource "google_cloudfunctions2_function" "this" {
 }
 
 resource "google_secret_manager_secret_iam_member" "function_secret_access" {
-  for_each  = var.use_secret_manager ? { for k, v in var.projects : k => v } : {}
+  for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this.project_id } : { for k, v in var.projects : k => v } : {}
   secret_id = var.secret_name
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_cloudfunctions2_function.this[each.key].service_config[0].service_account_email}"

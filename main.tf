@@ -48,6 +48,7 @@ resource "google_organization_iam_member" "security_reviewer" {
 }
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
+  for_each        = { for k, v in local.projects : k => v }
   create_duration = "10s"
   depends_on      = [streamsec_gcp_project.this]
 }
@@ -63,13 +64,16 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count              = var.enable_real_time_events ? 1 : 0
-  source             = "./modules/real-time-events"
-  projects           = local.projects
-  use_secret_manager = var.use_secret_manager
-  secret_name        = var.secret_name
-  secret_project_id  = var.secret_project_id
-  depends_on         = [streamsec_gcp_project_ack.this]
+  count                 = var.enable_real_time_events ? 1 : 0
+  source                = "./modules/real-time-events"
+  projects              = local.projects
+  use_secret_manager    = var.use_secret_manager
+  secret_name           = var.secret_name
+  secret_project_id     = var.secret_project_id
+  org_level_sink        = var.org_level_sink
+  organization_id       = var.org_id
+  project_for_resources = var.project_for_resources
+  depends_on            = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {
