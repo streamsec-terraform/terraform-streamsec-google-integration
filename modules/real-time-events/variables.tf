@@ -88,3 +88,15 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "use_secret_manager" {
+  description = "Whether to use Secret Manager for the API token instead of direct value."
+  type        = bool
+  default     = false
+}
+
+variable "secret_name" {
+  description = "The name of the secret in Secret Manager containing the API token."
+  type        = string
+  default     = "stream-security"
+}

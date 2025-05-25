@@ -45,17 +45,31 @@ resource "google_cloudfunctions2_function" "this" {
         object = var.source_archive_name
       }
     }
-    environment_variables = {
-      API_URL   = data.streamsec_host.this.host
-      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
-    }
+    environment_variables = merge(
+      {
+        API_URL = data.streamsec_host.this.host
+      },
+      var.use_secret_manager ? {
+        USE_SECRET_MANAGER = "true"
+        SECRET_NAME        = var.secret_name
+        } : {
+        API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+      }
+    )
   }
   service_config {
     timeout_seconds = var.function_timeout
-    environment_variables = {
-      API_URL   = data.streamsec_host.this.host
-      API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
-    }
+    environment_variables = merge(
+      {
+        API_URL = data.streamsec_host.this.host
+      },
+      var.use_secret_manager ? {
+        USE_SECRET_MANAGER = "true"
+        SECRET_NAME        = var.secret_name
+        } : {
+        API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
+      }
+    )
     ingress_settings = var.ingress_settings
   }
   event_trigger {
