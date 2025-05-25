@@ -28,6 +28,4 @@ module "streamsec_google_projects" {
   use_secret_manager         = var.use_secret_manager
   secret_name                = var.secret_name
   secret_project_id          = var.secret_project_id
-  org_level_sink             = var.org_level_sink
-  project_for_resources      = var.project_for_resources
 }

@@ -17,6 +17,7 @@ module "streamsec_google_projects" {
   # projects_filter = "name:*" # default to all projects can be further filtered by include_projects and exclude_projects
   # exclude_projects      = ["xxxxx", "xxxxx"] # will exclude these projects from the integration
   # include_projects      = ["xxxxxx", "xxxxxx"] # will include all projects in the organization if not set
+  # enable_real_time_events = true
   # org_id                = "xxxxxxxx" # required if create_sa is true
   # create_sa             = false
   # sa_display_name = "xxxxx" # optional, will only be used if create_sa is true
@@ -25,11 +26,6 @@ module "streamsec_google_projects" {
   # project_for_sa = "xxxxx" # required if create_sa is false and existing_sa_json_file_path is not set
   # existing_sa_json_file_path = "/xxxx/xxxx" # if not set and create_sa is false, a new service account key will be created
   # use_secret_manager = false
-
-
-  # enable_real_time_events = true
   # secret_name = "xxxxx"
   # secret_project_id = "xxxxx" # optional, will only be used if use_secret_manager is true if not passed will use the project of provider
-  # org_level_sink = false
-  # project_for_resources = "xxxxx" # required if org_level_sink is true
 }
