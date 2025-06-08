@@ -15,35 +15,11 @@ variable "google_region" {
 ################################################################################
 # Stream Security Provider Variables
 ################################################################################
-variable "streamsec_host" {
-  description = "The host for the Stream Security API."
-  type        = string
-}
 
-variable "streamsec_username" {
-  description = "The username for the Stream Security API."
+variable "streamsec_secret_name" {
+  description = "The name of the Secret Manager secret containing the StreamSec provider credentials (JSON with host, username, password, workspace_id, api_token)."
   type        = string
-  default     = null
-}
-
-variable "streamsec_password" {
-  description = "The password for the Stream Security API."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "streamsec_workspace_id" {
-  description = "The workspace ID for the Stream Security API."
-  type        = string
-  default     = null
-}
-
-variable "streamsec_api_token" {
-  description = "The API token for the Stream Security API."
-  type        = string
-  default     = null
-  sensitive   = true
+  default     = "stream-security"
 }
 
 variable "projects_filter" {
