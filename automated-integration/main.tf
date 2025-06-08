@@ -23,9 +23,6 @@ resource "google_pubsub_topic_iam_binding" "allow_sink_publish" {
   project = var.google_project_id
 }
 
-# Placeholder for function source upload
-# resource "google_storage_bucket_object" "function_zip" { ... }
-
 resource "google_cloudfunctions2_function" "handle_project_create" {
   name     = var.function_name
   location = var.google_region
