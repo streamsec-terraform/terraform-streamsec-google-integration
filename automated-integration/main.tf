@@ -12,7 +12,7 @@ resource "google_logging_organization_sink" "project_create" {
   name             = var.log_sink_name
   org_id           = var.org_id
   destination      = "pubsub.googleapis.com/projects/${var.google_project_id}/topics/${google_pubsub_topic.project_events.name}"
-  filter           = "protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.CreateProject\""
+  filter           = "protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.CreateProject\" OR protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.DeleteProject\""
   include_children = true
 }
 
@@ -40,6 +40,9 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
   service_config {
     timeout_seconds  = var.function_timeout
     ingress_settings = var.ingress_settings
+    environment_variables = {
+      INFRA_MANAGER_DEPLOYMENT_ID = var.infra_manager_deployment_id
+    }
   }
   event_trigger {
     trigger_region = var.google_region

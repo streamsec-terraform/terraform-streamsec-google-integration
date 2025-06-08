@@ -1,3 +1,8 @@
+variable "infra_manager_deployment_id" {
+  description = "The deployment ID of the Main Infra Manager."
+  type        = string
+}
+
 variable "google_project_id" {
   description = "The Google Project ID to use for the integration."
   type        = string
