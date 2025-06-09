@@ -98,13 +98,7 @@ variable "use_secret_manager" {
 variable "secret_name" {
   description = "The name of the secret in Secret Manager containing the API token."
   type        = string
-  default     = "stream-security"
-}
-
-variable "secret_project_id" {
-  description = "The project ID where the secret is located."
-  type        = string
-  default     = null
+  default     = "stream-security-collection-token"
 }
 
 variable "org_level_sink" {
