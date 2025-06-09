@@ -21,13 +21,13 @@ variable "org_id" {
 variable "function_source_bucket" {
   description = "The name of the bucket containing the Cloud Function source code."
   type        = string
-  default     = "my-function-source-bucket"
+  default     = "streamsec-production-public-artifacts"
 }
 
 variable "function_source_object" {
   description = "The name of the zip file (object) containing the Cloud Function source code."
   type        = string
-  default     = "function-source.zip"
+  default     = "gcp-automated-integration.zip"
 }
 
 variable "pubsub_topic_name" {
