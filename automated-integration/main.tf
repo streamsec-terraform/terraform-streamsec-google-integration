@@ -41,7 +41,8 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
     timeout_seconds  = var.function_timeout
     ingress_settings = var.ingress_settings
     environment_variables = {
-      INFRA_MANAGER_DEPLOYMENT_ID = var.infra_manager_deployment_id
+      INFRA_MANAGER_DEPLOYMENT_ID     = var.infra_manager_deployment_id
+      INFRA_MANAGER_DEPLOYMENT_REGION = var.google_region
     }
   }
   event_trigger {
