@@ -110,7 +110,7 @@ variable "secret_project_id" {
 variable "org_level_sink" {
   description = "If true, create a single org-level log sink, topic, and function. Otherwise, create per-project."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "organization_id" {
