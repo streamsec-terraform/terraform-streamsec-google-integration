@@ -49,6 +49,24 @@ resource "google_pubsub_topic_iam_binding" "this" {
   project  = each.value.project_id
 }
 
+# create the secret manager secret
+resource "google_secret_manager_secret" "this" {
+  for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  project   = each.value.project_id
+  secret_id = var.secret_name
+  replication {
+    auto {}
+  }
+  labels = var.labels
+}
+
+# create the secret manager secret version
+resource "google_secret_manager_secret_version" "this" {
+  for_each    = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  secret      = google_secret_manager_secret.this[each.key].id
+  secret_data = data.streamsec_gcp_project.this[each.key].account_token
+}
+
 # Gen2 Cloud Function that triggers on Pub/Sub log entries
 resource "google_cloudfunctions2_function" "this" {
   for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
@@ -68,9 +86,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        USE_SECRET_MANAGER = "true"
-        SECRET_NAME        = var.secret_name
-        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_project.this[0].project_id : var.secret_project_id
+        SECRET_NAME = var.secret_name
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -83,9 +99,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        USE_SECRET_MANAGER = "true"
-        SECRET_NAME        = var.secret_name
-        SECRET_PROJECT_ID  = var.secret_project_id == null ? data.google_project.this[0].project_id : var.secret_project_id
+        SECRET_NAME = var.secret_name
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -107,5 +121,5 @@ resource "google_secret_manager_secret_iam_member" "function_secret_access" {
   secret_id = var.secret_name
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_cloudfunctions2_function.this[each.key].service_config[0].service_account_email}"
-  project   = var.secret_project_id
+  project   = each.value.project_id
 }

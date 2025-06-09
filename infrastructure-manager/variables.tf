@@ -107,12 +107,6 @@ variable "secret_name" {
   default     = "stream-security"
 }
 
-variable "secret_project_id" {
-  description = "The project ID where the secret is located."
-  type        = string
-  default     = null
-}
-
 variable "org_level_sink" {
   description = "If true, create a single org-level log sink, topic, and function. Otherwise, create per-project."
   type        = bool
