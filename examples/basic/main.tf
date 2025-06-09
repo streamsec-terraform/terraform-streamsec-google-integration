@@ -28,8 +28,7 @@ module "streamsec_google_projects" {
 
 
   # enable_real_time_events = true
-  # secret_name = "xxxxx"
-  # secret_project_id = "xxxxx" # optional, will only be used if use_secret_manager is true if not passed will use the project of provider
+  # secret_name = "xxxxx" # NOT SUPPORTED YET
   # org_level_sink = false
   # project_for_resources = "xxxxx" # required if org_level_sink is true
 }
