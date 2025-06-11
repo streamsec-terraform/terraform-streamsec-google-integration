@@ -54,9 +54,3 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
     retry_policy   = var.retry_policy
   }
 }
-
-resource "google_project_iam_member" "function_pubsub_subscriber" {
-  project = var.google_project_id
-  role    = "roles/pubsub.subscriber"
-  member  = "serviceAccount:${google_cloudfunctions2_function.handle_project_create.service_config[0].service_account_email}"
-}
