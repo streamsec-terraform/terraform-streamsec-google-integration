@@ -46,7 +46,7 @@ variable "function_name" {
 variable "function_runtime" {
   description = "The runtime of the Cloud Function to create."
   type        = string
-  default     = "nodejs22"
+  default     = "python313"
 }
 
 variable "ingress_settings" {
@@ -58,7 +58,7 @@ variable "ingress_settings" {
 variable "function_entry_point" {
   description = "The entry point of the Cloud Function to create."
   type        = string
-  default     = "streamsec-audit-logs-collector"
+  default     = "handle_project_event"
 }
 
 variable "function_timeout" {
