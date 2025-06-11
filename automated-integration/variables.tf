@@ -56,13 +56,13 @@ variable "function_name" {
 variable "function_runtime" {
   description = "The runtime for the Cloud Function (e.g., python310, nodejs20, etc.)."
   type        = string
-  default     = "python310"
+  default     = "python313"
 }
 
 variable "function_entry_point" {
   description = "The entry point for the Cloud Function."
   type        = string
-  default     = "main"
+  default     = "handle_project_event"
 }
 
 variable "function_timeout" {
