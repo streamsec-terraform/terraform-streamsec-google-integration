@@ -42,9 +42,7 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
     ingress_settings      = var.ingress_settings
     service_account_email = var.service_account_email
     environment_variables = {
-      PROJECT_ID                      = var.google_project_id
-      INFRA_MANAGER_DEPLOYMENT_ID     = var.infra_manager_deployment_id
-      INFRA_MANAGER_DEPLOYMENT_REGION = var.google_region
+      INFRA_MANAGER_DEPLOYMENT_NAME = var.infra_manager_deployment_name
     }
   }
   event_trigger {

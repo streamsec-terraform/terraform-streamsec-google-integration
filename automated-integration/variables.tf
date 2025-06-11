@@ -1,5 +1,5 @@
-variable "infra_manager_deployment_id" {
-  description = "The deployment ID of the Main Infra Manager."
+variable "infra_manager_deployment_name" {
+  description = "The deployment name of the Main Infra Manager."
   type        = string
 }
 
