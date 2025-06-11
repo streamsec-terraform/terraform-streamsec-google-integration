@@ -12,7 +12,7 @@ resource "google_logging_organization_sink" "project_create" {
   name             = var.log_sink_name
   org_id           = var.org_id
   destination      = "pubsub.googleapis.com/projects/${var.google_project_id}/topics/${google_pubsub_topic.project_events.name}"
-  filter           = "protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.CreateProject\" OR protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.DeleteProject\""
+  filter           = "(protoPayload.methodName=\"CreateProject\" AND protoPayload.resourceName:\"projects\") OR protoPayload.methodName=\"DeleteProject\""
   include_children = true
 }
 
@@ -42,9 +42,7 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
     ingress_settings      = var.ingress_settings
     service_account_email = var.service_account_email
     environment_variables = {
-      PROJECT_ID                      = var.google_project_id
-      INFRA_MANAGER_DEPLOYMENT_ID     = var.infra_manager_deployment_id
-      INFRA_MANAGER_DEPLOYMENT_REGION = var.google_region
+      INFRA_MANAGER_DEPLOYMENT_NAME = var.infra_manager_deployment_name
     }
   }
   event_trigger {
@@ -53,10 +51,4 @@ resource "google_cloudfunctions2_function" "handle_project_create" {
     pubsub_topic   = google_pubsub_topic.project_events.id
     retry_policy   = var.retry_policy
   }
-}
-
-resource "google_project_iam_member" "function_pubsub_subscriber" {
-  project = var.google_project_id
-  role    = "roles/pubsub.subscriber"
-  member  = "serviceAccount:${google_cloudfunctions2_function.handle_project_create.service_config[0].service_account_email}"
 }
