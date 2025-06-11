@@ -12,7 +12,7 @@ resource "google_logging_organization_sink" "project_create" {
   name             = var.log_sink_name
   org_id           = var.org_id
   destination      = "pubsub.googleapis.com/projects/${var.google_project_id}/topics/${google_pubsub_topic.project_events.name}"
-  filter           = "protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.CreateProject\" OR protoPayload.methodName=\"google.cloud.resourcemanager.v1.Projects.DeleteProject\""
+  filter           = "protoPayload.methodName=\"CreateProject\" OR protoPayload.methodName=\"DeleteProject\""
   include_children = true
 }
 
