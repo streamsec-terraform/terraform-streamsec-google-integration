@@ -24,11 +24,10 @@ module "streamsec_google_projects" {
   # sa_account_id = "xxxxx" # required if create_sa is false and existing_sa_json_file_path is not set
   # project_for_sa = "xxxxx" # required if create_sa is false and existing_sa_json_file_path is not set
   # existing_sa_json_file_path = "/xxxx/xxxx" # if not set and create_sa is false, a new service account key will be created
-  # use_secret_manager = false
-
 
   # enable_real_time_events = true
-  # secret_name = "xxxxx" # NOT SUPPORTED YET
+  # use_secret_manager = false
+  # secret_name = "xxxxx"
   # org_level_sink = false
   # project_for_resources = "xxxxx" # required if org_level_sink is true
 }
