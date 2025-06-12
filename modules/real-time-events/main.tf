@@ -86,7 +86,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = var.secret_name
+        SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -99,7 +99,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = var.secret_name
+        SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
