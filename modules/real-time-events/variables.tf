@@ -90,9 +90,9 @@ variable "labels" {
 }
 
 variable "use_secret_manager" {
-  description = "Whether to use Secret Manager for the API token instead of direct value."
+  description = "Boolean to determine if the Secret Manager should be used to store the API token."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "secret_name" {
