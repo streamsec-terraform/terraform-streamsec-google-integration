@@ -98,7 +98,7 @@ variable "enable_real_time_events" {
 variable "use_secret_manager" {
   description = "Boolean to determine if the Secret Manager should be used to store the API token."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "secret_name" {
