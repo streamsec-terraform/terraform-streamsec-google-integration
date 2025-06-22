@@ -5,6 +5,8 @@ data "google_project" "this" {
   project_id = var.project_for_resources
 }
 
+data "google_client_config" "current" {}
+
 data "streamsec_gcp_project" "this" {
   for_each   = { for k, v in var.projects : k => v }
   project_id = each.value.project_id
@@ -50,20 +52,18 @@ resource "google_pubsub_topic_iam_binding" "this" {
 }
 
 # create the secret manager secret
-resource "google_secret_manager_secret" "this" {
+resource "google_secret_manager_regional_secret" "this" {
   for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   project   = each.value.project_id
   secret_id = var.secret_name
-  replication {
-    auto {}
-  }
-  labels = var.labels
+  location  = data.google_client_config.current.region
+  labels    = var.labels
 }
 
 # create the secret manager secret version
-resource "google_secret_manager_secret_version" "this" {
+resource "google_secret_manager_regional_secret_version" "this" {
   for_each    = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
-  secret      = google_secret_manager_secret.this[each.key].id
+  secret      = google_secret_manager_regional_secret.this[each.key].id
   secret_data = data.streamsec_gcp_project.this[each.key].account_token
 }
 
@@ -71,7 +71,7 @@ resource "google_secret_manager_secret_version" "this" {
 resource "google_cloudfunctions2_function" "this" {
   for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
   name     = try(each.value.function_name, var.function_name)
-  location = "us-central1" # You may want to make this configurable
+  location = data.google_client_config.current.region
   build_config {
     runtime     = var.function_runtime
     entry_point = var.function_entry_point
@@ -99,7 +99,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
+        SECRET_NAME = "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -116,7 +116,7 @@ resource "google_cloudfunctions2_function" "this" {
   project = each.value.project_id
 }
 
-resource "google_secret_manager_secret_iam_member" "function_secret_access" {
+resource "google_secret_manager_regional_secret_iam_member" "function_secret_access" {
   for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret_id = var.secret_name
   role      = "roles/secretmanager.secretAccessor"
