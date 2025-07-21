@@ -98,3 +98,9 @@ variable "project_for_resources" {
   type        = string
   default     = ""
 }
+
+variable "log_sink_filter" {
+  description = "The filter to apply to the log sink."
+  type        = string
+  default     = ""
+}
