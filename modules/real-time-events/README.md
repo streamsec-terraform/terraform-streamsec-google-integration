@@ -45,7 +45,7 @@ No modules.
 | <a name="input_function_timeout"></a> [function\_timeout](#input\_function\_timeout) | The timeout of the Cloud Function to create. | `number` | `5` | no |
 | <a name="input_ingress_settings"></a> [ingress\_settings](#input\_ingress\_settings) | The ingress settings of the Cloud Function to create. | `string` | `"ALLOW_INTERNAL_ONLY"` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | The labels to apply to the Stream Security GCP Project resources. | `map(string)` | `{}` | no |
-| <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. | `string` | `""` | no |
+| <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
 | <a name="input_log_sink_name"></a> [log\_sink\_name](#input\_log\_sink\_name) | The name of the log sink to create. | `string` | `"stream-security-events-sink"` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | The organization ID to use for org-level log sink. Required if org\_level\_sink is true. | `string` | `""` | no |

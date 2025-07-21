@@ -100,7 +100,7 @@ variable "project_for_resources" {
 }
 
 variable "log_sink_filter" {
-  description = "The filter to apply to the log sink."
+  description = "The filter to apply to the log sink. (use only if you have more than 100 projects)"
   type        = string
   default     = ""
 }
