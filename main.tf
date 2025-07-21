@@ -72,6 +72,7 @@ module "real_time_events" {
   org_level_sink        = var.org_level_sink
   organization_id       = var.org_id
   project_for_resources = var.project_for_resources
+  log_sink_filter       = var.log_sink_filter
   depends_on            = [streamsec_gcp_project_ack.this]
 }
 

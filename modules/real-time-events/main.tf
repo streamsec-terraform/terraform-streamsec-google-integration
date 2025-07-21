@@ -24,7 +24,7 @@ resource "google_logging_organization_sink" "this" {
   count       = var.org_level_sink ? 1 : 0
   name        = var.log_sink_name
   destination = "pubsub.googleapis.com/projects/${data.google_project.this[0].project_id}/topics/${google_pubsub_topic.this[data.google_project.this[0].project_id].name}"
-  filter = "${join(" OR ", [
+  filter = var.log_sink_filter != "" ? var.log_sink_filter : "${join(" OR ", [
     for project in var.projects :
     "(logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\")"
   ])} OR (logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Fdata_access\") AND NOT protoPayload.methodName=~\"(?i).list\" AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""

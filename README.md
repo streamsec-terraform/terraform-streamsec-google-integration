@@ -49,6 +49,7 @@ Terraform module for google integration with Stream Security.
 | <a name="input_exclude_projects"></a> [exclude\_projects](#input\_exclude\_projects) | A list of projects to exclude from the Organization Integration. | `list(string)` | `[]` | no |
 | <a name="input_existing_sa_json_file_path"></a> [existing\_sa\_json\_file\_path](#input\_existing\_sa\_json\_file\_path) | The path to the JSON file for the existing Service Account. | `string` | `null` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
+| <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
 | <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID to create the Service Account in (REQUIRED if create\_sa is true). | `string` | `null` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
