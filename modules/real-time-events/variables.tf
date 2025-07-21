@@ -33,6 +33,12 @@ variable "log_sink_name" {
   default     = "stream-security-events-sink"
 }
 
+variable "log_sink_filter" {
+  description = "The filter to apply to the log sink."
+  type        = string
+  default     = ""
+}
+
 ################################################################################
 # Real Time Events Cloud Function Variables
 ################################################################################
