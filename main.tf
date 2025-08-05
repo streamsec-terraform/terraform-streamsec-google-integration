@@ -1,10 +1,23 @@
 # if var.org_integration is true, find all of the projects in the organization and add them to the var.projects map
-data "google_projects" "this" {
-  filter = var.projects_filter
+data "google_cloud_asset_search_all_resources" "this" {
+  count       = length(var.include_projects) > 0 ? 0 : 1
+  scope       = "organizations/${var.org_id}"
+  asset_types = ["cloudresourcemanager.googleapis.com/Project"]
+}
+
+data "google_project" "this" {
+  for_each   = length(var.include_projects) > 0 ? { for p in var.include_projects : p => p } : {}
+  project_id = each.value
 }
 
 locals {
-  projects = { for p in data.google_projects.this.projects : p.project_id => p if(!contains(var.exclude_projects, p.project_id) && (length(var.include_projects) > 0 ? contains(var.include_projects, p.project_id) : true)) }
+  projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
+    project_id = p.project_id
+    name       = p.name
+    } if !contains(var.exclude_projects, p) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
+    project_id = split("projects/", p.name)[1]
+    name       = p.display_name
+  } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
 }
 
 resource "streamsec_gcp_project" "this" {

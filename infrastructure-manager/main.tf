@@ -25,7 +25,6 @@ provider "streamsec" {
 
 module "streamsec_google_projects" {
   source                     = "../"
-  projects_filter            = var.projects_filter
   exclude_projects           = var.exclude_projects
   include_projects           = var.include_projects
   enable_real_time_events    = var.enable_real_time_events

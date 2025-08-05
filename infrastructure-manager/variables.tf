@@ -22,12 +22,6 @@ variable "streamsec_secret_name" {
   default     = "stream-security"
 }
 
-variable "projects_filter" {
-  description = "The filter to use to find projects in the Organization. you can also use the include_projects and exclude_projects variables to further filter the projects."
-  type        = string
-  default     = "name:*"
-}
-
 variable "exclude_projects" {
   description = "A list of projects to exclude from the Organization Integration."
   type        = list(string)
