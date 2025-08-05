@@ -67,6 +67,15 @@ resource "google_secret_manager_regional_secret_version" "this" {
   secret_data = data.streamsec_gcp_project.this[each.key].account_token
 }
 
+# create the service account for the function
+resource "google_service_account" "function_service_account" {
+  for_each     = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  account_id   = var.function_service_account_id
+  display_name = var.function_service_account_display_name
+  description  = var.function_service_account_description
+  project      = each.value.project_id
+}
+
 # Gen2 Cloud Function that triggers on Pub/Sub log entries
 resource "google_cloudfunctions2_function" "this" {
   for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
@@ -93,7 +102,8 @@ resource "google_cloudfunctions2_function" "this" {
     )
   }
   service_config {
-    timeout_seconds = var.function_timeout
+    timeout_seconds       = var.function_timeout
+    service_account_email = google_service_account.function_service_account[each.key].email
     environment_variables = merge(
       {
         API_URL = data.streamsec_host.this.host

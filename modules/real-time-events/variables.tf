@@ -55,6 +55,24 @@ variable "function_runtime" {
   default     = "nodejs22"
 }
 
+variable "function_service_account_id" {
+  description = "The ID of the service account to create for the Cloud Function."
+  type        = string
+  default     = "stream-security-function-sa"
+}
+
+variable "function_service_account_display_name" {
+  description = "The display name of the service account to create for the Cloud Function."
+  type        = string
+  default     = "Stream Security Events Function Service Account"
+}
+
+variable "function_service_account_description" {
+  description = "The description of the service account to create for the Cloud Function."
+  type        = string
+  default     = "Service account for Stream Security events collection Cloud Function"
+}
+
 variable "ingress_settings" {
   description = "The ingress settings of the Cloud Function to create."
   type        = string
