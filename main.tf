@@ -27,11 +27,19 @@ resource "streamsec_gcp_project" "this" {
 }
 
 resource "google_service_account" "org" {
-  count        = var.create_sa ? 1 : 0
+  count        = var.create_sa && length(var.include_projects) == 0 ? 1 : 0
   account_id   = var.sa_account_id
   display_name = var.sa_display_name
   description  = var.sa_description
   project      = var.project_for_sa
+}
+
+resource "google_service_account" "project" {
+  for_each     = length(var.include_projects) > 0 ? { for p in var.include_projects : p => p } : {}
+  account_id   = var.sa_account_id
+  display_name = var.sa_display_name
+  description  = var.sa_description
+  project      = each.value.project_id
 }
 
 data "google_service_account" "existing" {
@@ -42,28 +50,52 @@ data "google_service_account" "existing" {
 
 # create service account key for each service account
 resource "google_service_account_key" "org" {
-  count              = var.existing_sa_json_file_path == null ? 1 : 0
+  count              = var.existing_sa_json_file_path == null && length(var.include_projects) == 0 ? 1 : 0
   service_account_id = var.create_sa ? google_service_account.org[0].id : data.google_service_account.existing[0].id
 }
 
+resource "google_service_account_key" "project" {
+  for_each           = length(var.include_projects) > 0 ? { for p in var.include_projects : p => p } : {}
+  service_account_id = var.create_sa ? google_service_account.project[each.value].id : data.google_service_account.existing[0].id
+}
+
 resource "google_organization_iam_member" "this" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && length(var.include_projects) == 0 ? 1 : 0
   role   = "roles/viewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
 }
 
+resource "google_project_iam_member" "this" {
+  for_each = var.create_sa && length(var.include_projects) > 0 ? { for p in var.include_projects : p => p } : {}
+  project  = each.value.project_id
+  role     = "roles/viewer"
+  member   = "serviceAccount:${google_service_account.project[each.value].email}"
+}
+
 resource "google_organization_iam_member" "security_reviewer" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && length(var.include_projects) == 0 ? 1 : 0
   role   = "roles/iam.securityReviewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
 }
+
+resource "google_project_iam_member" "security_reviewer" {
+  for_each = var.create_sa && length(var.include_projects) > 0 ? { for p in var.include_projects : p => p } : {}
+  project  = each.value.project_id
+  role     = "roles/iam.securityReviewer"
+  member   = "serviceAccount:${google_service_account.project[each.value].email}"
+}
+
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
   for_each        = { for k, v in local.projects : k => v }
-  create_duration = "10s"
+  create_duration = "5s"
   depends_on      = [streamsec_gcp_project.this]
+
+  lifecycle {
+    ignore_changes = [create_duration]
+  }
 }
 
 resource "streamsec_gcp_project_ack" "this" {
