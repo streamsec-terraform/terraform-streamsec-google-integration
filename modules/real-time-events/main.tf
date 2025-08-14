@@ -117,20 +117,34 @@ resource "google_cloudfunctions2_function" "this" {
     ingress_settings = var.ingress_settings
   }
   event_trigger {
-    trigger_region = "us-central1"
-    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = google_pubsub_topic.this[each.key].id
-    retry_policy   = "RETRY_POLICY_RETRY"
+    trigger_region        = "us-central1"
+    event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic          = google_pubsub_topic.this[each.key].id
+    retry_policy          = "RETRY_POLICY_RETRY"
+    service_account_email = google_service_account.function_service_account[each.key].email
   }
   labels  = var.labels
   project = each.value.project_id
 }
 
+resource "google_project_iam_member" "invoking" {
+  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  project  = each.value.project_id
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+}
+
+resource "google_project_iam_member" "event_receiving" {
+  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  project  = each.value.project_id
+  role     = "roles/eventarc.eventReceiver"
+  member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+}
 resource "google_secret_manager_regional_secret_iam_member" "function_secret_access" {
   for_each   = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret_id  = var.secret_name
   role       = "roles/secretmanager.secretAccessor"
-  member     = "serviceAccount:${google_cloudfunctions2_function.this[each.key].service_config[0].service_account_email}"
+  member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
   project    = each.value.project_id
   depends_on = [google_secret_manager_regional_secret_version.this]
 }
