@@ -61,6 +61,11 @@ resource "google_secret_manager_secret" "this" {
   }
 }
 
+resource "google_secret_manager_secret_version" "this" {
+  for_each    = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  secret      = google_secret_manager_secret.this[each.key].id
+  secret_data = data.streamsec_gcp_project.this[each.key].account_token
+}
 
 # create the secret manager secret
 resource "google_secret_manager_regional_secret" "this" {
@@ -73,7 +78,7 @@ resource "google_secret_manager_regional_secret" "this" {
 
 # create the secret manager secret version
 resource "google_secret_manager_regional_secret_version" "this" {
-  for_each    = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each    = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret      = google_secret_manager_regional_secret.this[each.key].id
   secret_data = data.streamsec_gcp_project.this[each.key].account_token
 }
