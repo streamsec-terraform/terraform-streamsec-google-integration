@@ -156,8 +156,18 @@ resource "google_project_iam_member" "event_receiving" {
   role     = "roles/eventarc.eventReceiver"
   member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
 }
+
+resource "google_secret_manager_secret_iam_member" "function_secret_access" {
+  for_each   = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  secret_id  = var.secret_name
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  project    = each.value.project_id
+  depends_on = [google_secret_manager_secret_version.this]
+}
+
 resource "google_secret_manager_regional_secret_iam_member" "function_secret_access" {
-  for_each   = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each   = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret_id  = var.secret_name
   role       = "roles/secretmanager.secretAccessor"
   member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
