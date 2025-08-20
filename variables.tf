@@ -98,3 +98,9 @@ variable "log_sink_filter" {
   type        = string
   default     = ""
 }
+
+variable "regional_secret" {
+  description = "If true, create a regional secret in Secret Manager containing the API token. If false, create a global secret in Secret Manager containing the API token."
+  type        = bool
+  default     = true
+}
