@@ -51,9 +51,20 @@ resource "google_pubsub_topic_iam_binding" "this" {
   project  = each.value.project_id
 }
 
+resource "google_secret_manager_secret" "this" {
+  for_each  = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  project   = each.value.project_id
+  secret_id = var.secret_name
+  labels    = var.labels
+  replication {
+    auto {}
+  }
+}
+
+
 # create the secret manager secret
 resource "google_secret_manager_regional_secret" "this" {
-  for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each  = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   project   = each.value.project_id
   secret_id = var.secret_name
   location  = data.google_client_config.current.region
@@ -95,7 +106,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
+        SECRET_NAME = var.regional_secret ? "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest" : "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -109,7 +120,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
+        SECRET_NAME = var.regional_secret ? "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest" : "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
