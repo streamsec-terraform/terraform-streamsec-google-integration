@@ -32,6 +32,9 @@ No modules.
 | [google_secret_manager_regional_secret.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_regional_secret) | resource |
 | [google_secret_manager_regional_secret_iam_member.function_secret_access](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_regional_secret_iam_member) | resource |
 | [google_secret_manager_regional_secret_version.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_regional_secret_version) | resource |
+| [google_secret_manager_secret.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret) | resource |
+| [google_secret_manager_secret_iam_member.function_secret_access](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
+| [google_secret_manager_secret_version.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_version) | resource |
 | [google_service_account.function_service_account](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_client_config.current](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
 | [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
@@ -58,6 +61,7 @@ No modules.
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | A list of projects to create Service Accounts for. | `any` | n/a | yes |
 | <a name="input_pubsub_topic_name"></a> [pubsub\_topic\_name](#input\_pubsub\_topic\_name) | The name of the Pub/Sub topic to create. | `string` | `"stream-security-events-topic"` | no |
+| <a name="input_regional_secret"></a> [regional\_secret](#input\_regional\_secret) | If true, create a regional secret in Secret Manager containing the API token. If false, create a global secret in Secret Manager containing the API token. | `bool` | `true` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the secret in Secret Manager containing the API token. | `string` | `"stream-security-collection-token"` | no |
 | <a name="input_source_archive_name"></a> [source\_archive\_name](#input\_source\_archive\_name) | The name of the archive containing the Cloud Function source code. | `string` | `"gcp-events-collection.zip"` | no |
 | <a name="input_source_bucket_name"></a> [source\_bucket\_name](#input\_source\_bucket\_name) | The name of the bucket containing the Cloud Function source code. | `string` | `"streamsec-production-public-artifacts"` | no |

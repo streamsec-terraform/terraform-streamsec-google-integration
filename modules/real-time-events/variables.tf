@@ -125,6 +125,12 @@ variable "secret_name" {
   default     = "stream-security-collection-token"
 }
 
+variable "regional_secret" {
+  description = "If true, create a regional secret in Secret Manager containing the API token. If false, create a global secret in Secret Manager containing the API token."
+  type        = bool
+  default     = true
+}
+
 variable "org_level_sink" {
   description = "If true, create a single org-level log sink, topic, and function. Otherwise, create per-project."
   type        = bool

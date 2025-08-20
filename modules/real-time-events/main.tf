@@ -51,9 +51,25 @@ resource "google_pubsub_topic_iam_binding" "this" {
   project  = each.value.project_id
 }
 
+resource "google_secret_manager_secret" "this" {
+  for_each  = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  project   = each.value.project_id
+  secret_id = var.secret_name
+  labels    = var.labels
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "this" {
+  for_each    = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  secret      = google_secret_manager_secret.this[each.key].id
+  secret_data = data.streamsec_gcp_project.this[each.key].account_token
+}
+
 # create the secret manager secret
 resource "google_secret_manager_regional_secret" "this" {
-  for_each  = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each  = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   project   = each.value.project_id
   secret_id = var.secret_name
   location  = data.google_client_config.current.region
@@ -62,7 +78,7 @@ resource "google_secret_manager_regional_secret" "this" {
 
 # create the secret manager secret version
 resource "google_secret_manager_regional_secret_version" "this" {
-  for_each    = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each    = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret      = google_secret_manager_regional_secret.this[each.key].id
   secret_data = data.streamsec_gcp_project.this[each.key].account_token
 }
@@ -95,7 +111,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
+        SECRET_NAME = var.regional_secret ? "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest" : "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -109,7 +125,7 @@ resource "google_cloudfunctions2_function" "this" {
         API_URL = data.streamsec_host.this.host
       },
       var.use_secret_manager ? {
-        SECRET_NAME = "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
+        SECRET_NAME = var.regional_secret ? "projects/${each.value.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest" : "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
         } : {
         API_TOKEN = data.streamsec_gcp_project.this[each.key].account_token
       }
@@ -140,8 +156,18 @@ resource "google_project_iam_member" "event_receiving" {
   role     = "roles/eventarc.eventReceiver"
   member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
 }
+
+resource "google_secret_manager_secret_iam_member" "function_secret_access" {
+  for_each   = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  secret_id  = var.secret_name
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  project    = each.value.project_id
+  depends_on = [google_secret_manager_secret_version.this]
+}
+
 resource "google_secret_manager_regional_secret_iam_member" "function_secret_access" {
-  for_each   = var.use_secret_manager ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each   = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
   secret_id  = var.secret_name
   role       = "roles/secretmanager.secretAccessor"
   member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
