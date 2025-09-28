@@ -51,7 +51,7 @@ No modules.
 | <a name="input_function_service_account_description"></a> [function\_service\_account\_description](#input\_function\_service\_account\_description) | The description of the service account to create for the Cloud Function. | `string` | `"Service account for Stream Security events collection Cloud Function"` | no |
 | <a name="input_function_service_account_display_name"></a> [function\_service\_account\_display\_name](#input\_function\_service\_account\_display\_name) | The display name of the service account to create for the Cloud Function. | `string` | `"Stream Security Events Function Service Account"` | no |
 | <a name="input_function_service_account_id"></a> [function\_service\_account\_id](#input\_function\_service\_account\_id) | The ID of the service account to create for the Cloud Function. | `string` | `"stream-security-function-sa"` | no |
-| <a name="input_function_timeout"></a> [function\_timeout](#input\_function\_timeout) | The timeout of the Cloud Function to create. | `number` | `5` | no |
+| <a name="input_function_timeout"></a> [function\_timeout](#input\_function\_timeout) | The timeout of the Cloud Function to create. | `number` | `3` | no |
 | <a name="input_ingress_settings"></a> [ingress\_settings](#input\_ingress\_settings) | The ingress settings of the Cloud Function to create. | `string` | `"ALLOW_INTERNAL_ONLY"` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | The labels to apply to the Stream Security GCP Project resources. | `map(string)` | `{}` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |

@@ -80,5 +80,5 @@ variable "ingress_settings" {
 variable "retry_policy" {
   description = "Retry policy for the Cloud Function event trigger (e.g., RETRY_POLICY_RETRY, RETRY_POLICY_DO_NOT_RETRY)."
   type        = string
-  default     = "RETRY_POLICY_RETRY"
+  default     = "RETRY_POLICY_DO_NOT_RETRY"
 }

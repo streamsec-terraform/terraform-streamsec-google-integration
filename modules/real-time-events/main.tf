@@ -136,7 +136,7 @@ resource "google_cloudfunctions2_function" "this" {
     trigger_region        = "us-central1"
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic          = google_pubsub_topic.this[each.key].id
-    retry_policy          = "RETRY_POLICY_RETRY"
+    retry_policy          = "RETRY_POLICY_DO_NOT_RETRY"
     service_account_email = google_service_account.function_service_account[each.key].email
   }
   labels  = var.labels

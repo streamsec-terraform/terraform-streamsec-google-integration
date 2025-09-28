@@ -88,7 +88,7 @@ variable "function_entry_point" {
 variable "function_timeout" {
   description = "The timeout of the Cloud Function to create."
   type        = number
-  default     = 5
+  default     = 3
 }
 
 variable "source_bucket_name" {
