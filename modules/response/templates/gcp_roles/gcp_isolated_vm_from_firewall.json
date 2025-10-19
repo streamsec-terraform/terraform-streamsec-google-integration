@@ -1,0 +1,11 @@
+{
+  "includedPermissions": [
+    "compute.firewalls.create",
+    "compute.instances.get",
+    "compute.instances.setTags",
+    "compute.networks.updatePolicy",
+    "logging.logEntries.create"
+    ],
+  "name": "projects/${projectId}/roles/customIsolatedVMRole",
+  "title": "GCP Stream Isolated VM Instance from firewalls Role"
+}

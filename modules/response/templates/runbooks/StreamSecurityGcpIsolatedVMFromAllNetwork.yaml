@@ -1,0 +1,120 @@
+main:
+  params: [input]
+  steps:
+    # Step 1: Parse vm_id string from input dict
+    - parseVMId:
+        assign:
+          - vm_id: ${input.VmId}
+          - parts: ${text.split(vm_id, "/")}
+
+     # Step 1.0: Log the received vm_id
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. Received parameter vm_id = '" + vm_id + "'"}
+          severity: INFO
+
+    # Step 1.1: Validate parts length
+    - validateParts:
+        switch:
+          - condition: ${len(parts) != 6}
+            raise:
+              status_code: "error"
+              message: ${"Invalid VmId format. Expected 'projects/<project_id>/zones/<zone>/instances/<instance_name>', got; " + vm_id}
+
+    # Step 1.2: Extract IDs
+    - extractIds:
+        assign:
+          - project_id: ${parts[1]}
+          - zone: ${parts[3]}
+          - instance_name: ${parts[5]}
+
+    # Step 2: Get instance details (to extract network and fingerprint)
+    - getInstance:
+        call: googleapis.compute.v1.instances.get
+        args:
+          project: ${project_id}
+          zone: ${zone}
+          instance: ${instance_name}
+        result: instance
+
+    # Step 3: Extract network and VPC name
+    - extractNetwork:
+        assign:
+          - network_url: ${instance.networkInterfaces[0].network}
+          - network_parts: ${text.split(network_url, "/")}
+          - vpc_name: ${network_parts[len(network_parts) - 1]}
+
+    # Step 4: Define firewall names based on VPC name
+    - defineFirewallNames:
+        assign:
+          - firewall_ingress: ${"isolated-fw-stream" + "-ingress-" + vpc_name }
+          - firewall_egress: ${"isolated-fw-stream" + "-egress-" + vpc_name }
+
+
+    # Step 7: Create new deny-all INGRESS firewall rule
+    - createIngress:
+        try:
+            call: googleapis.compute.v1.firewalls.insert
+            args:
+                project: ${project_id}
+                body:
+                    name: ${firewall_ingress}
+                    network: ${network_url}
+                    direction: "INGRESS"
+                    priority: 100
+                    denied:
+                    - IPProtocol: "all"
+                    sourceRanges:
+                    - "0.0.0.0/0"
+                    targetTags: ["isolatedstream"]
+        except:
+          as: e
+          switch:
+            - condition: ${e.body.error.code != 409}
+              raise:
+                status_code: "error"
+                message: ${e.body.error.message}
+
+    # Step 8: Create new deny-all EGRESS firewall rule
+    - createEgress:
+        try:
+            call: googleapis.compute.v1.firewalls.insert
+            args:
+                project: ${project_id}
+                body:
+                    name: ${firewall_egress}
+                    network: ${network_url}
+                    direction: "EGRESS"
+                    priority: 100
+                    denied:
+                    - IPProtocol: "all"
+                    destinationRanges:
+                    - "0.0.0.0/0"
+                    targetTags: ["isolatedstream"]
+        except:
+          as: e
+          switch:
+            - condition: ${e.body.error.code != 409}
+              raise:
+                status_code: "error"
+                message: ${e.body.error.message}
+
+
+
+    # Step 9: Replace VM tags with only "isolatedstream"
+    - setIsolatedTag:
+        call: googleapis.compute.v1.instances.setTags
+        args:
+          project: ${project_id}
+          zone: ${zone}
+          instance: ${instance_name}
+          body:
+            items: ["isolatedstream"]
+            fingerprint: ${instance.tags.fingerprint}
+
+    # Final Step
+    - done:
+         return:
+            status_code: "success"
+            message: ${vm_id + " is now isolated with deny-all rules."}

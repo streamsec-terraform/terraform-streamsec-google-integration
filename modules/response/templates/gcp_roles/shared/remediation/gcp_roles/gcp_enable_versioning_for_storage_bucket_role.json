@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+    "storage.buckets.update",
+    "logging.logEntries.create",
+    "storage.buckets.get"
+    ],
+  "name": "projects/${projectId}/roles/customEnableVersioningForStorageBucketRole",
+  "title": "GCP Stream Enable Versioning For Storage Bucket Role"
+}

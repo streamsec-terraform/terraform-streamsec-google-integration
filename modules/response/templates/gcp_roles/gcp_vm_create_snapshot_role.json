@@ -1,0 +1,12 @@
+{
+  "includedPermissions": [
+     "compute.instances.get",
+     "compute.disks.createSnapshot",
+     "compute.snapshots.create",
+     "compute.zoneOperations.get",
+     "compute.disks.get",
+    "logging.logEntries.create"
+    ],
+  "name": "projects/${projectId}/roles/customCreateDiskSnapshotRole",
+  "title": "Stream GCP Create Disk Snapshot Role"
+}
