@@ -35,6 +35,12 @@ module "response" {
 
   org_level_permissions = true
   organization_id       = "123456789012"
+
+  # Optionally exclude specific runbooks
+  excluded_runbooks = [
+    "StreamSecurityGcpStopVm",
+    "StreamSecurityGcpRestartVm"
+  ]
 }
 ```
 
@@ -71,6 +77,7 @@ module "response" {
 | projects | A map of projects to create response resources for | `map(any)` | n/a | yes |
 | org_level_permissions | If true, create service accounts and custom roles at organization level. If false, create them at project level. | `bool` | `true` | no |
 | organization_id | The organization ID to use for org-level service accounts and roles. Required if org_level_permissions is true. | `string` | `""` | no |
+| excluded_runbooks | List of runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
 
 ## Outputs
 
@@ -131,10 +138,12 @@ The corresponding role file (`gcp_stop_vm_role.json`) defines the required permi
 ## Notes
 
 - Service account IDs are automatically generated from remediation names (lowercase, alphanumeric with hyphens)
+  - "StreamSecurityGcp" prefix is replaced with "streamsec" for shorter names
 - Custom role IDs include a random suffix to avoid conflicts with GCP's 7-day soft-delete period for custom roles
   - This allows for immediate redeployment after deletion
   - To force recreation of all roles, change the `role_version` keeper in the `random_id` resource
 - Workflows depend on service accounts and IAM bindings being created first
+- Use `excluded_runbooks` to selectively disable specific remediations without modifying the source configuration
 
 
 <!-- BEGIN_TF_DOCS -->
@@ -178,6 +187,7 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_excluded_runbooks"></a> [excluded\_runbooks](#input\_excluded\_runbooks) | List of runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
 | <a name="input_org_level_permissions"></a> [org\_level\_permissions](#input\_org\_level\_permissions) | If true, create service accounts and custom roles at organization level. If false, create them at project level. | `bool` | `true` | no |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | The organization ID to use for org-level service accounts and roles. Required if org\_level\_permissions is true. | `string` | `""` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | A map of projects to create response resources for. | `map(any)` | n/a | yes |

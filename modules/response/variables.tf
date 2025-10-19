@@ -14,3 +14,9 @@ variable "organization_id" {
   type        = string
   default     = ""
 }
+
+variable "excluded_runbooks" {
+  description = "List of runbook names to exclude from deployment. Useful for disabling specific remediations."
+  type        = list(string)
+  default     = []
+}

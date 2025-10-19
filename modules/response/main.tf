@@ -15,7 +15,10 @@ locals {
   runbook_config = {
     Remediations = [
       for remediation in local.runbook_config_all.Remediations :
-      remediation if(lookup(remediation, "cloud_provider", "aws") == "gcp")
+      remediation if(
+        lookup(remediation, "cloud_provider", "aws") == "gcp" &&
+        !contains(var.excluded_runbooks, remediation.name)
+      )
     ]
   }
 
