@@ -17,7 +17,7 @@ locals {
       for remediation in local.runbook_config_all.Remediations :
       remediation if(
         lookup(remediation, "cloud_provider", "aws") == "gcp" &&
-        !contains(var.excluded_runbooks, remediation.name)
+        !contains(var.exclude_runbooks, remediation.name)
       )
     ]
   }
@@ -44,17 +44,17 @@ locals {
   }
 
   # Determine the project where service accounts will be created
-  # For org-level: use the first project in the map
+  # For org-level: use the first project in the list
   # For project-level: use the actual project
-  sa_project = var.org_level_permissions ? values(var.projects)[0].project_id : ""
+  sa_project = var.org_level_permissions ? var.projects[0] : ""
 
   # Create a map for workflow to service account mapping
   workflow_sa_map = var.org_level_permissions ? {
     # For org-level: map remediation name to org-level service account
     for item in flatten([
-      for project_key, project_value in var.projects : [
+      for project_id in var.projects : [
         for remediation in local.runbook_config.Remediations : {
-          key              = "${project_key}_${remediation.name}"
+          key              = "${project_id}_${remediation.name}"
           remediation_name = remediation.name
           has_role_file    = lookup(remediation, "role_file", null) != null
         }
@@ -63,9 +63,9 @@ locals {
     } : {
     # For project-level: direct mapping to project-level service account
     for item in flatten([
-      for project_key, project_value in var.projects : [
+      for project_id in var.projects : [
         for remediation in local.runbook_config.Remediations : {
-          key           = "${project_key}_${remediation.name}"
+          key           = "${project_id}_${remediation.name}"
           has_role_file = lookup(remediation, "role_file", null) != null
         }
       ]
@@ -75,10 +75,10 @@ locals {
   # Compute for_each maps for project-level resources
   project_remediations_all = {
     for item in flatten([
-      for project_key, project_value in var.projects : [
+      for project_id in var.projects : [
         for remediation_name, remediation in local.remediations_with_roles : {
-          key         = "${project_key}_${remediation_name}"
-          project_id  = project_value.project_id
+          key         = "${project_id}_${remediation_name}"
+          project_id  = project_id
           remediation = remediation
         }
       ]
@@ -164,11 +164,11 @@ resource "google_project_iam_member" "sa_role_binding_project" {
 resource "google_workflows_workflow" "gcp_remediations" {
   for_each = {
     for item in flatten([
-      for project_key, project_value in var.projects : [
+      for project_id in var.projects : [
         for remediation in local.runbook_config.Remediations : {
-          key         = "${project_key}_${remediation.name}"
+          key         = "${project_id}_${remediation.name}"
           remediation = remediation
-          project     = project_value.project_id
+          project     = project_id
         }
       ]
       ]) : item.key => {
@@ -195,8 +195,8 @@ resource "google_workflows_workflow" "gcp_remediations" {
 
 
 resource "streamsec_gcp_response_ack" "this" {
-  for_each         = { for k, v in var.projects : k => v }
-  cloud_account_id = each.value.project_id
+  for_each         = { for p in var.projects : p => p }
+  cloud_account_id = each.value
   runbook_list     = [for k, v in google_workflows_workflow.gcp_remediations : v.name]
   location         = data.google_client_config.current.region
   template_version = "1"

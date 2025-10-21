@@ -1,6 +1,6 @@
 variable "projects" {
-  description = "A map of projects to create response resources for."
-  type        = map(any)
+  description = "A list of project IDs to create response resources for."
+  type        = list(string)
 }
 
 variable "org_level_permissions" {
@@ -15,7 +15,7 @@ variable "organization_id" {
   default     = ""
 }
 
-variable "excluded_runbooks" {
+variable "exclude_runbooks" {
   description = "List of runbook names to exclude from deployment. Useful for disabling specific remediations."
   type        = list(string)
   default     = []

@@ -96,3 +96,12 @@ module "flowlogs" {
   projects   = local.projects
   depends_on = [streamsec_gcp_project_ack.this]
 }
+
+module "response" {
+  count                 = length(var.response_enabled_projects) > 0 ? 1 : 0
+  source                = "./modules/response"
+  projects              = var.response_enabled_projects
+  exclude_runbooks      = var.exclude_runbooks
+  org_level_permissions = var.response_org_level_permissions
+  organization_id       = var.org_id
+}
