@@ -98,6 +98,12 @@ locals {
   org_role_bindings    = { for k, v in local.remediations_with_roles : k => v if var.org_level_permissions }
 }
 
+# Enable Workflows API for each project
+resource "google_project_service" "enable_workflows_api" {
+  for_each = toset(var.projects)
+  project  = each.value
+  service  = "workflows.googleapis.com"
+}
 
 # Create custom roles at organization level (if org_level_permissions is true)
 resource "google_organization_iam_custom_role" "remediation_roles_org" {
