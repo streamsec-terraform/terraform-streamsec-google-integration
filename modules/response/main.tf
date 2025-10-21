@@ -193,6 +193,31 @@ resource "google_workflows_workflow" "gcp_remediations" {
   ]
 }
 
+# Grant roles/workflows.invoker permission to the specified service account
+# Note: Workflow-level IAM resources (google_workflows_workflow_iam_member) are not yet available
+# See: https://github.com/hashicorp/terraform-provider-google/issues/13125
+
+# Grant at organization level if org_level_permissions is true
+resource "google_organization_iam_member" "workflow_invoker_org" {
+  count = var.auto_grant_workflow_invoker && var.org_level_permissions ? 1 : 0
+
+  org_id = var.organization_id
+  role   = "roles/workflows.invoker"
+  member = "serviceAccount:${var.workflow_invoker_service_account}"
+
+  depends_on = [google_workflows_workflow.gcp_remediations]
+}
+
+# Grant at project level if org_level_permissions is false
+resource "google_project_iam_member" "workflow_invoker_project" {
+  for_each = var.auto_grant_workflow_invoker && !var.org_level_permissions ? toset(var.projects) : []
+
+  project = each.value
+  role    = "roles/workflows.invoker"
+  member  = "serviceAccount:${var.workflow_invoker_service_account}"
+
+  depends_on = [google_workflows_workflow.gcp_remediations]
+}
 
 resource "streamsec_gcp_response_ack" "this" {
   for_each         = { for p in var.projects : p => p }

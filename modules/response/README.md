@@ -78,6 +78,8 @@ module "response" {
 | org_level_permissions | If true, create service accounts and custom roles at organization level. If false, create them at project level. | `bool` | `true` | no |
 | organization_id | The organization ID to use for org-level service accounts and roles. Required if org_level_permissions is true. | `string` | `""` | no |
 | exclude_runbooks | List of runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
+| workflow_invoker_service_account | Service account email to grant roles/workflows.invoker permission for invoking workflows. | `string` | n/a | yes |
+| auto_grant_workflow_invoker | If true, automatically grant roles/workflows.invoker permission to the specified service account. | `bool` | `true` | no |
 
 ## Outputs
 
@@ -174,8 +176,10 @@ No modules.
 |------|------|
 | [google_organization_iam_custom_role.remediation_roles_org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_member.sa_role_binding_org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
+| [google_organization_iam_member.workflow_invoker_org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_project_iam_custom_role.remediation_roles_project](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_custom_role) | resource |
 | [google_project_iam_member.sa_role_binding_project](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.workflow_invoker_project](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_service_account.remediation_sa_org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account.remediation_sa_project](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_workflows_workflow.gcp_remediations](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/workflows_workflow) | resource |
@@ -187,10 +191,12 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_auto_grant_workflow_invoker"></a> [auto\_grant\_workflow\_invoker](#input\_auto\_grant\_workflow\_invoker) | If true, automatically grant roles/workflows.invoker permission to the specified service account. | `bool` | `true` | no |
 | <a name="input_exclude_runbooks"></a> [exclude\_runbooks](#input\_exclude\_runbooks) | List of runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
 | <a name="input_org_level_permissions"></a> [org\_level\_permissions](#input\_org\_level\_permissions) | If true, create service accounts and custom roles at organization level. If false, create them at project level. | `bool` | `true` | no |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | The organization ID to use for org-level service accounts and roles. Required if org\_level\_permissions is true. | `string` | `""` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | A list of project IDs to create response resources for. | `list(string)` | n/a | yes |
+| <a name="input_workflow_invoker_service_account"></a> [workflow\_invoker\_service\_account](#input\_workflow\_invoker\_service\_account) | Service account email to grant roles/workflows.invoker permission for invoking workflows. | `string` | n/a | yes |
 
 ## Outputs
 

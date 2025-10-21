@@ -127,3 +127,9 @@ variable "exclude_runbooks" {
   type        = list(string)
   default     = []
 }
+
+variable "auto_grant_workflow_invoker" {
+  description = "If true, automatically grant roles/workflows.invoker permission to the specified service account."
+  type        = bool
+  default     = true
+}

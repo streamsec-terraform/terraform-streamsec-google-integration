@@ -48,4 +48,5 @@ module "streamsec_google_projects" {
   response_enabled_projects      = var.response_enabled_projects
   exclude_runbooks               = var.exclude_runbooks
   response_org_level_permissions = var.response_org_level_permissions
+  auto_grant_workflow_invoker    = var.auto_grant_workflow_invoker
 }

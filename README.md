@@ -46,6 +46,7 @@ Terraform module for google integration with Stream Security.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_auto_grant_workflow_invoker"></a> [auto\_grant\_workflow\_invoker](#input\_auto\_grant\_workflow\_invoker) | If true, automatically grant roles/workflows.invoker permission to the specified service account. | `bool` | `true` | no |
 | <a name="input_create_sa"></a> [create\_sa](#input\_create\_sa) | Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions. | `bool` | `true` | no |
 | <a name="input_enable_real_time_events"></a> [enable\_real\_time\_events](#input\_enable\_real\_time\_events) | Boolean to determine if Real Time Events should be enabled. | `bool` | `true` | no |
 | <a name="input_exclude_projects"></a> [exclude\_projects](#input\_exclude\_projects) | A list of projects to exclude from the Organization Integration. | `list(string)` | `[]` | no |

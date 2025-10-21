@@ -20,3 +20,14 @@ variable "exclude_runbooks" {
   type        = list(string)
   default     = []
 }
+
+variable "workflow_invoker_service_account" {
+  description = "Service account email to grant roles/workflows.invoker permission for invoking workflows."
+  type        = string
+}
+
+variable "auto_grant_workflow_invoker" {
+  description = "If true, automatically grant roles/workflows.invoker permission to the specified service account."
+  type        = bool
+  default     = true
+}
