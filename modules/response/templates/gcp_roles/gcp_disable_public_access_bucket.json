@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+     "logging.logEntries.create",
+     "storage.buckets.getIamPolicy",
+     "storage.buckets.setIamPolicy"
+    ],
+  "name": "projects/${projectId}/roles/customDisableBucketPublic",
+  "title": "GCP Disable Public Bucket Access"
+}

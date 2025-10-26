@@ -106,3 +106,30 @@ variable "org_level_sink" {
   type        = bool
   default     = true
 }
+
+################################################################################
+# Response Module
+################################################################################
+
+variable "response_enabled_projects" {
+  description = "A list of project IDs to create response resources for."
+  type        = list(string)
+  default     = []
+}
+
+variable "response_org_level_permissions" {
+  description = "If true, create response service accounts and custom roles at organization level. If false, create them at project level."
+  type        = bool
+  default     = true
+}
+variable "exclude_runbooks" {
+  description = "List of response runbook names to exclude from deployment. Useful for disabling specific remediations."
+  type        = list(string)
+  default     = []
+}
+
+variable "auto_grant_workflow_invoker" {
+  description = "If true, automatically grant roles/workflows.invoker permission to the specified service account."
+  type        = bool
+  default     = true
+}

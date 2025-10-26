@@ -96,3 +96,14 @@ module "flowlogs" {
   projects   = local.projects
   depends_on = [streamsec_gcp_project_ack.this]
 }
+
+module "response" {
+  count                            = length(var.response_enabled_projects) > 0 ? 1 : 0
+  source                           = "./modules/response"
+  projects                         = var.response_enabled_projects
+  exclude_runbooks                 = var.exclude_runbooks
+  org_level_permissions            = var.response_org_level_permissions
+  organization_id                  = var.org_id
+  workflow_invoker_service_account = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+  auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
+}

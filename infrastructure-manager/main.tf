@@ -24,19 +24,29 @@ provider "streamsec" {
 }
 
 module "streamsec_google_projects" {
-  source                     = "../"
+  source = "../"
+
+  # Main Module
   exclude_projects           = var.exclude_projects
   include_projects           = var.include_projects
-  enable_real_time_events    = var.enable_real_time_events
-  org_id                     = var.org_id
+  org_id                     = var.org_id # also used for response module and real time events module
   create_sa                  = var.create_sa
+  existing_sa_json_file_path = var.existing_sa_json_file_path
   sa_display_name            = var.sa_display_name
   sa_description             = var.sa_description
   sa_account_id              = var.sa_account_id
   project_for_sa             = var.project_for_sa
-  existing_sa_json_file_path = var.existing_sa_json_file_path
-  use_secret_manager         = var.use_secret_manager
-  secret_name                = var.secret_name
-  org_level_sink             = var.org_level_sink
-  project_for_resources      = var.google_project_id
+
+  # Real Time Events Module
+  enable_real_time_events = var.enable_real_time_events
+  use_secret_manager      = var.use_secret_manager
+  secret_name             = var.secret_name
+  org_level_sink          = var.org_level_sink
+  project_for_resources   = var.google_project_id
+
+  # Response Module
+  response_enabled_projects      = var.response_enabled_projects
+  exclude_runbooks               = var.exclude_runbooks
+  response_org_level_permissions = var.response_org_level_permissions
+  auto_grant_workflow_invoker    = var.auto_grant_workflow_invoker
 }

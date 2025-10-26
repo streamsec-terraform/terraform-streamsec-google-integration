@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+     "compute.instances.get",
+     "compute.instanceGroupManagers.update",
+    "logging.logEntries.create"
+    ],
+  "name": "projects/${projectId}/roles/vm_mig_detach_role",
+  "title": "GCP Stream VM MIG Detach Role"
+}
