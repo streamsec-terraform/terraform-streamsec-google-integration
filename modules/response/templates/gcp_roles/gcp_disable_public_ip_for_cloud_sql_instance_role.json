@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+    "cloudsql.instances.get",
+    "cloudsql.instances.update",
+    "logging.logEntries.create"
+    ],
+  "name": "projects/${projectId}/roles/customDisablePublicIpForCloudSqlInstanceRole",
+  "title": "GCP Disable Public IP for Cloud SQL Instance Role"
+}

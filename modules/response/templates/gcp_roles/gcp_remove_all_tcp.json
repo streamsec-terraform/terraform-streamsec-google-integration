@@ -1,0 +1,11 @@
+{
+  "includedPermissions": [
+    "compute.firewalls.get",
+    "compute.firewalls.update",
+    "compute.networks.updatePolicy",
+    "logging.logEntries.create"
+
+    ],
+  "name": "projects/${projectId}/roles/customRemoveAllTcp",
+  "title": "GCP Stream remove all tcp from firewalls rules Role"
+}

@@ -1,0 +1,13 @@
+{
+  "includedPermissions": [
+     "logging.logEntries.create",
+     "compute.firewalls.create",
+     "compute.networks.updatePolicy",
+     "iam.serviceAccounts.actAs",
+     "run.operations.get",
+      "run.services.get",
+      "run.services.update"
+    ],
+  "name": "projects/${projectId}/roles/customIsolatedRunFunctionByFirewall",
+  "title": "GCP Isolated run function by deny egress firewall rule"
+}

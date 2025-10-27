@@ -1,0 +1,12 @@
+{
+  "includedPermissions": [
+    "compute.instances.get",
+    "compute.instances.list",
+    "compute.instances.deleteAccessConfig",
+    "compute.networks.get",
+    "compute.subnetworks.get",
+    "logging.logEntries.create"
+    ],
+  "name": "projects/${projectId}/roles/customRemoveExternalIpFromVmInstanceRole",
+  "title": "GCP Stream Remove External IP From VM Instance"
+}

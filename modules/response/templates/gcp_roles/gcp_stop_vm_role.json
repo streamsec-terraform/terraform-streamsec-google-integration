@@ -6,3 +6,4 @@
   "name": "projects/${projectId}/roles/customResetVmRole",
   "title": "GCP Stream Stop VM Role"
 }
+
