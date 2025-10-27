@@ -28,11 +28,11 @@ main:
     # Step 2: Get firewall
     - getRule:
         try:
-            call: googleapis.compute.v1.firewalls.get
-            args:
-                project: ${project_id}
-                firewall: ${firewall_name}
-            result: fw
+          call: googleapis.compute.v1.firewalls.get
+          args:
+            project: ${project_id}
+            firewall: ${firewall_name}
+          result: fw
         except:
           as: e
           switch:
@@ -46,16 +46,21 @@ main:
         switch:
           - condition: ${fw.disabled == true}
             next: alreadyDisabled
-        next: skipIfNotPublic
+        next: checkSourceRanges
 
     - alreadyDisabled:
         return:
           status_code: "ok"
           message: ${"Firewall rule " + firewall_name + " is already disabled."}
 
+    # Step 4: Check if public
+    - checkSourceRanges:
+        assign:
+          - isPublic: ${"0.0.0.0/0" in fw.sourceRanges}
+
     - skipIfNotPublic:
         switch:
-          - condition: ${not("0.0.0.0/0" in fw.sourceRanges)}
+          - condition: ${not isPublic}
             next: noChange
 
     # Step 5: Init flags
@@ -64,6 +69,7 @@ main:
           - hasTcpAll: false
           - onlyTcpAll: false
           - hasOtherProtocols: false
+          - hasSctp: false            # ← Added SCTP flag
           - newAllowed: []
           - i: 0
 
@@ -86,36 +92,23 @@ main:
             next: splitAll
           - condition: ${rule.IPProtocol == "tcp"}
             next: checkPorts
-        next: markOther
+          - condition: ${rule.IPProtocol == "udp" or rule.IPProtocol == "icmp" or rule.IPProtocol == "sctp"}   # ← Added SCTP
+            next: markOther
+        next: keepRule
 
-    # Split "all" → keep everything except tcp all
+    # Split "all" → keep udp+icmp+sctp, remove tcp
     - splitAll:
         assign:
-            - hasTcpAll: true
-            - hasOtherProtocols: true
-            - newAllowed: []
-            - k: 0
-        next: loopOther
-
-    - loopOther:
-        switch:
-          - condition: ${k >= len(fw.allowed)}
-            next: nextIter
-
-    - checkOther:
-        switch:
-          - condition: ${fw.allowed[k].IPProtocol != "tcp" and fw.allowed[k].IPProtocol != "all"}
-            next: addOther
-
-    - nextOther:
-        assign:
-          - k: ${k + 1}
-        next: loopOther
-
-    - addOther:
-        assign:
-          - newAllowed: ${list.concat(newAllowed, [fw.allowed[k]])}
-        next: nextOther
+          - hasTcpAll: true
+          - hasOtherProtocols: true   # all includes udp+icmp+sctp
+          - udpRule:
+              IPProtocol: "udp"
+          - icmpRule:
+              IPProtocol: "icmp"
+          - sctpRule:                 # ← Added SCTP
+              IPProtocol: "sctp"
+          - newAllowed: ${list.concat(newAllowed, [udpRule, icmpRule, sctpRule])}
+        next: nextIter
 
     - checkPorts:
         switch:
@@ -144,7 +137,7 @@ main:
           - i: ${i + 1}
         next: loopAllowed
 
-    # Step 7: Decide
+    # Step 7: Decide what to do
     - finishCheck:
         switch:
           - condition: ${hasTcpAll and onlyTcpAll and not hasOtherProtocols}
@@ -204,6 +197,7 @@ main:
           status_code: "ok"
           message: ${"Firewall rule " + firewall_name + " does not allow all TCP ports publicly."}
 
+    # Step 10: Done
     - done:
         return:
           status_code: "success"
