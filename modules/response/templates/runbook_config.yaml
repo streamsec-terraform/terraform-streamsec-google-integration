@@ -1,3 +1,4 @@
+Remediations:
 - name: StreamSecurityGcpRestartVm
   description: Restarts the Compute Engine VM instance.
   disabled_reason: Action is not applicable because the virtual machine is in a stopped state.
