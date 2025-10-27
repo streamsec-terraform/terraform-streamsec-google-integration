@@ -117,7 +117,7 @@ main:
         assign:
           - is_disabled: ${"ipv4Enabled" in updated_instance.settings.ipConfiguration and updated_instance.settings.ipConfiguration.ipv4Enabled == false}
           - warning_only: ${not has_private}
-
+    
     - handleFinalResult:
         switch:
           - condition: ${is_disabled}
@@ -129,7 +129,7 @@ main:
               status_code: "warning"
               message: ${"Instance '" + instance_name + "' still has a public IP because no private network is configured, but all authorized networks were removed to restrict access."}
         next: raiseFailure
-
+    
     - raiseFailure:
         raise:
           status_code: "error"

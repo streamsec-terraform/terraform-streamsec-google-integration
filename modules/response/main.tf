@@ -230,7 +230,7 @@ resource "streamsec_gcp_response_ack" "this" {
   cloud_account_id = each.value
   runbook_list     = [for k, v in google_workflows_workflow.gcp_remediations : v.name]
   location         = data.google_client_config.current.region
-  template_version = "7"
+  template_version = "8"
 
   depends_on = [google_workflows_workflow.gcp_remediations]
 }
