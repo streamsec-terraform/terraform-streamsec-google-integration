@@ -81,6 +81,21 @@ variable "sa_description" {
 }
 
 ################################################################################
+# Function Service Account Variables
+################################################################################
+variable "use_existing_function_sa" {
+  description = "Boolean to determine if the existing Function Service Account should be used."
+  type        = bool
+  default     = false
+}
+
+variable "function_service_account_id" {
+  description = "The account ID of the Service Account to be used for Stream Security Functions."
+  type        = string
+  default     = null
+}
+
+################################################################################
 # Real Time Events Module
 ################################################################################
 

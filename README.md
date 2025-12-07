@@ -64,6 +64,8 @@ Terraform module for google integration with Stream Security.
 | <a name="input_sa_account_id"></a> [sa\_account\_id](#input\_sa\_account\_id) | The account ID for the Service Account to be created for Stream Security. | `string` | `"stream-security"` | no |
 | <a name="input_sa_description"></a> [sa\_description](#input\_sa\_description) | The description for the Service Account to be created for Stream Security. | `string` | `"Stream Security Service Account"` | no |
 | <a name="input_sa_display_name"></a> [sa\_display\_name](#input\_sa\_display\_name) | The display name for the Service Account to be created for Stream Security. | `string` | `"Stream Security"` | no |
+| <a name="use_existing_function_sa"></a> [use\_existing\_function\_sa](#use\_existing\_function\_sa) | Boolean to determine if the existing Function Service Account should be used. | `bool` | `false` | no |
+| <a name="function_service_account_id"></a> [function\_service\_account\_id](#function\_service\_account\_id) | The account ID of the Service Account to be used for Stream Security Functions. | `bool` | `false` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the Secret Manager secret to store the API token. | `string` | `"stream-security-collection-token"` | no |
 | <a name="input_use_secret_manager"></a> [use\_secret\_manager](#input\_use\_secret\_manager) | Boolean to determine if the Secret Manager should be used to store the API token. | `bool` | `true` | no |
 

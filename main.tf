@@ -40,6 +40,11 @@ data "google_service_account" "existing" {
   project    = var.project_for_sa
 }
 
+data "google_service_account" "function_existing" {
+  count      = var.use_existing_function_sa ? 1 : 0
+  account_id = var.function_service_account_id
+}
+
 # create service account key for each service account
 resource "google_service_account_key" "org" {
   count              = var.existing_sa_json_file_path == null ? 1 : 0
@@ -77,17 +82,21 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count                 = var.enable_real_time_events ? 1 : 0
-  source                = "./modules/real-time-events"
-  projects              = local.projects
-  use_secret_manager    = var.use_secret_manager
-  secret_name           = var.secret_name
-  org_level_sink        = var.org_level_sink
-  organization_id       = var.org_id
-  project_for_resources = var.project_for_resources
-  log_sink_filter       = var.log_sink_filter
-  regional_secret       = var.regional_secret
-  depends_on            = [streamsec_gcp_project_ack.this]
+  count                                 = var.enable_real_time_events ? 1 : 0 
+  source                                = "./modules/real-time-events"
+  projects                              = local.projects
+  use_existing_function_sa              = var.use_existing_function_sa
+  function_service_account_id           = var.use_existing_function_sa ? data.google_service_account.function_existing[0].account_id : null
+  function_service_account_display_name = var.use_existing_function_sa ? data.google_service_account.function_existing[0].display_name : null
+  function_service_account_description  = var.use_existing_function_sa ? data.google_service_account.function_existing[0].description : null
+  use_secret_manager                    = var.use_secret_manager
+  secret_name                           = var.secret_name
+  org_level_sink                        = var.org_level_sink
+  organization_id                       = var.org_id
+  project_for_resources                 = var.project_for_resources
+  log_sink_filter                       = var.log_sink_filter
+  regional_secret                       = var.regional_secret
+  depends_on                  = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {

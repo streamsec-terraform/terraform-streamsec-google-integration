@@ -55,22 +55,31 @@ variable "function_runtime" {
   default     = "nodejs22"
 }
 
+variable "use_existing_function_sa" {
+  description = "Boolean to determine if the existing Function Service Account should be used."
+  type        = bool
+  default     = false
+}
+
 variable "function_service_account_id" {
   description = "The ID of the service account to create for the Cloud Function."
   type        = string
   default     = "stream-security-function-sa"
+  nullable    = false
 }
 
 variable "function_service_account_display_name" {
   description = "The display name of the service account to create for the Cloud Function."
   type        = string
   default     = "Stream Security Events Function Service Account"
+  nullable    = false
 }
 
 variable "function_service_account_description" {
   description = "The description of the service account to create for the Cloud Function."
   type        = string
   default     = "Service account for Stream Security events collection Cloud Function"
+  nullable    = false
 }
 
 variable "ingress_settings" {
