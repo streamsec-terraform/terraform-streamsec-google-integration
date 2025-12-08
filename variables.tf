@@ -74,6 +74,12 @@ variable "function_service_account_id" {
   default     = null
 }
 
+variable "grant_function_service_account_roles" {
+  description = "Boolean to determine if the Function Service Account should be granted the necessary roles."
+  type        = bool
+  default     = false
+}
+
 ################################################################################
 # Real Time Events Module
 ################################################################################

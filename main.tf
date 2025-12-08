@@ -40,11 +40,6 @@ data "google_service_account" "existing" {
   project    = var.project_for_sa
 }
 
-data "google_service_account" "function_existing" {
-  count      = var.use_existing_function_sa ? 1 : 0
-  account_id = var.function_service_account_id
-}
-
 # create service account key for each service account
 resource "google_service_account_key" "org" {
   count              = var.existing_sa_json_file_path == null ? 1 : 0
@@ -86,9 +81,8 @@ module "real_time_events" {
   source                                = "./modules/real-time-events"
   projects                              = local.projects
   use_existing_function_sa              = var.use_existing_function_sa
-  function_service_account_id           = var.use_existing_function_sa ? data.google_service_account.function_existing[0].account_id : null
-  function_service_account_display_name = var.use_existing_function_sa ? data.google_service_account.function_existing[0].display_name : null
-  function_service_account_description  = var.use_existing_function_sa ? data.google_service_account.function_existing[0].description : null
+  function_service_account_id           = var.use_existing_function_sa ? var.function_service_account_id : null
+  grant_function_service_account_roles  = var.grant_function_service_account_roles
   use_secret_manager                    = var.use_secret_manager
   secret_name                           = var.secret_name
   org_level_sink                        = var.org_level_sink

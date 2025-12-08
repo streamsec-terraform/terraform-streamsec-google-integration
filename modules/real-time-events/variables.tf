@@ -75,6 +75,12 @@ variable "function_service_account_display_name" {
   nullable    = false
 }
 
+variable "grant_function_service_account_roles" {
+  description = "Boolean to determine if the Function Service Account should be granted the necessary roles."
+  type        = bool
+  default     = false
+}
+
 variable "function_service_account_description" {
   description = "The description of the service account to create for the Cloud Function."
   type        = string
