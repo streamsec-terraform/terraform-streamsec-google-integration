@@ -1,0 +1,11 @@
+{
+  "includedPermissions": [
+    "logging.logEntries.create",
+     "run.services.get",
+     "run.operations.get",
+     "iam.serviceAccounts.actAs",
+     "run.services.update"
+    ],
+  "name": "projects/${projectId}/roles/customDisableCloudFunctionRole",
+  "title": "GCP Stream Disable Cloud Function Role"
+}

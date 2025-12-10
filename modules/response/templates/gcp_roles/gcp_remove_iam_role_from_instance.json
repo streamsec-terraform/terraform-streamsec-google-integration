@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+     "logging.logEntries.create",
+     "compute.instances.setIamPolicy",
+     "compute.instances.getIamPolicy"
+    ],
+  "name": "projects/${projectId}/roles/customRemoveIamRoleFromeInstance",
+  "title": "GCP Remove Iam Role Permission From Instanse"
+}

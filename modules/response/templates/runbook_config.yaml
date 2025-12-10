@@ -126,7 +126,7 @@ Remediations:
   - name: BucketId
     type: String
     resource_name: true
-- name: StreamSecurityGcpRemoveIamBindingsFromInstance
+- name: StreamSecurityGcpRemoveIamRoleFromInstance
   description: Removes all direct IAM role bindings attached to a specific Compute Engine VM instance.
   disabled_reason: Action is not applicable because the VM has no direct IAM role bindings.
   display_name: Remove IAM Role Bindings from VM Instance
@@ -194,5 +194,19 @@ Remediations:
   role_file: gcp_edit_firewall_rules.json
   Parameters:
   - name: FirewallId
+    type: String
+    resource_name: true
+- name: StreamSecurityGcpFunctionBlockEventProcessing
+  description: Disables a Cloud Function (Gen 2) With Manual Scaling by setting its scaling to zero, preventing it from processing any events.
+  disabled_reason: Action is not applicable because Function already has scaling set to 0 or is not a Gen 2 Cloud Function with manual scaling.
+  display_name: Disable Cloud Function
+  remediation_type: runbook
+  cloud_provider: gcp
+  resource_type: gcp_run_function
+  runbook_owner: StreamSecurity
+  role_name: GCP Stream Disable Cloud Function Role
+  role_file: disable_cloud_function_policy.json
+  Parameters:
+  - name: GcpRunFunctionId
     type: String
     resource_name: true
