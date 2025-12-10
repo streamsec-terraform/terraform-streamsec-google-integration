@@ -85,11 +85,16 @@ resource "google_secret_manager_regional_secret_version" "this" {
 
 # create the service account for the function
 resource "google_service_account" "function_service_account" {
-  for_each     = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  for_each     = var.use_existing_function_sa ? {} : (var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v })
   account_id   = var.function_service_account_id
   display_name = var.function_service_account_display_name
   description  = var.function_service_account_description
   project      = each.value.project_id
+}
+
+data "google_service_account" "function_existing" {
+  count      = var.use_existing_function_sa ? 1 : 0
+  account_id = var.function_service_account_id
 }
 
 # Gen2 Cloud Function that triggers on Pub/Sub log entries
@@ -119,7 +124,7 @@ resource "google_cloudfunctions2_function" "this" {
   }
   service_config {
     timeout_seconds       = var.function_timeout
-    service_account_email = google_service_account.function_service_account[each.key].email
+    service_account_email = var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email
     environment_variables = merge(
       {
         API_URL = data.streamsec_host.this.host
@@ -137,40 +142,40 @@ resource "google_cloudfunctions2_function" "this" {
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic          = google_pubsub_topic.this[each.key].id
     retry_policy          = "RETRY_POLICY_DO_NOT_RETRY"
-    service_account_email = google_service_account.function_service_account[each.key].email
+    service_account_email = var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email
   }
   labels  = var.labels
   project = each.value.project_id
 }
 
 resource "google_project_iam_member" "invoking" {
-  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  for_each = (!var.use_existing_function_sa || var.grant_function_service_account_roles) ? (var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }) : {}
   project  = each.value.project_id
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  member   = "serviceAccount:${var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email}"
 }
 
 resource "google_project_iam_member" "event_receiving" {
-  for_each = var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }
+  for_each = (!var.use_existing_function_sa || var.grant_function_service_account_roles) ? (var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v }) : {}
   project  = each.value.project_id
   role     = "roles/eventarc.eventReceiver"
-  member   = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  member   = "serviceAccount:${var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email}"
 }
 
 resource "google_secret_manager_secret_iam_member" "function_secret_access" {
-  for_each   = var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each   = (!var.use_existing_function_sa || var.grant_function_service_account_roles) ? (var.use_secret_manager && !var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}) : {}
   secret_id  = var.secret_name
   role       = "roles/secretmanager.secretAccessor"
-  member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  member     = "serviceAccount:${var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email}"
   project    = each.value.project_id
   depends_on = [google_secret_manager_secret_version.this]
 }
 
 resource "google_secret_manager_regional_secret_iam_member" "function_secret_access" {
-  for_each   = var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}
+  for_each   = (!var.use_existing_function_sa || var.grant_function_service_account_roles) ? (var.use_secret_manager && var.regional_secret ? var.org_level_sink ? { for k, v in var.projects : k => v if k == data.google_project.this[0].project_id } : { for k, v in var.projects : k => v } : {}) : {}
   secret_id  = var.secret_name
   role       = "roles/secretmanager.secretAccessor"
-  member     = "serviceAccount:${google_service_account.function_service_account[each.key].email}"
+  member     = "serviceAccount:${var.use_existing_function_sa ? data.google_service_account.function_existing[0].email : google_service_account.function_service_account[each.key].email}"
   project    = each.value.project_id
   depends_on = [google_secret_manager_regional_secret_version.this]
 }

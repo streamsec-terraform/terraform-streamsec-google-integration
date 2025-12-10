@@ -77,17 +77,20 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count                 = var.enable_real_time_events ? 1 : 0
-  source                = "./modules/real-time-events"
-  projects              = local.projects
-  use_secret_manager    = var.use_secret_manager
-  secret_name           = var.secret_name
-  org_level_sink        = var.org_level_sink
-  organization_id       = var.org_id
-  project_for_resources = var.project_for_resources
-  log_sink_filter       = var.log_sink_filter
-  regional_secret       = var.regional_secret
-  depends_on            = [streamsec_gcp_project_ack.this]
+  count                                 = var.enable_real_time_events ? 1 : 0 
+  source                                = "./modules/real-time-events"
+  projects                              = local.projects
+  use_existing_function_sa              = var.use_existing_function_sa
+  function_service_account_id           = var.use_existing_function_sa ? var.function_service_account_id : null
+  grant_function_service_account_roles  = var.grant_function_service_account_roles
+  use_secret_manager                    = var.use_secret_manager
+  secret_name                           = var.secret_name
+  org_level_sink                        = var.org_level_sink
+  organization_id                       = var.org_id
+  project_for_resources                 = var.project_for_resources
+  log_sink_filter                       = var.log_sink_filter
+  regional_secret                       = var.regional_secret
+  depends_on                  = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {

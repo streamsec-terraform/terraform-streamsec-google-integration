@@ -43,6 +43,9 @@ module "streamsec_google_projects" {
   secret_name             = var.secret_name
   org_level_sink          = var.org_level_sink
   project_for_resources   = var.google_project_id
+  use_existing_function_sa              = var.use_existing_function_sa
+  function_service_account_id           = var.function_service_account_id
+  grant_function_service_account_roles = var.grant_function_service_account_roles
 
   # Response Module
   response_enabled_projects      = var.response_enabled_projects
