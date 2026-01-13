@@ -1,0 +1,9 @@
+project_id       = "PROJECT_ID"
+org_id           = "ORG_ID"
+region           = "us-central1"
+bucket_name      = "gke-audit-logs"
+bucket_location  = "US"
+
+api_url          = "https://app.streamsec.io"
+secret_name      = "streamsec-gke-logs-token"
+streamsec_token  = "API_TOKEN"
