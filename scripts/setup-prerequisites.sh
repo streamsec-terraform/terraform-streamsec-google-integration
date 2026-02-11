@@ -135,6 +135,16 @@ confirm_step() {
   fi
 }
 
+# Portable timeout wrapper (macOS doesn't ship GNU timeout)
+if command -v timeout &>/dev/null; then
+  _timeout() { timeout "$@"; }
+elif command -v gtimeout &>/dev/null; then
+  _timeout() { gtimeout "$@"; }
+else
+  # No timeout command available — run without a timeout
+  _timeout() { shift; "$@"; }
+fi
+
 ###############################################################################
 # Defaults (overridable via env vars)
 ###############################################################################
@@ -275,7 +285,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     log_info "Checking organization-level permissions..."
 
     # Check if we can read org IAM policy
-    if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" --format="value(bindings)" &>/dev/null; then
+    if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" --format="value(bindings)" &>/dev/null; then
       log_ok "✓ Can read organization IAM policy"
     else
       EXIT_CODE=$?
@@ -287,7 +297,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     fi
 
     # Check if we can describe/create roles at org level
-    if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --organization="$ORGANIZATION_ID" &>/dev/null; then
+    if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --organization="$ORGANIZATION_ID" &>/dev/null; then
       log_ok "✓ Ops role already exists at org level (will update if needed)"
     else
       EXIT_CODE=$?
@@ -296,9 +306,9 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       else
         # Try to test role creation permission by checking if we have the permission
         # We can't actually test this without creating a role, so we'll check the user's roles
-        CURRENT_USER=$(timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
+        CURRENT_USER=$(_timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
         if [[ "$CURRENT_USER" != "unknown" ]]; then
-          USER_ORG_ROLES=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+          USER_ORG_ROLES=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
             --flatten="bindings[].members" \
             --filter="bindings.members:user:$CURRENT_USER OR bindings.members:serviceAccount:$CURRENT_USER" \
             --format="value(bindings.role)" 2>/dev/null || echo "")
@@ -333,7 +343,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   log_info "Checking project-level permissions..."
 
   # Check if we can enable services
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud services list --project="$PROJECT_ID" --limit=1 &>/dev/null; then
+  if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud services list --project="$PROJECT_ID" --limit=1 &>/dev/null; then
     log_ok "✓ Can list/manage services"
   else
     EXIT_CODE=$?
@@ -345,7 +355,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   fi
 
   # Check if we can manage service accounts
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam service-accounts list --project="$PROJECT_ID" --limit=1 &>/dev/null; then
+  if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam service-accounts list --project="$PROJECT_ID" --limit=1 &>/dev/null; then
     log_ok "✓ Can manage service accounts"
   else
     EXIT_CODE=$?
@@ -357,7 +367,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   fi
 
   # Check if we can manage secrets
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud secrets list --project="$PROJECT_ID" --limit=1 &>/dev/null 2>&1; then
+  if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud secrets list --project="$PROJECT_ID" --limit=1 &>/dev/null 2>&1; then
     log_ok "✓ Can manage secrets"
   else
     EXIT_CODE=$?
@@ -369,7 +379,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   fi
 
   # Check Infrastructure Manager permissions
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud infra-manager previews list --project="$PROJECT_ID" --location="$REGION" --limit=1 &>/dev/null 2>&1; then
+  if _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud infra-manager previews list --project="$PROJECT_ID" --location="$REGION" --limit=1 &>/dev/null 2>&1; then
     log_ok "✓ Can manage Infrastructure Manager previews"
   else
     EXIT_CODE=$?
@@ -384,16 +394,16 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   # (required by Step 1 to disable 'iam.disableServiceAccountKeyCreation' if enforced)
   log_info "Checking 'roles/orgpolicy.policyAdmin'..."
 
-  CURRENT_USER_FOR_POLICY=$(timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
+  CURRENT_USER_FOR_POLICY=$(_timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
   if [[ "$CURRENT_USER_FOR_POLICY" != "unknown" ]]; then
-    HAS_POLICY_ADMIN_PROJECT=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud projects get-iam-policy "$PROJECT_ID" \
+    HAS_POLICY_ADMIN_PROJECT=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud projects get-iam-policy "$PROJECT_ID" \
       --flatten="bindings[].members" \
       --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
       --format="value(bindings.role)" 2>/dev/null || echo "")
 
     if [[ "$SINGLE_PROJECT" != true ]]; then
       # Check at both org and project level
-      HAS_POLICY_ADMIN_ORG=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+      HAS_POLICY_ADMIN_ORG=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
         --flatten="bindings[].members" \
         --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
         --format="value(bindings.role)" 2>/dev/null || echo "")
