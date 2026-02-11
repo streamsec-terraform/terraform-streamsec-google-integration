@@ -1035,12 +1035,14 @@ JSONEOF
       -H "Content-Type: application/json" \
       -d "{
         \"serviceAccount\": \"$SA_RESOURCE_PATH\",
-        \"gitSource\": {
-          \"repo\": \"$GIT_REPO\",
-          \"directory\": \"$GIT_DIRECTORY\",
-          \"ref\": \"$GIT_REF\"
+        \"terraformBlueprint\": {
+          \"gitSource\": {
+            \"repo\": \"$GIT_REPO\",
+            \"directory\": \"$GIT_DIRECTORY\",
+            \"ref\": \"$GIT_REF\"
+          },
+          \"inputValues\": $INPUT_VALUES_JSON
         },
-        \"inputValues\": $INPUT_VALUES_JSON,
         \"labels\": {\"managed-by\": \"setup-script\"}
       }")
 
@@ -1145,12 +1147,14 @@ JSONEOF
           echo "       -H 'Content-Type: application/json' \\"
           echo "       -d '{"
           echo "         \"serviceAccount\": \"projects/$PROJECT_ID/serviceAccounts/$SA_EMAIL\","
-          echo "         \"gitSource\": {"
-          echo "           \"repo\": \"$GIT_REPO\","
-          echo "           \"directory\": \"$GIT_DIRECTORY\","
-          echo "           \"ref\": \"$GIT_REF\""
+          echo "         \"terraformBlueprint\": {"
+          echo "           \"gitSource\": {"
+          echo "             \"repo\": \"$GIT_REPO\","
+          echo "             \"directory\": \"$GIT_DIRECTORY\","
+          echo "             \"ref\": \"$GIT_REF\""
+          echo "           },"
+          echo "           \"inputValues\": $INPUT_VALUES_JSON"
           echo "         },"
-          echo "         \"inputValues\": $INPUT_VALUES_JSON,"
           echo "         \"labels\": {\"managed-by\": \"setup-script\"}"
           echo "       }'"
         else
