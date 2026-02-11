@@ -1022,7 +1022,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   "google_region": {"inputValue": "$REGION"},
   "streamsec_secret_name": {"inputValue": "$SECRET_NAME"},
   "org_level_sink": {"inputValue": "$ORG_LEVEL_SINK"},
-  "include_projects": {"inputValue": "[\"$PROJECT_ID\"]"}$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
+  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
 }
 JSONEOF
 )
