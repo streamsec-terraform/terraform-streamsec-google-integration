@@ -995,10 +995,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   SA_RESOURCE_PATH="projects/$PROJECT_ID/serviceAccounts/$SA_EMAIL"
 
   # Build input-values based on mode
+  # Note: IM --input-values only supports string types. Complex types (list, map)
+  # cannot be passed this way (IM wraps them in quotes, breaking the HCL syntax).
   IM_INPUT_VALUES="google_project_id=$PROJECT_ID,google_region=$REGION,streamsec_secret_name=$SECRET_NAME,org_level_sink=$ORG_LEVEL_SINK"
   if [[ "$SINGLE_PROJECT" == true ]]; then
-    # Pass include_projects so Terraform skips org-scoped asset search
-    IM_INPUT_VALUES="${IM_INPUT_VALUES},include_projects=[\"$PROJECT_ID\"]"
     if [[ -n "$ORGANIZATION_ID" ]]; then
       IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
     fi
