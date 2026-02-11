@@ -7,14 +7,28 @@
 #
 # It performs the following:
 #   1. Enables all required GCP APIs in the target project.
-#   2. Creates a custom organization-level IAM role with the permissions
-#      required by the Infrastructure Manager deployment.
+#   2. Creates two custom IAM roles:
+#      a. Ops Role — IAM, logging sinks, resource management, asset discovery.
+#         Created at org level (default) or project level (--single-project).
+#      b. Project Resources Role — pubsub, secrets, cloud functions.
+#         Always created at project level.
 #   3. Creates a service account in the target project for Infrastructure Manager.
-#   4. Grants the custom role and the Cloud Infrastructure Manager Agent role
-#      to the service account at the organization level.
+#   4. Grants both custom roles and the Cloud Infrastructure Manager Agent role
+#      to the service account (at org or project level depending on mode).
 #   5. Creates the StreamSecurity credentials secret in Secret Manager.
 #   6. Creates an Infrastructure Manager preview deployment and waits for
 #      it to complete.
+#
+# Modes:
+#   Organization (default):
+#     - Ops role created at organization level (includes org-scoped permissions).
+#     - IAM bindings granted at organization level.
+#     - Requires --org-id and org-level permissions.
+#
+#   Single-project (--single-project):
+#     - Both roles created at project level (no org access needed).
+#     - IAM bindings granted at project level.
+#     - --org-id is optional.
 #
 # If the preview succeeds, the script provides instructions to create the
 # actual deployment via the GCP Console or gcloud CLI.
@@ -33,20 +47,17 @@
 #     is automatically disabled at the project level by this script (Step 1).
 #     The authenticated user needs 'orgpolicy.policy.set' permission or
 #     roles/orgpolicy.policyAdmin on the project.
-#   - The script checks whether the authenticated user has
+#   - In org mode, the script checks whether the authenticated user has
 #     'roles/orgpolicy.policyAdmin' and, if missing, automatically grants it
 #     at the organization level (requires sufficient privileges, e.g. roles/owner).
 #
 # Required Permissions:
-#   Organization level (choose one):
+#   Organization mode — Organization level (choose one):
 #     • roles/owner (full access - simplest option)
 #     • roles/iam.organizationRoleAdmin + roles/resourcemanager.organizationAdmin
 #       (both roles required!)
 #
-#   Important: Organization Administrator alone is NOT sufficient!
-#     - roles/resourcemanager.organizationAdmin → Can set IAM policies
-#     - roles/iam.organizationRoleAdmin → Can create custom roles
-#     You need BOTH roles (or just use roles/owner)
+#   Single-project mode — no organization permissions needed.
 #
 #   Project level (choose one):
 #     • roles/owner (full access - simplest option)
@@ -57,9 +68,19 @@
 #   The script will validate permissions before making changes.
 #
 # Usage:
+#   # Organization mode (default):
 #   ./setup-prerequisites.sh \
 #       --project-id <PROJECT_ID> \
 #       --org-id <ORGANIZATION_ID> \
+#       --region <REGION> \
+#       --streamsec-host <HOST> \
+#       --workspace-id <WORKSPACE_ID> \
+#       --api-token <API_TOKEN>
+#
+#   # Single-project mode (no org access needed):
+#   ./setup-prerequisites.sh \
+#       --single-project \
+#       --project-id <PROJECT_ID> \
 #       --region <REGION> \
 #       --streamsec-host <HOST> \
 #       --workspace-id <WORKSPACE_ID> \
@@ -125,8 +146,10 @@ WORKSPACE_ID="${WORKSPACE_ID:-}"
 API_TOKEN="${API_TOKEN:-}"
 
 # Customisable names – sensible defaults matching the docs
-CUSTOM_ROLE_ID="${CUSTOM_ROLE_ID:-StreamSecurityInfraManagerRole}"
-CUSTOM_ROLE_TITLE="${CUSTOM_ROLE_TITLE:-Stream Security Infra Manager Custom Role}"
+CUSTOM_ROLE_ID="${CUSTOM_ROLE_ID:-StreamSecurityInfraManagerOpsRole}"
+CUSTOM_ROLE_TITLE="${CUSTOM_ROLE_TITLE:-Stream Security Infra Manager Ops Role}"
+PROJECT_ROLE_ID="${PROJECT_ROLE_ID:-StreamSecurityInfraManagerProjectRole}"
+PROJECT_ROLE_TITLE="${PROJECT_ROLE_TITLE:-Stream Security Infra Manager Project Resources Role}"
 SA_NAME="${SA_NAME:-StreamSecurityInfraManagerSa}"
 SA_DISPLAY_NAME="${SA_DISPLAY_NAME:-Stream Security Infra Manager SA}"
 SECRET_NAME="${SECRET_NAME:-streamsec-credentials}"
@@ -136,6 +159,7 @@ DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-streamsec-integration}"
 GIT_REPO="https://github.com/streamsec-terraform/terraform-streamsec-google-integration"
 GIT_DIRECTORY="infrastructure-manager"
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
+SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 SKIP_PERMISSION_CHECK="${SKIP_PERMISSION_CHECK:-false}"
 
 # Timeout for permission check commands (in seconds)
@@ -154,20 +178,22 @@ Usage: $(basename "$0") [OPTIONS]
 
 Required options:
   --project-id      ID    GCP project for the Infrastructure Manager deployment
-  --org-id          ID    GCP organization ID
+  --org-id          ID    GCP organization ID (required for org mode; optional with --single-project)
   --region          NAME  GCP region for resources (e.g. us-central1)
   --streamsec-host  HOST  StreamSecurity host (e.g. <your-org>.streamsec.io)
   --workspace-id    ID    StreamSecurity workspace ID
   --api-token       TOKEN StreamSecurity API token
 
 Optional overrides:
-  --custom-role-id  ID    Custom role ID          (default: $CUSTOM_ROLE_ID)
+  --ops-role-id     ID    Ops role ID             (default: $CUSTOM_ROLE_ID)
+  --custom-role-id  ID    Alias for --ops-role-id
+  --project-role-id ID    Project resources role   (default: $PROJECT_ROLE_ID)
   --sa-name         NAME  Service account name    (default: $SA_NAME)
   --secret-name     NAME  Secret Manager secret   (default: $SECRET_NAME)
 
 Infrastructure Manager options:
   --deployment-name NAME  Deployment name         (default: $DEPLOYMENT_NAME)
-  --single-project        Use project-level log sinks instead of org-level
+  --single-project        All roles at project level — no org access needed
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
   -h, --help                  Show this help message and exit
@@ -190,12 +216,13 @@ while [[ $# -gt 0 ]]; do
     --streamsec-host)       STREAMSEC_HOST="$2";        shift 2 ;;
     --workspace-id)         WORKSPACE_ID="$2";          shift 2 ;;
     --api-token)            API_TOKEN="$2";             shift 2 ;;
-    --custom-role-id)       CUSTOM_ROLE_ID="$2";        shift 2 ;;
+    --ops-role-id|--custom-role-id) CUSTOM_ROLE_ID="$2";  shift 2 ;;
+    --project-role-id)      PROJECT_ROLE_ID="$2";       shift 2 ;;
     --sa-name)              SA_NAME="$2";               shift 2 ;;
     --secret-name)          SECRET_NAME="$2";           shift 2 ;;
     --deployment-name)      DEPLOYMENT_NAME="$2";       shift 2 ;;
     --start-from-step)      START_FROM_STEP="$2";       shift 2 ;;
-    --single-project)       ORG_LEVEL_SINK=false;       shift   ;;
+    --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
     -y|--yes)               AUTO_CONFIRM=true;          shift   ;;
     -h|--help)              usage ;;
@@ -208,7 +235,9 @@ done
 ###############################################################################
 missing=()
 [[ -z "$PROJECT_ID" ]]      && missing+=("--project-id")
-[[ -z "$ORGANIZATION_ID" ]] && missing+=("--org-id")
+if [[ "$SINGLE_PROJECT" != true ]]; then
+  [[ -z "$ORGANIZATION_ID" ]] && missing+=("--org-id")
+fi
 [[ -z "$REGION" ]]          && missing+=("--region")
 [[ -z "$STREAMSEC_HOST" ]]  && missing+=("--streamsec-host")
 [[ -z "$WORKSPACE_ID" ]]    && missing+=("--workspace-id")
@@ -241,59 +270,63 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   PERMISSION_ERRORS=()
   PERMISSION_WARNINGS=()
 
-  # Test organization-level permissions
-  log_info "Checking organization-level permissions..."
+  if [[ "$SINGLE_PROJECT" != true ]]; then
+    # Test organization-level permissions
+    log_info "Checking organization-level permissions..."
 
-  # Check if we can read org IAM policy
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" --format="value(bindings)" &>/dev/null; then
-    log_ok "✓ Can read organization IAM policy"
-  else
-    EXIT_CODE=$?
-    if [[ $EXIT_CODE -eq 124 ]]; then
-      PERMISSION_WARNINGS+=("⚠️  Timeout checking organization IAM policy (slow API response)")
+    # Check if we can read org IAM policy
+    if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" --format="value(bindings)" &>/dev/null; then
+      log_ok "✓ Can read organization IAM policy"
     else
-      PERMISSION_ERRORS+=("❌ Cannot read organization IAM policy (required: resourcemanager.organizations.getIamPolicy)")
-    fi
-  fi
-
-  # Check if we can describe/create roles at org level
-  if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --organization="$ORGANIZATION_ID" &>/dev/null; then
-    log_ok "✓ Custom role already exists (will update if needed)"
-  else
-    EXIT_CODE=$?
-    if [[ $EXIT_CODE -eq 124 ]]; then
-      PERMISSION_WARNINGS+=("⚠️  Timeout checking custom role existence (slow API response)")
-    else
-      # Try to test role creation permission by checking if we have the permission
-      # We can't actually test this without creating a role, so we'll check the user's roles
-      CURRENT_USER=$(timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
-      if [[ "$CURRENT_USER" != "unknown" ]]; then
-        USER_ORG_ROLES=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
-          --flatten="bindings[].members" \
-          --filter="bindings.members:user:$CURRENT_USER OR bindings.members:serviceAccount:$CURRENT_USER" \
-          --format="value(bindings.role)" 2>/dev/null || echo "")
-
-        # Check for role creation permissions (need iam.organizationRoleAdmin, NOT just organizationAdmin)
-        HAS_OWNER=$(echo "$USER_ORG_ROLES" | grep -q "roles/owner" && echo "true" || echo "false")
-        HAS_ROLE_ADMIN=$(echo "$USER_ORG_ROLES" | grep -q "roles/iam.organizationRoleAdmin" && echo "true" || echo "false")
-        HAS_ORG_ADMIN=$(echo "$USER_ORG_ROLES" | grep -q "roles/resourcemanager.organizationAdmin" && echo "true" || echo "false")
-
-        if [[ "$HAS_OWNER" == "true" ]]; then
-          log_ok "✓ Have Owner role (can create custom roles and set IAM policies)"
-        elif [[ "$HAS_ROLE_ADMIN" == "true" && "$HAS_ORG_ADMIN" == "true" ]]; then
-          log_ok "✓ Have Organization Role Administrator + Organization Administrator roles"
-        elif [[ "$HAS_ROLE_ADMIN" == "true" ]]; then
-          log_ok "✓ Have Organization Role Administrator role (can create custom roles)"
-          PERMISSION_WARNINGS+=("⚠️  Missing roles/resourcemanager.organizationAdmin (may not be able to set IAM policies)")
-        elif [[ "$HAS_ORG_ADMIN" == "true" ]]; then
-          PERMISSION_ERRORS+=("❌ Have Organization Administrator role but missing roles/iam.organizationRoleAdmin (CANNOT create custom roles)")
-        else
-          PERMISSION_ERRORS+=("❌ Missing both roles/iam.organizationRoleAdmin and roles/resourcemanager.organizationAdmin")
-        fi
+      EXIT_CODE=$?
+      if [[ $EXIT_CODE -eq 124 ]]; then
+        PERMISSION_WARNINGS+=("⚠️  Timeout checking organization IAM policy (slow API response)")
       else
-        PERMISSION_WARNINGS+=("⚠️  Could not determine current user for role permission check")
+        PERMISSION_ERRORS+=("❌ Cannot read organization IAM policy (required: resourcemanager.organizations.getIamPolicy)")
       fi
     fi
+
+    # Check if we can describe/create roles at org level
+    if timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --organization="$ORGANIZATION_ID" &>/dev/null; then
+      log_ok "✓ Ops role already exists at org level (will update if needed)"
+    else
+      EXIT_CODE=$?
+      if [[ $EXIT_CODE -eq 124 ]]; then
+        PERMISSION_WARNINGS+=("⚠️  Timeout checking ops role existence (slow API response)")
+      else
+        # Try to test role creation permission by checking if we have the permission
+        # We can't actually test this without creating a role, so we'll check the user's roles
+        CURRENT_USER=$(timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
+        if [[ "$CURRENT_USER" != "unknown" ]]; then
+          USER_ORG_ROLES=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+            --flatten="bindings[].members" \
+            --filter="bindings.members:user:$CURRENT_USER OR bindings.members:serviceAccount:$CURRENT_USER" \
+            --format="value(bindings.role)" 2>/dev/null || echo "")
+
+          # Check for role creation permissions (need iam.organizationRoleAdmin, NOT just organizationAdmin)
+          HAS_OWNER=$(echo "$USER_ORG_ROLES" | grep -q "roles/owner" && echo "true" || echo "false")
+          HAS_ROLE_ADMIN=$(echo "$USER_ORG_ROLES" | grep -q "roles/iam.organizationRoleAdmin" && echo "true" || echo "false")
+          HAS_ORG_ADMIN=$(echo "$USER_ORG_ROLES" | grep -q "roles/resourcemanager.organizationAdmin" && echo "true" || echo "false")
+
+          if [[ "$HAS_OWNER" == "true" ]]; then
+            log_ok "✓ Have Owner role (can create custom roles and set IAM policies)"
+          elif [[ "$HAS_ROLE_ADMIN" == "true" && "$HAS_ORG_ADMIN" == "true" ]]; then
+            log_ok "✓ Have Organization Role Administrator + Organization Administrator roles"
+          elif [[ "$HAS_ROLE_ADMIN" == "true" ]]; then
+            log_ok "✓ Have Organization Role Administrator role (can create custom roles)"
+            PERMISSION_WARNINGS+=("⚠️  Missing roles/resourcemanager.organizationAdmin (may not be able to set IAM policies)")
+          elif [[ "$HAS_ORG_ADMIN" == "true" ]]; then
+            PERMISSION_ERRORS+=("❌ Have Organization Administrator role but missing roles/iam.organizationRoleAdmin (CANNOT create custom roles)")
+          else
+            PERMISSION_ERRORS+=("❌ Missing both roles/iam.organizationRoleAdmin and roles/resourcemanager.organizationAdmin")
+          fi
+        else
+          PERMISSION_WARNINGS+=("⚠️  Could not determine current user for role permission check")
+        fi
+      fi
+    fi
+  else
+    log_info "Skipping organization-level permission checks (single-project mode)"
   fi
 
   # Test project-level permissions
@@ -353,29 +386,38 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
 
   CURRENT_USER_FOR_POLICY=$(timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
   if [[ "$CURRENT_USER_FOR_POLICY" != "unknown" ]]; then
-    # Check at both org and project level
-    HAS_POLICY_ADMIN_ORG=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
-      --flatten="bindings[].members" \
-      --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
-      --format="value(bindings.role)" 2>/dev/null || echo "")
-
     HAS_POLICY_ADMIN_PROJECT=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud projects get-iam-policy "$PROJECT_ID" \
       --flatten="bindings[].members" \
       --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
       --format="value(bindings.role)" 2>/dev/null || echo "")
 
-    if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" ]]; then
-      log_ok "✓ User '$CURRENT_USER_FOR_POLICY' already has 'roles/orgpolicy.policyAdmin'."
-    else
-      log_warn "User '$CURRENT_USER_FOR_POLICY' is missing 'roles/orgpolicy.policyAdmin'."
-      log_info "Attempting to grant 'roles/orgpolicy.policyAdmin' at organization level..."
-      if gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
-        --member="user:$CURRENT_USER_FOR_POLICY" \
-        --role="roles/orgpolicy.policyAdmin" \
-        --quiet >/dev/null; then
-        log_ok "✓ Granted 'roles/orgpolicy.policyAdmin' to '$CURRENT_USER_FOR_POLICY' on organization '$ORGANIZATION_ID'."
+    if [[ "$SINGLE_PROJECT" != true ]]; then
+      # Check at both org and project level
+      HAS_POLICY_ADMIN_ORG=$(timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+        --flatten="bindings[].members" \
+        --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
+        --format="value(bindings.role)" 2>/dev/null || echo "")
+
+      if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" ]]; then
+        log_ok "✓ User '$CURRENT_USER_FOR_POLICY' already has 'roles/orgpolicy.policyAdmin'."
       else
-        PERMISSION_WARNINGS+=("⚠️  Could not grant 'roles/orgpolicy.policyAdmin' — if org policy 'iam.disableServiceAccountKeyCreation' is enforced, Step 1 may fail.")
+        log_warn "User '$CURRENT_USER_FOR_POLICY' is missing 'roles/orgpolicy.policyAdmin'."
+        log_info "Attempting to grant 'roles/orgpolicy.policyAdmin' at organization level..."
+        if gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
+          --member="user:$CURRENT_USER_FOR_POLICY" \
+          --role="roles/orgpolicy.policyAdmin" \
+          --quiet >/dev/null; then
+          log_ok "✓ Granted 'roles/orgpolicy.policyAdmin' to '$CURRENT_USER_FOR_POLICY' on organization '$ORGANIZATION_ID'."
+        else
+          PERMISSION_WARNINGS+=("⚠️  Could not grant 'roles/orgpolicy.policyAdmin' — if org policy 'iam.disableServiceAccountKeyCreation' is enforced, Step 1 may fail.")
+        fi
+      fi
+    else
+      # Single-project mode: only check at project level
+      if [[ -n "$HAS_POLICY_ADMIN_PROJECT" ]]; then
+        log_ok "✓ User '$CURRENT_USER_FOR_POLICY' has 'roles/orgpolicy.policyAdmin' at project level."
+      else
+        PERMISSION_WARNINGS+=("⚠️  User '$CURRENT_USER_FOR_POLICY' may be missing 'roles/orgpolicy.policyAdmin' at project level — if org policy 'iam.disableServiceAccountKeyCreation' is enforced, Step 1 may fail.")
       fi
     fi
   else
@@ -394,32 +436,36 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     echo ""
     echo "Required permissions:"
     echo ""
-    echo "Organization level (choose one):"
-    echo "  • roles/owner (simplest - full access)"
-    echo "  • roles/iam.organizationRoleAdmin + roles/resourcemanager.organizationAdmin"
-    echo "    (BOTH roles required!)"
-    echo ""
-    echo "Important: roles/resourcemanager.organizationAdmin alone is NOT sufficient!"
-    echo "  - It allows setting IAM policies but NOT creating custom roles"
-    echo "  - You must also have roles/iam.organizationRoleAdmin"
-    echo ""
+    if [[ "$SINGLE_PROJECT" != true ]]; then
+      echo "Organization level (choose one):"
+      echo "  • roles/owner (simplest - full access)"
+      echo "  • roles/iam.organizationRoleAdmin + roles/resourcemanager.organizationAdmin"
+      echo "    (BOTH roles required!)"
+      echo ""
+      echo "Important: roles/resourcemanager.organizationAdmin alone is NOT sufficient!"
+      echo "  - It allows setting IAM policies but NOT creating custom roles"
+      echo "  - You must also have roles/iam.organizationRoleAdmin"
+      echo ""
+    fi
     echo "Project level (choose one):"
     echo "  • roles/owner (simplest - full access)"
     echo "  • roles/editor (recommended)"
     echo "  • roles/serviceusage.serviceUsageAdmin + roles/iam.serviceAccountAdmin +"
     echo "    roles/secretmanager.admin + roles/config.admin (minimal)"
     echo ""
-    echo "To grant the required organization permissions, run:"
-    echo "  # Grant role creation permission"
-    echo "  gcloud organizations add-iam-policy-binding $ORGANIZATION_ID \\"
-    echo "    --member='user:YOUR_EMAIL' \\"
-    echo "    --role='roles/iam.organizationRoleAdmin'"
-    echo ""
-    echo "  # Grant policy management permission"
-    echo "  gcloud organizations add-iam-policy-binding $ORGANIZATION_ID \\"
-    echo "    --member='user:YOUR_EMAIL' \\"
-    echo "    --role='roles/resourcemanager.organizationAdmin'"
-    echo ""
+    if [[ "$SINGLE_PROJECT" != true ]]; then
+      echo "To grant the required organization permissions, run:"
+      echo "  # Grant role creation permission"
+      echo "  gcloud organizations add-iam-policy-binding $ORGANIZATION_ID \\"
+      echo "    --member='user:YOUR_EMAIL' \\"
+      echo "    --role='roles/iam.organizationRoleAdmin'"
+      echo ""
+      echo "  # Grant policy management permission"
+      echo "  gcloud organizations add-iam-policy-binding $ORGANIZATION_ID \\"
+      echo "    --member='user:YOUR_EMAIL' \\"
+      echo "    --role='roles/resourcemanager.organizationAdmin'"
+      echo ""
+    fi
     echo "To grant project permissions, run:"
     echo "  gcloud projects add-iam-policy-binding $PROJECT_ID \\"
     echo "    --member='user:YOUR_EMAIL' \\"
@@ -453,13 +499,23 @@ fi
 echo ""
 log_info "StreamSecurity GCP Integration — Prerequisites Setup"
 echo ""
+if [[ "$SINGLE_PROJECT" == true ]]; then
+  echo "  Mode             : Single-project (all roles at project level)"
+else
+  echo "  Mode             : Organization (ops role at org level)"
+fi
 echo "  Project ID       : $PROJECT_ID"
-echo "  Organization ID  : $ORGANIZATION_ID"
+if [[ "$SINGLE_PROJECT" != true ]]; then
+  echo "  Organization ID  : $ORGANIZATION_ID"
+elif [[ -n "$ORGANIZATION_ID" ]]; then
+  echo "  Organization ID  : $ORGANIZATION_ID (optional in single-project mode)"
+fi
 echo "  Region           : $REGION"
 echo "  StreamSec Host   : $STREAMSEC_HOST"
 echo "  Workspace ID     : $WORKSPACE_ID"
 echo "  API Token        : ${API_TOKEN:0:8}********"
-echo "  Custom Role ID   : $CUSTOM_ROLE_ID"
+echo "  Ops Role ID      : $CUSTOM_ROLE_ID"
+echo "  Project Role ID  : $PROJECT_ROLE_ID"
 echo "  Service Account  : $SA_NAME"
 echo "  Secret Name      : $SECRET_NAME"
 echo ""
@@ -583,12 +639,99 @@ else
 fi
 
 ###############################################################################
-# Step 2 — Create organization-level custom role
+# Step 2 — Create custom IAM roles
 ###############################################################################
-if [[ $START_FROM_STEP -le 2 ]]; then
-  log_step "Step 2/$TOTAL_STEPS: Creating organization-level custom role '$CUSTOM_ROLE_ID'..."
 
-CUSTOM_ROLE_PERMISSIONS="\
+# Reusable function: create or update a custom IAM role.
+# Checks if the role exists, compares permissions, and creates/updates as needed.
+# Arguments:
+#   $1 - role_id           (e.g. StreamSecurityInfraManagerOpsRole)
+#   $2 - role_title        (human-readable title)
+#   $3 - role_description  (role description)
+#   $4 - role_permissions  (comma-separated permissions string)
+#   $5 - scope_flag        (e.g. "--organization=123" or "--project=my-proj")
+#   $6 - scope_display     (e.g. "organizations/123" or "projects/my-proj")
+# Returns: exit code (0 = success)
+create_or_update_role() {
+  local role_id="$1"
+  local role_title="$2"
+  local role_description="$3"
+  local role_permissions="$4"
+  local scope_flag="$5"
+  local scope_display="$6"
+
+  local exit_code=0
+
+  # shellcheck disable=SC2086
+  if gcloud iam roles describe "$role_id" $scope_flag &>/dev/null; then
+    # Fetch existing permissions (one per line, sorted)
+    # shellcheck disable=SC2086
+    EXISTING_PERMS=$(gcloud iam roles describe "$role_id" $scope_flag \
+      --format="value(includedPermissions)" 2>/dev/null \
+      | tr ';' '\n' | sort)
+
+    # Build desired permissions list (sorted) from the comma-separated string
+    DESIRED_PERMS=$(echo "$role_permissions" | tr ',' '\n' | sort)
+
+    if [[ "$EXISTING_PERMS" == "$DESIRED_PERMS" ]]; then
+      log_ok "Role '$role_id' already exists with the correct permissions in $scope_display — no update needed."
+    else
+      log_warn "Role '$role_id' in $scope_display has different permissions."
+
+      # Show the diff
+      ADDED=$(comm -13 <(echo "$EXISTING_PERMS") <(echo "$DESIRED_PERMS"))
+      REMOVED=$(comm -23 <(echo "$EXISTING_PERMS") <(echo "$DESIRED_PERMS"))
+
+      if [[ -n "$ADDED" ]]; then
+        echo ""
+        log_info "Permissions to ADD:"
+        echo "$ADDED" | while read -r perm; do echo "    + $perm"; done
+      fi
+      if [[ -n "$REMOVED" ]]; then
+        echo ""
+        log_warn "Permissions to REMOVE:"
+        echo "$REMOVED" | while read -r perm; do echo "    - $perm"; done
+      fi
+      echo ""
+
+      UPDATE_ROLE=false
+      if [[ "$AUTO_CONFIRM" == true ]]; then
+        UPDATE_ROLE=true
+      else
+        read -r -p "Do you want to overwrite the existing role permissions for '$role_id'? [y/N] " response
+        case "$response" in
+          [yY][eE][sS]|[yY]) UPDATE_ROLE=true ;;
+          *) log_warn "Keeping existing role permissions." ;;
+        esac
+      fi
+
+      if [[ "$UPDATE_ROLE" == true ]]; then
+        log_info "Updating role permissions..."
+        # shellcheck disable=SC2086
+        gcloud iam roles update "$role_id" $scope_flag \
+          --permissions="$role_permissions" \
+          --stage="GA" \
+          --quiet || exit_code=$?
+      fi
+    fi
+  else
+    # shellcheck disable=SC2086
+    gcloud iam roles create "$role_id" $scope_flag \
+      --title="$role_title" \
+      --description="$role_description" \
+      --stage="GA" \
+      --permissions="$role_permissions" \
+      --quiet || exit_code=$?
+  fi
+
+  return $exit_code
+}
+
+if [[ $START_FROM_STEP -le 2 ]]; then
+  log_step "Step 2/$TOTAL_STEPS: Creating custom IAM roles..."
+
+  # --- Ops Role permissions (base — always included) ---
+  OPS_ROLE_PERMISSIONS_BASE="\
 bigquery.datasets.get,\
 container.clusters.get,\
 compute.instanceGroups.get,\
@@ -606,13 +749,27 @@ iam.serviceAccountKeys.create,\
 iam.serviceAccountKeys.delete,\
 iam.serviceAccountKeys.get,\
 iam.serviceAccountKeys.list,\
+resourcemanager.projects.get,\
+resourcemanager.projects.getIamPolicy,\
+resourcemanager.projects.setIamPolicy,\
+logging.sinks.create,\
+logging.sinks.get,\
+logging.sinks.list,\
+logging.sinks.update,\
+logging.sinks.delete,\
+logging.logs.list,\
+logging.logEntries.list,\
+cloudasset.assets.searchAllResources"
+
+  # --- Ops Role org-only permissions (invalid at project level) ---
+  OPS_ROLE_ORG_EXTRA="\
 resourcemanager.organizations.get,\
 resourcemanager.organizations.getIamPolicy,\
 resourcemanager.organizations.setIamPolicy,\
-resourcemanager.projects.get,\
-resourcemanager.projects.list,\
-resourcemanager.projects.getIamPolicy,\
-resourcemanager.projects.setIamPolicy,\
+resourcemanager.projects.list"
+
+  # --- Project Resources Role permissions (always project-level) ---
+  PROJECT_ROLE_PERMISSIONS="\
 pubsub.topics.create,\
 pubsub.topics.get,\
 pubsub.topics.list,\
@@ -622,13 +779,6 @@ pubsub.topics.getIamPolicy,\
 pubsub.topics.setIamPolicy,\
 pubsub.topics.publish,\
 pubsub.topics.attachSubscription,\
-logging.sinks.create,\
-logging.sinks.get,\
-logging.sinks.list,\
-logging.sinks.update,\
-logging.sinks.delete,\
-logging.logs.list,\
-logging.logEntries.list,\
 secretmanager.secrets.create,\
 secretmanager.secrets.get,\
 secretmanager.secrets.delete,\
@@ -648,78 +798,39 @@ cloudfunctions.functions.delete,\
 cloudfunctions.functions.getIamPolicy,\
 cloudfunctions.functions.setIamPolicy,\
 cloudfunctions.functions.invoke,\
-cloudfunctions.operations.get,\
-cloudasset.assets.searchAllResources"
+cloudfunctions.operations.get"
 
-# Check if the role already exists; if so, compare permissions and update if needed.
-ROLE_EXIT_CODE=0
-if gcloud iam roles describe "$CUSTOM_ROLE_ID" \
-      --organization="$ORGANIZATION_ID" &>/dev/null; then
-
-  # Fetch existing permissions (one per line, sorted)
-  EXISTING_PERMS=$(gcloud iam roles describe "$CUSTOM_ROLE_ID" \
-    --organization="$ORGANIZATION_ID" \
-    --format="value(includedPermissions)" 2>/dev/null \
-    | tr ';' '\n' | sort)
-
-  # Build desired permissions list (sorted) from the comma-separated string
-  DESIRED_PERMS=$(echo "$CUSTOM_ROLE_PERMISSIONS" | tr ',' '\n' | sort)
-
-  if [[ "$EXISTING_PERMS" == "$DESIRED_PERMS" ]]; then
-    log_ok "Custom role '$CUSTOM_ROLE_ID' already exists with the correct permissions — no update needed."
+  # Build the ops role permissions based on mode
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    OPS_ROLE_PERMISSIONS="$OPS_ROLE_PERMISSIONS_BASE"
+    OPS_SCOPE_FLAG="--project=$PROJECT_ID"
+    OPS_SCOPE_DISPLAY="projects/$PROJECT_ID"
   else
-    log_warn "Custom role '$CUSTOM_ROLE_ID' already exists but has different permissions."
-
-    # Show the diff
-    ADDED=$(comm -13 <(echo "$EXISTING_PERMS") <(echo "$DESIRED_PERMS"))
-    REMOVED=$(comm -23 <(echo "$EXISTING_PERMS") <(echo "$DESIRED_PERMS"))
-
-    if [[ -n "$ADDED" ]]; then
-      echo ""
-      log_info "Permissions to ADD:"
-      echo "$ADDED" | while read -r perm; do echo "    + $perm"; done
-    fi
-    if [[ -n "$REMOVED" ]]; then
-      echo ""
-      log_warn "Permissions to REMOVE:"
-      echo "$REMOVED" | while read -r perm; do echo "    - $perm"; done
-    fi
-    echo ""
-
-    UPDATE_ROLE=false
-    if [[ "$AUTO_CONFIRM" == true ]]; then
-      UPDATE_ROLE=true
-    else
-      read -r -p "Do you want to overwrite the existing role permissions? [y/N] " response
-      case "$response" in
-        [yY][eE][sS]|[yY]) UPDATE_ROLE=true ;;
-        *) log_warn "Keeping existing role permissions." ;;
-      esac
-    fi
-
-    if [[ "$UPDATE_ROLE" == true ]]; then
-      log_info "Updating custom role permissions..."
-      gcloud iam roles update "$CUSTOM_ROLE_ID" \
-        --organization="$ORGANIZATION_ID" \
-        --permissions="$CUSTOM_ROLE_PERMISSIONS" \
-        --stage="GA" \
-        --quiet || ROLE_EXIT_CODE=$?
-    fi
+    OPS_ROLE_PERMISSIONS="${OPS_ROLE_PERMISSIONS_BASE},${OPS_ROLE_ORG_EXTRA}"
+    OPS_SCOPE_FLAG="--organization=$ORGANIZATION_ID"
+    OPS_SCOPE_DISPLAY="organizations/$ORGANIZATION_ID"
   fi
-else
-  gcloud iam roles create "$CUSTOM_ROLE_ID" \
-    --organization="$ORGANIZATION_ID" \
-    --title="$CUSTOM_ROLE_TITLE" \
-    --description="This role is used for stream-security infrastructure manager deployment" \
-    --stage="GA" \
-    --permissions="$CUSTOM_ROLE_PERMISSIONS" \
-    --quiet || ROLE_EXIT_CODE=$?
-fi
 
-  log_ok "Custom role 'organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID' is ready."
-  confirm_step "Create/update custom IAM role" $ROLE_EXIT_CODE
+  # 2a. Create/update ops role
+  log_info "Creating/updating ops role '$CUSTOM_ROLE_ID' in $OPS_SCOPE_DISPLAY..."
+  OPS_ROLE_EXIT_CODE=0
+  create_or_update_role "$CUSTOM_ROLE_ID" "$CUSTOM_ROLE_TITLE" \
+    "Ops role for StreamSecurity Infrastructure Manager deployment (IAM, logging, resource management)" \
+    "$OPS_ROLE_PERMISSIONS" "$OPS_SCOPE_FLAG" "$OPS_SCOPE_DISPLAY" || OPS_ROLE_EXIT_CODE=$?
+  log_ok "Ops role '$OPS_SCOPE_DISPLAY/roles/$CUSTOM_ROLE_ID' is ready."
+
+  # 2b. Create/update project resources role (always at project level)
+  log_info "Creating/updating project resources role '$PROJECT_ROLE_ID' in projects/$PROJECT_ID..."
+  PROJECT_ROLE_EXIT_CODE=0
+  create_or_update_role "$PROJECT_ROLE_ID" "$PROJECT_ROLE_TITLE" \
+    "Project resources role for StreamSecurity Infrastructure Manager deployment (pubsub, secrets, functions)" \
+    "$PROJECT_ROLE_PERMISSIONS" "--project=$PROJECT_ID" "projects/$PROJECT_ID" || PROJECT_ROLE_EXIT_CODE=$?
+  log_ok "Project resources role 'projects/$PROJECT_ID/roles/$PROJECT_ROLE_ID' is ready."
+
+  ROLE_EXIT_CODE=$((OPS_ROLE_EXIT_CODE + PROJECT_ROLE_EXIT_CODE))
+  confirm_step "Create/update custom IAM roles" $ROLE_EXIT_CODE
 else
-  log_info "Skipping Step 2: Create organization-level custom role"
+  log_info "Skipping Step 2: Create custom IAM roles"
 fi
 
 ###############################################################################
@@ -751,30 +862,61 @@ else
 fi
 
 ###############################################################################
-# Step 4 — Grant IAM roles at the organization level
+# Step 4 — Grant IAM roles
 ###############################################################################
 if [[ $START_FROM_STEP -le 4 ]]; then
-  log_step "Step 4/$TOTAL_STEPS: Granting organization-level IAM roles to '$SA_EMAIL'..."
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    log_step "Step 4/$TOTAL_STEPS: Granting project-level IAM roles to '$SA_EMAIL'..."
+  else
+    log_step "Step 4/$TOTAL_STEPS: Granting IAM roles to '$SA_EMAIL'..."
+  fi
 
-# 4a. Grant the custom role
-log_info "Granting custom role 'organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID'..."
-IAM_EXIT_CODE=0
-gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
-  --member="serviceAccount:$SA_EMAIL" \
-  --role="organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID" \
-  --quiet >/dev/null || IAM_EXIT_CODE=$?
+  IAM_EXIT_CODE=0
 
-# 4b. Grant Cloud Infrastructure Manager Agent role
-log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent)..."
-gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
-  --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/config.agent" \
-  --quiet >/dev/null || IAM_EXIT_CODE=$?
+  # 4a. Grant the ops role
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    OPS_ROLE_RESOURCE="projects/$PROJECT_ID/roles/$CUSTOM_ROLE_ID"
+    log_info "Granting ops role '$OPS_ROLE_RESOURCE' at project level..."
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="$OPS_ROLE_RESOURCE" \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  else
+    OPS_ROLE_RESOURCE="organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID"
+    log_info "Granting ops role '$OPS_ROLE_RESOURCE' at organization level..."
+    gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="$OPS_ROLE_RESOURCE" \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  fi
+
+  # 4b. Grant the project resources role (always at project level)
+  PROJECT_ROLE_RESOURCE="projects/$PROJECT_ID/roles/$PROJECT_ROLE_ID"
+  log_info "Granting project resources role '$PROJECT_ROLE_RESOURCE'..."
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="$PROJECT_ROLE_RESOURCE" \
+    --quiet >/dev/null || IAM_EXIT_CODE=$?
+
+  # 4c. Grant Cloud Infrastructure Manager Agent role
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at project level..."
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="roles/config.agent" \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  else
+    log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at organization level..."
+    gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="roles/config.agent" \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  fi
 
   log_ok "IAM bindings configured successfully."
-  confirm_step "Grant IAM roles at organization level" $IAM_EXIT_CODE
+  confirm_step "Grant IAM roles" $IAM_EXIT_CODE
 else
-  log_info "Skipping Step 4: Grant IAM roles at organization level"
+  log_info "Skipping Step 4: Grant IAM roles"
 fi
 
 ###############################################################################
@@ -842,6 +984,18 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   # Infrastructure Manager requires the full service account resource path
   SA_RESOURCE_PATH="projects/$PROJECT_ID/serviceAccounts/$SA_EMAIL"
 
+  # Build input-values based on mode
+  IM_INPUT_VALUES="google_project_id=$PROJECT_ID,google_region=$REGION,streamsec_secret_name=$SECRET_NAME,org_level_sink=$ORG_LEVEL_SINK"
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    # Pass include_projects so Terraform skips org-scoped asset search
+    IM_INPUT_VALUES="${IM_INPUT_VALUES},include_projects=[\"$PROJECT_ID\"]"
+    if [[ -n "$ORGANIZATION_ID" ]]; then
+      IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
+    fi
+  else
+    IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
+  fi
+
   gcloud infra-manager previews create "$PREVIEW_NAME" \
     --project="$PROJECT_ID" \
     --location="$REGION" \
@@ -849,7 +1003,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     --git-source-repo="$GIT_REPO" \
     --git-source-directory="$GIT_DIRECTORY" \
     --git-source-ref="$GIT_REF" \
-    --input-values="google_project_id=$PROJECT_ID,google_region=$REGION,org_id=$ORGANIZATION_ID,streamsec_secret_name=$SECRET_NAME,org_level_sink=$ORG_LEVEL_SINK" \
+    --input-values="$IM_INPUT_VALUES" \
     --labels="managed-by=setup-script" \
     --async \
     --quiet || PREVIEW_CREATE_EXIT_CODE=$?
@@ -930,7 +1084,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
         echo "       --git-source-repo=$GIT_REPO \\"
         echo "       --git-source-directory=$GIT_DIRECTORY \\"
         echo "       --git-source-ref=$GIT_REF \\"
-        echo "       --input-values='google_project_id=$PROJECT_ID,google_region=$REGION,org_id=$ORGANIZATION_ID,streamsec_secret_name=$SECRET_NAME,org_level_sink=$ORG_LEVEL_SINK'"
+        echo "       --input-values='$IM_INPUT_VALUES'"
         echo ""
 
         break

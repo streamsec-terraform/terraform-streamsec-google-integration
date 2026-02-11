@@ -7,13 +7,16 @@
 #
 # It will attempt to delete the following resources:
 #   1. Cloud Function v2 (audit-log event processor + its IAM bindings)
-#   2. Organization-level logging sink
+#   2. Organization-level or project-level logging sink
 #   3. Pub/Sub topic
 #   4. Global secret (collection token created by Terraform)
 #   5. Regional secret (and its versions)
 #   6. Organization IAM bindings for the stream-security service account
 #   7. Function service account
 #   8. Stream-security service account (and its keys)
+#   9. Infrastructure Manager SA IAM bindings (ops role, project role, config.agent)
+#  10. Infrastructure Manager service account
+#  11. Custom IAM roles (ops role at org or project, project resources role)
 #
 # Safety:
 #   - Each resource is checked for existence before deletion
@@ -58,6 +61,11 @@ LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
 REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
 GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
 
+# Infrastructure Manager SA and role names (from setup-prerequisites.sh)
+IM_SA_NAME="${IM_SA_NAME:-StreamSecurityInfraManagerSa}"
+OPS_ROLE_ID="${OPS_ROLE_ID:-StreamSecurityInfraManagerOpsRole}"
+PROJECT_ROLE_ID="${PROJECT_ROLE_ID:-StreamSecurityInfraManagerProjectRole}"
+
 AUTO_CONFIRM=false
 
 ###############################################################################
@@ -80,6 +88,9 @@ Optional overrides:
   --logging-sink          NAME  Logging sink name             (default: $LOGGING_SINK)
   --regional-secret       NAME  Regional secret name          (default: $REGIONAL_SECRET)
   --global-secret         NAME  Global secret name (TF token) (default: $GLOBAL_SECRET)
+  --im-sa-name            NAME  Infra Manager SA name         (default: $IM_SA_NAME)
+  --ops-role-id           NAME  Ops custom role ID            (default: $OPS_ROLE_ID)
+  --project-role-id       NAME  Project resources role ID     (default: $PROJECT_ROLE_ID)
 
   -y, --yes               Skip confirmation prompts
   -h, --help              Show this help message and exit
@@ -101,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --logging-sink)       LOGGING_SINK="$2";            shift 2 ;;
     --regional-secret)    REGIONAL_SECRET="$2";         shift 2 ;;
     --global-secret)      GLOBAL_SECRET="$2";           shift 2 ;;
+    --im-sa-name)         IM_SA_NAME="$2";              shift 2 ;;
+    --ops-role-id)        OPS_ROLE_ID="$2";             shift 2 ;;
+    --project-role-id)    PROJECT_ROLE_ID="$2";         shift 2 ;;
     -y|--yes)             AUTO_CONFIRM=true;            shift   ;;
     -h|--help)            usage ;;
     *) log_error "Unknown option: $1"; usage ;;
@@ -123,6 +137,7 @@ fi
 
 SA_EMAIL="${SA_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 FUNCTION_SA_EMAIL="${FUNCTION_SA_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+IM_SA_EMAIL="${IM_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 ###############################################################################
 # Discovery — check which resources exist
@@ -237,6 +252,82 @@ if [[ "$HAS_SA" == true ]]; then
   fi
 fi
 
+# Check for Infrastructure Manager SA
+HAS_IM_SA=false
+check_resource "IM service account: $IM_SA_EMAIL" \
+  "gcloud iam service-accounts describe '$IM_SA_EMAIL' --project='$PROJECT_ID'" \
+  && HAS_IM_SA=true
+
+# Check for ops role (org-level first, then project-level)
+HAS_OPS_ROLE_ORG=false
+HAS_OPS_ROLE_PROJECT=false
+check_resource "Ops role (org): $OPS_ROLE_ID" \
+  "gcloud iam roles describe '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID'" \
+  && HAS_OPS_ROLE_ORG=true
+
+if [[ "$HAS_OPS_ROLE_ORG" == false ]]; then
+  check_resource "Ops role (project): $OPS_ROLE_ID" \
+    "gcloud iam roles describe '$OPS_ROLE_ID' --project='$PROJECT_ID'" \
+    && HAS_OPS_ROLE_PROJECT=true
+fi
+
+# Check for project resources role (always project-level)
+HAS_PROJECT_ROLE=false
+check_resource "Project resources role: $PROJECT_ROLE_ID" \
+  "gcloud iam roles describe '$PROJECT_ROLE_ID' --project='$PROJECT_ID'" \
+  && HAS_PROJECT_ROLE=true
+
+# Check for IM SA IAM bindings (ops role + config.agent at org or project)
+HAS_IM_OPS_ROLE_BINDING_ORG=false
+HAS_IM_OPS_ROLE_BINDING_PROJECT=false
+HAS_IM_PROJECT_ROLE_BINDING=false
+HAS_IM_CONFIG_AGENT_ORG=false
+HAS_IM_CONFIG_AGENT_PROJECT=false
+
+if [[ "$HAS_IM_SA" == true ]]; then
+  # Check org-level bindings
+  IM_ORG_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:serviceAccount:$IM_SA_EMAIL" \
+    --format="value(bindings.role)" 2>/dev/null || echo "")
+
+  if echo "$IM_ORG_BINDINGS" | grep -q "roles/$OPS_ROLE_ID\|organizations/.*/roles/$OPS_ROLE_ID"; then
+    FOUND_RESOURCES+=("Org IAM binding: ops role for $IM_SA_EMAIL")
+    log_info "Found: Org IAM binding: ops role for $IM_SA_EMAIL"
+    HAS_IM_OPS_ROLE_BINDING_ORG=true
+  fi
+
+  if echo "$IM_ORG_BINDINGS" | grep -q "roles/config.agent"; then
+    FOUND_RESOURCES+=("Org IAM binding: roles/config.agent for $IM_SA_EMAIL")
+    log_info "Found: Org IAM binding: roles/config.agent for $IM_SA_EMAIL"
+    HAS_IM_CONFIG_AGENT_ORG=true
+  fi
+
+  # Check project-level bindings
+  IM_PROJECT_BINDINGS=$(gcloud projects get-iam-policy "$PROJECT_ID" \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:serviceAccount:$IM_SA_EMAIL" \
+    --format="value(bindings.role)" 2>/dev/null || echo "")
+
+  if echo "$IM_PROJECT_BINDINGS" | grep -q "roles/$OPS_ROLE_ID\|projects/.*/roles/$OPS_ROLE_ID"; then
+    FOUND_RESOURCES+=("Project IAM binding: ops role for $IM_SA_EMAIL")
+    log_info "Found: Project IAM binding: ops role for $IM_SA_EMAIL"
+    HAS_IM_OPS_ROLE_BINDING_PROJECT=true
+  fi
+
+  if echo "$IM_PROJECT_BINDINGS" | grep -q "roles/$PROJECT_ROLE_ID\|projects/.*/roles/$PROJECT_ROLE_ID"; then
+    FOUND_RESOURCES+=("Project IAM binding: project role for $IM_SA_EMAIL")
+    log_info "Found: Project IAM binding: project role for $IM_SA_EMAIL"
+    HAS_IM_PROJECT_ROLE_BINDING=true
+  fi
+
+  if echo "$IM_PROJECT_BINDINGS" | grep -q "roles/config.agent"; then
+    FOUND_RESOURCES+=("Project IAM binding: roles/config.agent for $IM_SA_EMAIL")
+    log_info "Found: Project IAM binding: roles/config.agent for $IM_SA_EMAIL"
+    HAS_IM_CONFIG_AGENT_PROJECT=true
+  fi
+fi
+
 ###############################################################################
 # Summary and confirmation
 ###############################################################################
@@ -345,6 +436,54 @@ fi
 if [[ "$HAS_SA" == true ]]; then
   delete_resource "Service account: $SA_EMAIL" \
     "gcloud iam service-accounts delete '$SA_EMAIL' --project='$PROJECT_ID' --quiet"
+fi
+
+# 9. IM SA IAM bindings (remove before deleting the SA)
+if [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]]; then
+  delete_resource "Org IAM binding: ops role for $IM_SA_EMAIL" \
+    "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='organizations/$ORGANIZATION_ID/roles/$OPS_ROLE_ID' --quiet"
+fi
+
+if [[ "$HAS_IM_CONFIG_AGENT_ORG" == true ]]; then
+  delete_resource "Org IAM binding: roles/config.agent for $IM_SA_EMAIL" \
+    "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='roles/config.agent' --quiet"
+fi
+
+if [[ "$HAS_IM_OPS_ROLE_BINDING_PROJECT" == true ]]; then
+  delete_resource "Project IAM binding: ops role for $IM_SA_EMAIL" \
+    "gcloud projects remove-iam-policy-binding '$PROJECT_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='projects/$PROJECT_ID/roles/$OPS_ROLE_ID' --quiet"
+fi
+
+if [[ "$HAS_IM_PROJECT_ROLE_BINDING" == true ]]; then
+  delete_resource "Project IAM binding: project role for $IM_SA_EMAIL" \
+    "gcloud projects remove-iam-policy-binding '$PROJECT_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='projects/$PROJECT_ID/roles/$PROJECT_ROLE_ID' --quiet"
+fi
+
+if [[ "$HAS_IM_CONFIG_AGENT_PROJECT" == true ]]; then
+  delete_resource "Project IAM binding: roles/config.agent for $IM_SA_EMAIL" \
+    "gcloud projects remove-iam-policy-binding '$PROJECT_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='roles/config.agent' --quiet"
+fi
+
+# 10. IM service account
+if [[ "$HAS_IM_SA" == true ]]; then
+  delete_resource "IM service account: $IM_SA_EMAIL" \
+    "gcloud iam service-accounts delete '$IM_SA_EMAIL' --project='$PROJECT_ID' --quiet"
+fi
+
+# 11. Custom roles (delete after removing all bindings)
+if [[ "$HAS_OPS_ROLE_ORG" == true ]]; then
+  delete_resource "Ops role (org): $OPS_ROLE_ID" \
+    "gcloud iam roles delete '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID' --quiet"
+fi
+
+if [[ "$HAS_OPS_ROLE_PROJECT" == true ]]; then
+  delete_resource "Ops role (project): $OPS_ROLE_ID" \
+    "gcloud iam roles delete '$OPS_ROLE_ID' --project='$PROJECT_ID' --quiet"
+fi
+
+if [[ "$HAS_PROJECT_ROLE" == true ]]; then
+  delete_resource "Project resources role: $PROJECT_ROLE_ID" \
+    "gcloud iam roles delete '$PROJECT_ROLE_ID' --project='$PROJECT_ID' --quiet"
 fi
 
 ###############################################################################
