@@ -994,9 +994,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   # Infrastructure Manager requires the full service account resource path
   SA_RESOURCE_PATH="projects/$PROJECT_ID/serviceAccounts/$SA_EMAIL"
 
-  # Build input-values based on mode
-  # Note: IM --input-values only supports string types. Complex types (list, map)
-  # cannot be passed this way (IM wraps them in quotes, breaking the HCL syntax).
+  # Build input-values for IM
   IM_INPUT_VALUES="google_project_id=$PROJECT_ID,google_region=$REGION,streamsec_secret_name=$SECRET_NAME,org_level_sink=$ORG_LEVEL_SINK"
   if [[ "$SINGLE_PROJECT" == true ]]; then
     if [[ -n "$ORGANIZATION_ID" ]]; then
@@ -1006,17 +1004,68 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
   fi
 
-  gcloud infra-manager previews create "$PREVIEW_NAME" \
-    --project="$PROJECT_ID" \
-    --location="$REGION" \
-    --service-account="$SA_RESOURCE_PATH" \
-    --git-source-repo="$GIT_REPO" \
-    --git-source-directory="$GIT_DIRECTORY" \
-    --git-source-ref="$GIT_REF" \
+  if [[ "$SINGLE_PROJECT" == true ]]; then
+    # IM --input-values wraps all values in quotes, which breaks list types.
+    # Use the REST API directly to pass include_projects as a proper HCL list.
+    log_info "Using REST API for single-project mode (to pass include_projects as list)..."
+
+    ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
+    if [[ -z "$ACCESS_TOKEN" ]]; then
+      log_error "Could not obtain access token. Make sure you are authenticated with gcloud."
+      exit 1
+    fi
+
+    # Build the inputValues JSON object
+    INPUT_VALUES_JSON=$(cat <<JSONEOF
+{
+  "google_project_id": {"inputValue": "$PROJECT_ID"},
+  "google_region": {"inputValue": "$REGION"},
+  "streamsec_secret_name": {"inputValue": "$SECRET_NAME"},
+  "org_level_sink": {"inputValue": "$ORG_LEVEL_SINK"},
+  "include_projects": {"inputValue": "[\"$PROJECT_ID\"]"}$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
+}
+JSONEOF
+)
+
+    API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
+
+    HTTP_CODE=$(curl -s -o /tmp/im-preview-response.json -w "%{http_code}" \
+      -X POST "$API_URL" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"serviceAccount\": \"$SA_RESOURCE_PATH\",
+        \"gitSource\": {
+          \"repo\": \"$GIT_REPO\",
+          \"directory\": \"$GIT_DIRECTORY\",
+          \"ref\": \"$GIT_REF\"
+        },
+        \"inputValues\": $INPUT_VALUES_JSON,
+        \"labels\": {\"managed-by\": \"setup-script\"}
+      }")
+
+    if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+      PREVIEW_CREATE_EXIT_CODE=0
+    else
+      log_error "REST API returned HTTP $HTTP_CODE"
+      cat /tmp/im-preview-response.json 2>/dev/null
+      echo ""
+      PREVIEW_CREATE_EXIT_CODE=1
+    fi
+    rm -f /tmp/im-preview-response.json
+  else
+    gcloud infra-manager previews create "$PREVIEW_NAME" \
+      --project="$PROJECT_ID" \
+      --location="$REGION" \
+      --service-account="$SA_RESOURCE_PATH" \
+      --git-source-repo="$GIT_REPO" \
+      --git-source-directory="$GIT_DIRECTORY" \
+      --git-source-ref="$GIT_REF" \
     --input-values="$IM_INPUT_VALUES" \
     --labels="managed-by=setup-script" \
     --async \
     --quiet || PREVIEW_CREATE_EXIT_CODE=$?
+  fi
 
   log_info "Preview creation initiated: $PREVIEW_NAME"
   confirm_step "Create Infrastructure Manager preview" $PREVIEW_CREATE_EXIT_CODE
@@ -1085,16 +1134,37 @@ if [[ $START_FROM_STEP -le 6 ]]; then
         echo "  2. If the preview looks correct, create the deployment:"
         echo "     https://console.cloud.google.com/infra-manager/deployments?project=$PROJECT_ID"
         echo "     - Use the same configuration as the preview"
-        echo "     - OR run the following command:"
         echo ""
-        echo "     gcloud infra-manager deployments apply $DEPLOYMENT_NAME \\"
-        echo "       --project=$PROJECT_ID \\"
-        echo "       --location=$REGION \\"
-        echo "       --service-account=$SA_EMAIL \\"
-        echo "       --git-source-repo=$GIT_REPO \\"
-        echo "       --git-source-directory=$GIT_DIRECTORY \\"
-        echo "       --git-source-ref=$GIT_REF \\"
-        echo "       --input-values='$IM_INPUT_VALUES'"
+        if [[ "$SINGLE_PROJECT" == true ]]; then
+          echo "     For single-project mode, create the deployment from the GCP Console (above link)"
+          echo "     using the same configuration as the preview, OR use the REST API:"
+          echo ""
+          echo "     curl -X POST \\"
+          echo "       'https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/deployments?deploymentId=$DEPLOYMENT_NAME' \\"
+          echo "       -H 'Authorization: Bearer \$(gcloud auth print-access-token)' \\"
+          echo "       -H 'Content-Type: application/json' \\"
+          echo "       -d '{"
+          echo "         \"serviceAccount\": \"projects/$PROJECT_ID/serviceAccounts/$SA_EMAIL\","
+          echo "         \"gitSource\": {"
+          echo "           \"repo\": \"$GIT_REPO\","
+          echo "           \"directory\": \"$GIT_DIRECTORY\","
+          echo "           \"ref\": \"$GIT_REF\""
+          echo "         },"
+          echo "         \"inputValues\": $INPUT_VALUES_JSON,"
+          echo "         \"labels\": {\"managed-by\": \"setup-script\"}"
+          echo "       }'"
+        else
+          echo "     OR run the following command:"
+          echo ""
+          echo "     gcloud infra-manager deployments apply $DEPLOYMENT_NAME \\"
+          echo "       --project=$PROJECT_ID \\"
+          echo "       --location=$REGION \\"
+          echo "       --service-account=$SA_EMAIL \\"
+          echo "       --git-source-repo=$GIT_REPO \\"
+          echo "       --git-source-directory=$GIT_DIRECTORY \\"
+          echo "       --git-source-ref=$GIT_REF \\"
+          echo "       --input-values='$IM_INPUT_VALUES'"
+        fi
         echo ""
 
         break
