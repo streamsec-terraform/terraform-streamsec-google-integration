@@ -654,6 +654,23 @@ create_or_update_role() {
 
   # shellcheck disable=SC2086
   if gcloud iam roles describe "$role_id" $scope_flag &>/dev/null; then
+    # Check if the role is soft-deleted (GCP keeps deleted roles for 7 days)
+    # shellcheck disable=SC2086
+    ROLE_DELETED=$(gcloud iam roles describe "$role_id" $scope_flag \
+      --format="value(deleted)" 2>/dev/null || echo "false")
+
+    if [[ "$ROLE_DELETED" == "True" ]]; then
+      log_warn "Role '$role_id' in $scope_display is soft-deleted — undeleting it..."
+      # shellcheck disable=SC2086
+      if gcloud iam roles undelete "$role_id" $scope_flag --quiet 2>&1; then
+        log_ok "✓ Role '$role_id' has been restored from soft-deleted state."
+      else
+        log_error "Failed to undelete role '$role_id'. It may need to be manually restored or purged."
+        exit_code=1
+        return $exit_code
+      fi
+    fi
+
     # Fetch existing permissions (one per line, sorted)
     # shellcheck disable=SC2086
     EXISTING_PERMS=$(gcloud iam roles describe "$role_id" $scope_flag \
