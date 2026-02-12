@@ -26,8 +26,8 @@
 # Usage:
 #   ./cleanup-abandoned-deployment.sh \
 #       --project-id <PROJECT_ID> \
-#       --org-id <ORGANIZATION_ID> \
-#       --region <REGION>
+#       --region <REGION> \
+#       [--org-id <ORGANIZATION_ID>]
 #
 set -euo pipefail
 
@@ -77,8 +77,10 @@ Usage: $(basename "$0") [OPTIONS]
 
 Required options:
   --project-id      ID    GCP project used for the deployment
-  --org-id          ID    GCP organization ID
   --region          NAME  GCP region where resources were deployed (e.g. us-central1)
+
+Optional:
+  --org-id          ID    GCP organization ID (required only for org-level cleanup)
 
 Optional overrides:
   --sa-account-id         NAME  Main service account ID       (default: $SA_ACCOUNT_ID)
@@ -125,9 +127,8 @@ done
 # Validate required inputs
 ###############################################################################
 missing=()
-[[ -z "$PROJECT_ID" ]]      && missing+=("--project-id")
-[[ -z "$ORGANIZATION_ID" ]] && missing+=("--org-id")
-[[ -z "$REGION" ]]          && missing+=("--region")
+[[ -z "$PROJECT_ID" ]] && missing+=("--project-id")
+[[ -z "$REGION" ]]     && missing+=("--region")
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   log_error "Missing required parameters: ${missing[*]}"
@@ -178,10 +179,12 @@ check_resource "Cloud Function v2: $FUNCTION_NAME ($REGION)" \
   "gcloud functions describe '$FUNCTION_NAME' --region='$REGION' --project='$PROJECT_ID' --gen2" \
   && HAS_CLOUD_FUNCTION=true
 
-# Auto-detect: check org-level sink first, then project-level
-check_resource "Org logging sink: $LOGGING_SINK" \
-  "gcloud logging sinks describe '$LOGGING_SINK' --organization='$ORGANIZATION_ID'" \
-  && HAS_ORG_LOGGING_SINK=true
+# Auto-detect: check org-level sink first (only if org-id provided), then project-level
+if [[ -n "$ORGANIZATION_ID" ]]; then
+  check_resource "Org logging sink: $LOGGING_SINK" \
+    "gcloud logging sinks describe '$LOGGING_SINK' --organization='$ORGANIZATION_ID'" \
+    && HAS_ORG_LOGGING_SINK=true
+fi
 
 if [[ "$HAS_ORG_LOGGING_SINK" == false ]]; then
   check_resource "Project logging sink: $LOGGING_SINK" \
@@ -208,28 +211,30 @@ else
   log_warn "Not found: Regional secret: $REGIONAL_SECRET ($REGION) (skipping)"
 fi
 
-# Check org IAM bindings
-ORG_IAM_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
-  --flatten="bindings[].members" \
-  --filter="bindings.members:serviceAccount:$SA_EMAIL" \
-  --format="value(bindings.role)" 2>/dev/null || echo "")
+# Check org IAM bindings (only if org-id provided)
+if [[ -n "$ORGANIZATION_ID" ]]; then
+  ORG_IAM_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:serviceAccount:$SA_EMAIL" \
+    --format="value(bindings.role)" 2>/dev/null || echo "")
 
-if echo "$ORG_IAM_BINDINGS" | grep -q "roles/viewer"; then
-  FOUND_RESOURCES+=("Org IAM binding: roles/viewer for $SA_EMAIL")
-  log_info "Found: Org IAM binding: roles/viewer for $SA_EMAIL"
-  HAS_ORG_IAM_VIEWER=true
-else
-  NOT_FOUND_RESOURCES+=("Org IAM binding: roles/viewer for $SA_EMAIL")
-  log_warn "Not found: Org IAM binding: roles/viewer (skipping)"
-fi
+  if echo "$ORG_IAM_BINDINGS" | grep -q "roles/viewer"; then
+    FOUND_RESOURCES+=("Org IAM binding: roles/viewer for $SA_EMAIL")
+    log_info "Found: Org IAM binding: roles/viewer for $SA_EMAIL"
+    HAS_ORG_IAM_VIEWER=true
+  else
+    NOT_FOUND_RESOURCES+=("Org IAM binding: roles/viewer for $SA_EMAIL")
+    log_warn "Not found: Org IAM binding: roles/viewer (skipping)"
+  fi
 
-if echo "$ORG_IAM_BINDINGS" | grep -q "roles/iam.securityReviewer"; then
-  FOUND_RESOURCES+=("Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL")
-  log_info "Found: Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL"
-  HAS_ORG_IAM_SECURITY_REVIEWER=true
-else
-  NOT_FOUND_RESOURCES+=("Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL")
-  log_warn "Not found: Org IAM binding: roles/iam.securityReviewer (skipping)"
+  if echo "$ORG_IAM_BINDINGS" | grep -q "roles/iam.securityReviewer"; then
+    FOUND_RESOURCES+=("Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL")
+    log_info "Found: Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL"
+    HAS_ORG_IAM_SECURITY_REVIEWER=true
+  else
+    NOT_FOUND_RESOURCES+=("Org IAM binding: roles/iam.securityReviewer for $SA_EMAIL")
+    log_warn "Not found: Org IAM binding: roles/iam.securityReviewer (skipping)"
+  fi
 fi
 
 check_resource "Function service account: $FUNCTION_SA_EMAIL" \
@@ -258,12 +263,14 @@ check_resource "IM service account: $IM_SA_EMAIL" \
   "gcloud iam service-accounts describe '$IM_SA_EMAIL' --project='$PROJECT_ID'" \
   && HAS_IM_SA=true
 
-# Check for ops role (org-level first, then project-level)
+# Check for ops role (org-level first if org-id provided, then project-level)
 HAS_OPS_ROLE_ORG=false
 HAS_OPS_ROLE_PROJECT=false
-check_resource "Ops role (org): $OPS_ROLE_ID" \
-  "gcloud iam roles describe '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID'" \
-  && HAS_OPS_ROLE_ORG=true
+if [[ -n "$ORGANIZATION_ID" ]]; then
+  check_resource "Ops role (org): $OPS_ROLE_ID" \
+    "gcloud iam roles describe '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID'" \
+    && HAS_OPS_ROLE_ORG=true
+fi
 
 if [[ "$HAS_OPS_ROLE_ORG" == false ]]; then
   check_resource "Ops role (project): $OPS_ROLE_ID" \
@@ -285,22 +292,24 @@ HAS_IM_CONFIG_AGENT_ORG=false
 HAS_IM_CONFIG_AGENT_PROJECT=false
 
 if [[ "$HAS_IM_SA" == true ]]; then
-  # Check org-level bindings
-  IM_ORG_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
-    --flatten="bindings[].members" \
-    --filter="bindings.members:serviceAccount:$IM_SA_EMAIL" \
-    --format="value(bindings.role)" 2>/dev/null || echo "")
+  # Check org-level bindings (only if org-id provided)
+  if [[ -n "$ORGANIZATION_ID" ]]; then
+    IM_ORG_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+      --flatten="bindings[].members" \
+      --filter="bindings.members:serviceAccount:$IM_SA_EMAIL" \
+      --format="value(bindings.role)" 2>/dev/null || echo "")
 
-  if echo "$IM_ORG_BINDINGS" | grep -q "roles/$OPS_ROLE_ID\|organizations/.*/roles/$OPS_ROLE_ID"; then
-    FOUND_RESOURCES+=("Org IAM binding: ops role for $IM_SA_EMAIL")
-    log_info "Found: Org IAM binding: ops role for $IM_SA_EMAIL"
-    HAS_IM_OPS_ROLE_BINDING_ORG=true
-  fi
+    if echo "$IM_ORG_BINDINGS" | grep -q "roles/$OPS_ROLE_ID\|organizations/.*/roles/$OPS_ROLE_ID"; then
+      FOUND_RESOURCES+=("Org IAM binding: ops role for $IM_SA_EMAIL")
+      log_info "Found: Org IAM binding: ops role for $IM_SA_EMAIL"
+      HAS_IM_OPS_ROLE_BINDING_ORG=true
+    fi
 
-  if echo "$IM_ORG_BINDINGS" | grep -q "roles/config.agent"; then
-    FOUND_RESOURCES+=("Org IAM binding: roles/config.agent for $IM_SA_EMAIL")
-    log_info "Found: Org IAM binding: roles/config.agent for $IM_SA_EMAIL"
-    HAS_IM_CONFIG_AGENT_ORG=true
+    if echo "$IM_ORG_BINDINGS" | grep -q "roles/config.agent"; then
+      FOUND_RESOURCES+=("Org IAM binding: roles/config.agent for $IM_SA_EMAIL")
+      log_info "Found: Org IAM binding: roles/config.agent for $IM_SA_EMAIL"
+      HAS_IM_CONFIG_AGENT_ORG=true
+    fi
   fi
 
   # Check project-level bindings
@@ -352,6 +361,44 @@ if [[ ${#NOT_FOUND_RESOURCES[@]} -gt 0 ]]; then
     echo "  • $resource"
   done
   echo ""
+fi
+
+# Check if any org-level resources will be deleted
+HAS_ORG_LEVEL_DELETIONS=false
+if [[ "$HAS_ORG_LOGGING_SINK" == true ]] || \
+   [[ "$HAS_ORG_IAM_VIEWER" == true ]] || \
+   [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]] || \
+   [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]] || \
+   [[ "$HAS_IM_CONFIG_AGENT_ORG" == true ]] || \
+   [[ "$HAS_OPS_ROLE_ORG" == true ]]; then
+  HAS_ORG_LEVEL_DELETIONS=true
+fi
+
+# Show red warning banner for org-level deletions
+if [[ "$HAS_ORG_LEVEL_DELETIONS" == true ]]; then
+  echo ""
+  echo -e "${RED}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${RED}║                                                                   ║${NC}"
+  echo -e "${RED}║                   ⚠️  ORGANIZATION-LEVEL DELETION  ⚠️              ║${NC}"
+  echo -e "${RED}║                                                                   ║${NC}"
+  echo -e "${RED}║  This operation will delete ORGANIZATION-LEVEL resources that    ║${NC}"
+  echo -e "${RED}║  may affect the entire organization, not just this project!      ║${NC}"
+  echo -e "${RED}║                                                                   ║${NC}"
+  echo -e "${RED}║  Resources include: logging sinks, IAM bindings, custom roles    ║${NC}"
+  echo -e "${RED}║                                                                   ║${NC}"
+  echo -e "${RED}║  Please review the list above carefully before proceeding.       ║${NC}"
+  echo -e "${RED}║                                                                   ║${NC}"
+  echo -e "${RED}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+
+  if [[ "$AUTO_CONFIRM" != true ]]; then
+    read -r -p "$(echo -e ${RED}Type 'DELETE-ORG-RESOURCES' to confirm org-level deletion:${NC} )" org_confirm
+    if [[ "$org_confirm" != "DELETE-ORG-RESOURCES" ]]; then
+      log_warn "Org-level deletion not confirmed. Aborted."
+      exit 1
+    fi
+    echo ""
+  fi
 fi
 
 if [[ "$AUTO_CONFIRM" != true ]]; then
