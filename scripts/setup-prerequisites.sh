@@ -416,6 +416,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         if gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
           --member="user:$CURRENT_USER_FOR_POLICY" \
           --role="roles/orgpolicy.policyAdmin" \
+          --condition=None \
           --quiet >/dev/null; then
           log_ok "✓ Granted 'roles/orgpolicy.policyAdmin' to '$CURRENT_USER_FOR_POLICY' on organization '$ORGANIZATION_ID'."
         else
@@ -620,6 +621,7 @@ done
     if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$COMPUTE_SA" \
       --role="roles/cloudbuild.builds.builder" \
+      --condition=None \
       --quiet >/dev/null 2>&1; then
       log_ok "✓ Granted 'roles/cloudbuild.builds.builder' to $COMPUTE_SA"
     else
@@ -632,6 +634,7 @@ done
     if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
       --role="roles/cloudbuild.builds.builder" \
+      --condition=None \
       --quiet >/dev/null 2>&1; then
       log_ok "✓ Granted 'roles/cloudbuild.builds.builder' to ${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
     else
@@ -890,6 +893,7 @@ if [[ $START_FROM_STEP -le 4 ]]; then
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$SA_EMAIL" \
       --role="$OPS_ROLE_RESOURCE" \
+      --condition=None \
       --quiet >/dev/null || IAM_EXIT_CODE=$?
   else
     OPS_ROLE_RESOURCE="organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID"
@@ -897,6 +901,7 @@ if [[ $START_FROM_STEP -le 4 ]]; then
     gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
       --member="serviceAccount:$SA_EMAIL" \
       --role="$OPS_ROLE_RESOURCE" \
+      --condition=None \
       --quiet >/dev/null || IAM_EXIT_CODE=$?
   fi
 
@@ -906,6 +911,7 @@ if [[ $START_FROM_STEP -le 4 ]]; then
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SA_EMAIL" \
     --role="$PROJECT_ROLE_RESOURCE" \
+    --condition=None \
     --quiet >/dev/null || IAM_EXIT_CODE=$?
 
   # 4c. Grant Cloud Infrastructure Manager Agent role
@@ -914,12 +920,14 @@ if [[ $START_FROM_STEP -le 4 ]]; then
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:$SA_EMAIL" \
       --role="roles/config.agent" \
+      --condition=None \
       --quiet >/dev/null || IAM_EXIT_CODE=$?
   else
     log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at organization level..."
     gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
       --member="serviceAccount:$SA_EMAIL" \
       --role="roles/config.agent" \
+      --condition=None \
       --quiet >/dev/null || IAM_EXIT_CODE=$?
   fi
 
