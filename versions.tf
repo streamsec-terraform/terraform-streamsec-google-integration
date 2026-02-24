@@ -14,5 +14,13 @@ terraform {
       source  = "hashicorp/time"
       version = ">= 0.10"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.5"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = ">= 3.0"
+    }
   }
 }
