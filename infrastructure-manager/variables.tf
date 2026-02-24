@@ -5,11 +5,13 @@
 variable "google_project_id" {
   description = "The Google Project ID to use for the integration."
   type        = string
+  default     = null
 }
 
 variable "google_region" {
   description = "The Google Region to use for the integration."
   type        = string
+  default     = null
 }
 
 ################################################################################
