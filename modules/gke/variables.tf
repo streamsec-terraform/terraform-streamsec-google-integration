@@ -60,8 +60,8 @@ variable "function_runtime" {
   description = "Cloud Function runtime (guide uses nodejs22)."
 }
 
-variable "source_public_gcs_url" {
+variable "source_artifact_bucket" {
   type        = string
-  default     = "gs://streamsec-public-artifacts/gcp-gke-logs-collection.zip"
-  description = "Public artifact zip URL from StreamSec."
+  default     = "streamsec-public-artifacts"
+  description = "Public GCS bucket containing the StreamSec Cloud Function artifact."
 }
