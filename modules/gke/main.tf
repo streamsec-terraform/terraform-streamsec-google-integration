@@ -3,16 +3,12 @@ data "google_project" "this" {
 }
 
 locals {
-  project_number             = data.google_project.this.number
-  gcs_service_agent_email    = "service-${local.project_number}@gs-project-accounts.iam.gserviceaccount.com"
-  secret_resource_path       = "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
-  logs_bucket_name           = "${var.bucket_name}-${random_id.bucket_suffix.hex}"
-  artifact_bucket_name       = "${var.project_id}-streamsec-artifacts"
-  artifact_object_name       = "gcp-gke-logs-collection.zip"
-}
-
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
+  project_number          = data.google_project.this.number
+  gcs_service_agent_email = "service-${local.project_number}@gs-project-accounts.iam.gserviceaccount.com"
+  secret_resource_path    = "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
+  bucket_suffix           = substr(sha256(var.project_id), 0, 8)
+  logs_bucket_name        = "${var.bucket_name}-${local.bucket_suffix}"
+  artifact_object_name    = "gcp-gke-logs-collection.zip"
 }
 
 #
@@ -136,35 +132,8 @@ resource "google_secret_manager_secret_iam_member" "fn_sa_secret_accessor" {
 }
 
 #
-# Artifact staging bucket + copy public artifact into your project (so CF can use it reliably)
-#
-resource "google_storage_bucket" "artifacts" {
-  name                        = local.artifact_bucket_name
-  project                     = var.project_id
-  location                    = var.bucket_location
-  uniform_bucket_level_access = true
-  force_destroy               = true
-
-  depends_on = [google_project_service.apis]
-}
-
-# Copies gs://streamsec-production-public-artifacts/gcp-gke-logs-collection.zip -> your artifacts bucket
-# NOTE: requires gsutil available where you run terraform (Cloud Shell / CI runner).
-resource "null_resource" "copy_artifact" {
-  triggers = {
-    source = var.source_public_gcs_url
-    dest   = "gs://${google_storage_bucket.artifacts.name}/${local.artifact_object_name}"
-  }
-
-  provisioner "local-exec" {
-    command = "gsutil cp ${var.source_public_gcs_url} gs://${google_storage_bucket.artifacts.name}/${local.artifact_object_name}"
-  }
-
-  depends_on = [google_storage_bucket.artifacts]
-}
-
-#
 # (6) Cloud Function (Gen1) triggered by GCS object finalize
+# Source zip is read directly from the public StreamSec artifacts bucket
 #
 resource "google_cloudfunctions_function" "collector" {
   name        = var.function_name
@@ -175,8 +144,8 @@ resource "google_cloudfunctions_function" "collector" {
 
   service_account_email = google_service_account.function_sa.email
 
-  # Source zip in your artifacts bucket
-  source_archive_bucket = google_storage_bucket.artifacts.name
+  # Source zip directly from public artifacts bucket
+  source_archive_bucket = var.source_artifact_bucket
   source_archive_object = local.artifact_object_name
 
   # Trigger on logs bucket
@@ -192,7 +161,6 @@ resource "google_cloudfunctions_function" "collector" {
 
   depends_on = [
     google_project_service.apis,
-    null_resource.copy_artifact,
     google_storage_bucket_iam_member.sink_writer_object_creator,
     google_project_iam_member.gcs_agent_pubsub_publisher,
     google_secret_manager_secret_iam_member.fn_sa_secret_accessor

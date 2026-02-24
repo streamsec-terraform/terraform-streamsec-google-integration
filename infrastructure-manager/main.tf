@@ -52,4 +52,12 @@ module "streamsec_google_projects" {
   exclude_runbooks               = var.exclude_runbooks
   response_org_level_permissions = var.response_org_level_permissions
   auto_grant_workflow_invoker    = var.auto_grant_workflow_invoker
+
+  # GKE Module
+  enable_gke_logs     = var.enable_gke_logs
+  gke_bucket_name     = var.gke_bucket_name
+  gke_bucket_location = var.gke_bucket_location
+  gke_api_url         = var.gke_api_url
+  gke_secret_name     = var.gke_secret_name
+  gke_streamsec_token = var.gke_streamsec_token
 }

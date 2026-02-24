@@ -5,11 +5,13 @@
 variable "google_project_id" {
   description = "The Google Project ID to use for the integration."
   type        = string
+  default     = null
 }
 
 variable "google_region" {
   description = "The Google Region to use for the integration."
   type        = string
+  default     = null
 }
 
 ################################################################################
@@ -153,4 +155,45 @@ variable "auto_grant_workflow_invoker" {
   description = "If true, automatically grant roles/workflows.invoker permission to the specified service account."
   type        = bool
   default     = true
+}
+
+################################################################################
+# GKE Module
+################################################################################
+
+variable "enable_gke_logs" {
+  description = "Boolean to determine if GKE Logs collection should be enabled."
+  type        = bool
+  default     = false
+}
+
+variable "gke_bucket_name" {
+  description = "Base bucket name for GKE audit logs storage (must be globally unique)."
+  type        = string
+  default     = "gke-audit-logs"
+}
+
+variable "gke_bucket_location" {
+  description = "Bucket location/region or multi-region for GKE logs (e.g., US, EU, ASIA, us-central1)."
+  type        = string
+  default     = "US"
+}
+
+variable "gke_api_url" {
+  description = "Stream Security API URL for GKE logs collection, e.g. https://app.streamsec.io"
+  type        = string
+  default     = "https://app.streamsec.io"
+}
+
+variable "gke_secret_name" {
+  description = "Secret Manager secret name holding the StreamSec GKE collection token."
+  type        = string
+  default     = "streamsec-gke-logs-token"
+}
+
+variable "gke_streamsec_token" {
+  description = "StreamSec collection token for GKE logs (stored in Secret Manager)."
+  type        = string
+  sensitive   = true
+  default     = ""
 }

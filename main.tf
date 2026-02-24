@@ -110,3 +110,15 @@ module "response" {
   workflow_invoker_service_account = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
 }
+
+module "gke" {
+  count           = var.enable_gke_logs ? 1 : 0
+  source          = "./modules/gke"
+  project_id      = var.project_for_resources
+  org_id          = var.org_id
+  bucket_name     = var.gke_bucket_name
+  bucket_location = var.gke_bucket_location
+  api_url         = var.gke_api_url
+  secret_name     = var.gke_secret_name
+  streamsec_token = var.gke_streamsec_token
+}
