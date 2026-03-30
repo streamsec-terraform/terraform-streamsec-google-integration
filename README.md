@@ -1,12 +1,56 @@
 # StreamSec - Google Integration using Terraform
 Terraform module for google integration with Stream Security.
 
+## Project Exclusion Patterns
+
+In addition to excluding projects by exact project ID (`exclude_projects`), you can exclude projects based on name patterns:
+
+### Exclude by prefix
+
+Exclude all projects whose name starts with a given prefix:
+
+```hcl
+module "streamsec_google_projects" {
+  source = "streamsec-terraform/streamsec-google-integration"
+
+  excluded_project_prefixes = ["sys-", "test-"]
+  # This will exclude projects like "sys-monitoring", "sys-logging", "test-sandbox", etc.
+}
+```
+
+### Exclude by substring
+
+Exclude all projects whose name contains a given string:
+
+```hcl
+module "streamsec_google_projects" {
+  source = "streamsec-terraform/streamsec-google-integration"
+
+  excluded_project_strings = ["sandbox", "deprecated"]
+  # This will exclude projects like "dev-sandbox-01", "deprecated-api", etc.
+}
+```
+
+### Combine all exclusion methods
+
+All exclusion methods can be used together. A project is excluded if it matches **any** of the criteria:
+
+```hcl
+module "streamsec_google_projects" {
+  source = "streamsec-terraform/streamsec-google-integration"
+
+  exclude_projects          = ["specific-project-id"]
+  excluded_project_prefixes = ["sys-", "test-"]
+  excluded_project_strings  = ["sandbox"]
+}
+```
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
 | Name | Version |
 |------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
 | <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.13 |
 | <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
@@ -49,7 +93,10 @@ Terraform module for google integration with Stream Security.
 | <a name="input_auto_grant_workflow_invoker"></a> [auto\_grant\_workflow\_invoker](#input\_auto\_grant\_workflow\_invoker) | If true, automatically grant roles/workflows.invoker permission to the specified service account. | `bool` | `true` | no |
 | <a name="input_create_sa"></a> [create\_sa](#input\_create\_sa) | Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions. | `bool` | `true` | no |
 | <a name="input_enable_real_time_events"></a> [enable\_real\_time\_events](#input\_enable\_real\_time\_events) | Boolean to determine if Real Time Events should be enabled. | `bool` | `true` | no |
+| <a name="input_enable_streamsec_resources"></a> [enable\_streamsec\_resources](#input\_enable\_streamsec\_resources) | Set to false to skip all Stream Security provider resources (e.g. during terraform destroy when the Stream Security environment is unavailable). | `bool` | `true` | no |
 | <a name="input_exclude_projects"></a> [exclude\_projects](#input\_exclude\_projects) | A list of projects to exclude from the Organization Integration. | `list(string)` | `[]` | no |
+| <a name="input_excluded_project_prefixes"></a> [excluded\_project\_prefixes](#input\_excluded\_project\_prefixes) | A list of project name prefixes to exclude. Any project whose name starts with one of these prefixes will be excluded. | `list(string)` | `[]` | no |
+| <a name="input_excluded_project_strings"></a> [excluded\_project\_strings](#input\_excluded\_project\_strings) | A list of substrings to exclude. Any project whose name contains one of these strings will be excluded. | `list(string)` | `[]` | no |
 | <a name="input_exclude_runbooks"></a> [exclude\_runbooks](#input\_exclude\_runbooks) | List of response runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
 | <a name="input_existing_sa_json_file_path"></a> [existing\_sa\_json\_file\_path](#input\_existing\_sa\_json\_file\_path) | The path to the JSON file for the existing Service Account. | `string` | `null` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |

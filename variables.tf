@@ -1,8 +1,29 @@
 ################################################################################
+# Stream Security Provider Variables
+################################################################################
+variable "enable_streamsec_resources" {
+  description = "Set to false to skip all Stream Security provider resources (e.g. during terraform destroy when the Stream Security environment is unavailable). When false, also remove or comment out the streamsec provider block."
+  type        = bool
+  default     = true
+}
+
+################################################################################
 # Stream Security GCP Project Variables
 ################################################################################
 variable "exclude_projects" {
   description = "A list of projects to exclude from the Organization Integration."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_prefixes" {
+  description = "A list of project name prefixes to exclude. Any project whose name starts with one of these prefixes will be excluded."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_strings" {
+  description = "A list of substrings to exclude. Any project whose name contains one of these strings will be excluded."
   type        = list(string)
   default     = []
 }

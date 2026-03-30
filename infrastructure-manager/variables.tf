@@ -30,6 +30,18 @@ variable "exclude_projects" {
   default     = []
 }
 
+variable "excluded_project_prefixes" {
+  description = "A list of project name prefixes to exclude. Any project whose name starts with one of these prefixes will be excluded."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_strings" {
+  description = "A list of substrings to exclude. Any project whose name contains one of these strings will be excluded."
+  type        = list(string)
+  default     = []
+}
+
 variable "include_projects" {
   description = "A list of projects to include from the Organization Integration. If not set, all projects will be included."
   type        = list(string)
