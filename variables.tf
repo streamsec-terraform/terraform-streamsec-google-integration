@@ -1,13 +1,4 @@
 ################################################################################
-# Stream Security Provider Variables
-################################################################################
-variable "enable_streamsec_resources" {
-  description = "Set to false to skip all Stream Security provider resources (e.g. during terraform destroy when the Stream Security environment is unavailable). When false, also remove or comment out the streamsec provider block."
-  type        = bool
-  default     = true
-}
-
-################################################################################
 # Stream Security GCP Project Variables
 ################################################################################
 variable "exclude_projects" {

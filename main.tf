@@ -28,7 +28,7 @@ locals {
 }
 
 resource "streamsec_gcp_project" "this" {
-  for_each     = var.enable_streamsec_resources ? { for k, v in local.projects : k => v } : {}
+  for_each     = { for k, v in local.projects : k => v }
   display_name = each.value.name
   project_id   = each.value.project_id
 }
@@ -68,13 +68,13 @@ resource "google_organization_iam_member" "security_reviewer" {
 }
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
-  for_each        = var.enable_streamsec_resources ? { for k, v in local.projects : k => v } : {}
+  for_each        = { for k, v in local.projects : k => v }
   create_duration = "10s"
   depends_on      = [streamsec_gcp_project.this]
 }
 
 resource "streamsec_gcp_project_ack" "this" {
-  for_each     = var.enable_streamsec_resources ? { for k, v in local.projects : k => v } : {}
+  for_each     = { for k, v in local.projects : k => v }
   project_id   = each.value.project_id
   client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   private_key  = var.create_sa ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : jsondecode(file(var.existing_sa_json_file_path)).private_key
