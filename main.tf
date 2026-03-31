@@ -11,13 +11,20 @@ data "google_project" "this" {
 }
 
 locals {
-  projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
+  _all_projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
     project_id = p.project_id
     name       = p.name
     } if !contains(var.exclude_projects, p) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
     project_id = split("projects/", p.name)[1]
     name       = p.display_name
   } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
+
+  projects = { for k, v in local._all_projects : k => v
+    if(
+      !anytrue([for prefix in var.excluded_project_prefixes : startswith(v.name, prefix)])
+      && !anytrue([for s in var.excluded_project_strings : strcontains(v.name, s)])
+    )
+  }
 }
 
 resource "streamsec_gcp_project" "this" {

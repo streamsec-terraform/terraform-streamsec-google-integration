@@ -27,8 +27,10 @@ module "streamsec_google_projects" {
   source = "../"
 
   # Main Module
-  exclude_projects           = var.exclude_projects
-  include_projects           = var.include_projects
+  exclude_projects            = var.exclude_projects
+  excluded_project_prefixes   = var.excluded_project_prefixes
+  excluded_project_strings    = var.excluded_project_strings
+  include_projects            = var.include_projects
   org_id                     = var.org_id # also used for response module and real time events module
   create_sa                  = var.create_sa
   existing_sa_json_file_path = var.existing_sa_json_file_path
