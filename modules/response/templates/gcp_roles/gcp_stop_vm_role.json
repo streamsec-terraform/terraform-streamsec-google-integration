@@ -3,7 +3,7 @@
      "compute.instances.stop",
      "logging.logEntries.create"
   ],
-  "name": "projects/${projectId}/roles/customResetVmRole",
+  "name": "projects/${projectId}/roles/customStopVmRole",
   "title": "GCP Stream Stop VM Role"
 }
 

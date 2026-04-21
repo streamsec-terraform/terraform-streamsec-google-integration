@@ -1,0 +1,73 @@
+main:
+  params: [input]
+  steps:
+    # SecurityPolicyId carries the full Stream resource id:
+    # projects/<project>/global/securityPolicies/<policy>. We extract the
+    # two pieces the addRule call needs: project and policy name.
+    # BlockedCidr is a list of CIDR blocks (e.g. "1.2.3.4/32"), and
+    # Priority is an integer (0 highest) — defaults to 1000 if unset.
+    - parseInputs:
+        assign:
+          - policy_id: ${input.SecurityPolicyId}
+          - cidrs: ${input.BlockedCidr}
+          - priority_in: ${default(input.Priority, "1000")}
+          - parts: ${text.split(policy_id, "/")}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. SecurityPolicyId='" + policy_id + "', BlockedCidr=" + json.encode_to_string(cidrs) + ", Priority=" + string(priority_in)}
+          severity: INFO
+
+    - validatePolicy:
+        switch:
+          - condition: ${len(parts) < 5}
+            raise:
+              status_code: "error"
+              message: ${"Invalid SecurityPolicyId. Expected 'projects/<p>/global/securityPolicies/<name>', got; " + policy_id}
+
+    - extractIds:
+        assign:
+          - project_id: ${parts[1]}
+          - policy_name: ${parts[4]}
+          - priority: ${int(priority_in)}
+
+    - validateCidrs:
+        switch:
+          - condition: ${len(cidrs) == 0}
+            raise:
+              status_code: "error"
+              message: "BlockedCidr must contain at least one CIDR block."
+          # Cloud Armor v1 allows up to 10 src IP ranges per rule; enforce
+          # client-side to surface a clean error instead of an API 400.
+          - condition: ${len(cidrs) > 10}
+            raise:
+              status_code: "error"
+              message: ${"BlockedCidr must be at most 10 entries per rule; got " + string(len(cidrs)) + ". Split across multiple rules with different priorities."}
+
+    - addRule:
+        try:
+          call: googleapis.compute.v1.securityPolicies.addRule
+          args:
+            project: ${project_id}
+            securityPolicy: ${policy_name}
+            body:
+              action: "deny(403)"
+              priority: ${priority}
+              description: ${"Stream Security auto-remediation - block suspicious IPs at priority " + string(priority)}
+              match:
+                versionedExpr: "SRC_IPS_V1"
+                config:
+                  srcIpRanges: ${cidrs}
+              preview: false
+          result: op
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to add Cloud Armor rule " + er.body.error.message}
+
+    - done:
+        return:
+          status_code: "success"
+          message: ${"Added deny rule at priority " + string(priority) + " on Cloud Armor policy " + policy_name + " for CIDRs " + json.encode_to_string(cidrs) + ". Operation; " + default(op.name, "unknown")}

@@ -1,0 +1,10 @@
+{
+  "includedPermissions": [
+    "compute.securityPolicies.get",
+    "compute.securityPolicies.update",
+    "compute.globalOperations.get",
+    "logging.logEntries.create"
+  ],
+  "name": "projects/${projectId}/roles/customBlockIpWithCloudArmorRole",
+  "title": "GCP Stream Block IP with Cloud Armor Role"
+}

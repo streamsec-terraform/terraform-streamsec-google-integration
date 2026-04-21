@@ -1,0 +1,87 @@
+main:
+  params: [input]
+  steps:
+    # Creates a project-level IAM Deny Policy that blocks a principal from
+    # the supplied permission set. Default-blocks all Cloud Storage object
+    # reads/lists, matching the PDF playbook's "block storage access" step.
+    #
+    # The IAM Deny Policy API has no googleapis.* connector as of writing,
+    # so we call the v2 REST endpoint via http.post with OAuth2 auth.
+    - parseInputs:
+        assign:
+          - project_id: ${input.ProjectId}
+          - principal_raw: ${input.Principal}
+          - permissions_raw: ${default(input.DeniedPermissions, "")}
+          - policy_id: ${default(input.PolicyId, "streamsec-deny-" + string(int(sys.now())))}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. ProjectId='" + project_id + "', Principal='" + principal_raw + "', PolicyId='" + policy_id + "'"}
+          severity: INFO
+
+    - validateProject:
+        switch:
+          - condition: ${project_id == ""}
+            raise:
+              status_code: "error"
+              message: "ProjectId is required."
+
+    # Normalize the principal into an IAM deny policy principal identifier.
+    # For user emails / group emails we use the principal:// form; for
+    # service accounts we use principal-set form isn't valid — deny policies
+    # expect principal:// for named identities.
+    - normalizePrincipal:
+        switch:
+          - condition: ${text.find_all(principal_raw, "://") != []}
+            assign:
+              - principal: ${principal_raw}
+          - condition: ${text.match_regex(principal_raw, ".+@.+\\.iam\\.gserviceaccount\\.com$")}
+            assign:
+              - principal: ${"principal://iam.googleapis.com/projects/-/serviceAccounts/" + principal_raw}
+          - condition: ${text.find_all(principal_raw, "@") != []}
+            assign:
+              - principal: ${"principal://goog/subject/" + principal_raw}
+          - condition: true
+            raise:
+              status_code: "error"
+              message: ${"Unrecognized Principal shape. Provide an email, a service account email, or a fully-qualified principal:// identifier. Got; " + principal_raw}
+
+    # Default permission set matches the PDF playbook's scope — block the
+    # permissions a mass-download attacker actually exercised.
+    - resolvePermissions:
+        switch:
+          - condition: ${permissions_raw == ""}
+            assign:
+              - permissions:
+                  - "storage.googleapis.com/objects.get"
+                  - "storage.googleapis.com/objects.list"
+          - condition: true
+            assign:
+              - permissions: ${text.split(permissions_raw, ",")}
+
+    - createDenyPolicy:
+        try:
+          call: http.post
+          args:
+            url: ${"https://iam.googleapis.com/v2/policies/cloudresourcemanager.googleapis.com%2Fprojects%2F" + project_id + "/denypolicies?policyId=" + policy_id}
+            auth:
+              type: OAuth2
+            body:
+              displayName: ${"Stream Security auto-remediation deny for " + principal_raw}
+              rules:
+                - denyRule:
+                    deniedPrincipals:
+                      - ${principal}
+                    deniedPermissions: ${permissions}
+          result: response
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to create deny policy " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - done:
+        return:
+          status_code: "success"
+          message: ${"Created IAM Deny Policy " + policy_id + " on project " + project_id + " blocking " + principal + " from; " + json.encode_to_string(permissions)}

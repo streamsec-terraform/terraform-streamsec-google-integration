@@ -1,0 +1,130 @@
+main:
+  params: [input]
+  steps:
+    # Parse BucketId (format: projects/_/buckets/<name>) and Principal
+    # (e.g. "user:alice@example.com", "serviceAccount:foo@p.iam.gserviceaccount.com",
+    # "group:eng@example.com", or a bare email that we'll coerce to user: form).
+    - parseInputs:
+        assign:
+          - bucket_id: ${input.BucketId}
+          - principal_raw: ${input.Principal}
+          - parts: ${text.split(bucket_id, "/")}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. BucketId='" + bucket_id + "', Principal='" + principal_raw + "'"}
+          severity: INFO
+
+    - validateBucket:
+        switch:
+          - condition: ${len(parts) < 4}
+            raise:
+              status_code: "error"
+              message: ${"Invalid BucketId format. Expected 'projects/_/buckets/<bucket_name>', got; " + bucket_id}
+
+    - extractBucketName:
+        assign:
+          - bucket_name: ${parts[3]}
+
+    # Coerce a bare email to "user:<email>". Principals that already carry
+    # a prefix (user:, serviceAccount:, group:, domain:) pass through.
+    - normalizePrincipal:
+        switch:
+          - condition: ${text.find_all(principal_raw, ":") != []}
+            assign:
+              - principal: ${principal_raw}
+          - condition: true
+            assign:
+              - principal: ${"user:" + principal_raw}
+
+    - getPolicy:
+        try:
+          call: googleapis.storage.v1.buckets.getIamPolicy
+          args:
+            bucket: ${bucket_name}
+          result: policy
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to getIamPolicy " + er.body.error.message}
+
+    # The Tines playbook specifically calls out revoking storage.objectViewer
+    # and storage.admin — but defensively we drop ALL role bindings for the
+    # suspicious principal, not just those two. If the investigator wants to
+    # preserve some access they can re-grant after triage.
+    - filterBindings:
+        assign:
+          - newBindings: []
+          - removedBindings: []
+
+    - iterateBindings:
+        try:
+          for:
+            value: binding
+            in: ${policy.bindings}
+            steps:
+              - initMembers:
+                  assign:
+                    - members: []
+              - loopMembers:
+                  for:
+                    value: m
+                    in: ${binding.members}
+                    steps:
+                      - checkMember:
+                          switch:
+                            - condition: ${m != principal}
+                              steps:
+                                - keepMember:
+                                    assign:
+                                      - members: ${list.concat(members, m)}
+                            - condition: true
+                              steps:
+                                - trackRemoval:
+                                    assign:
+                                      - removedBindings: ${list.concat(removedBindings, binding.role)}
+              - checkKeep:
+                  switch:
+                    - condition: ${len(members) > 0}
+                      steps:
+                        - buildBinding:
+                            assign:
+                              - newBinding:
+                                  role: ${binding.role}
+                                  members: ${members}
+                        - addBinding:
+                            assign:
+                              - newBindings: ${list.concat(newBindings, newBinding)}
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to iterateBindings " + er.body.error.message}
+
+    - checkNoChange:
+        switch:
+          - condition: ${len(removedBindings) == 0}
+            return:
+              status_code: "success"
+              message: ${"Principal " + principal + " had no bindings on bucket " + bucket_name + "; nothing to revoke."}
+
+    - setPolicy:
+        try:
+          call: googleapis.storage.v1.buckets.setIamPolicy
+          args:
+            bucket: ${bucket_name}
+            body:
+              bindings: ${newBindings}
+          result: updated
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to setIamPolicy " + er.body.error.message}
+
+    - done:
+        return:
+          status_code: "success"
+          message: ${"Revoked " + string(len(removedBindings)) + " role binding(s) for " + principal + " on bucket " + bucket_name + ". Removed roles; " + json.encode_to_string(removedBindings)}

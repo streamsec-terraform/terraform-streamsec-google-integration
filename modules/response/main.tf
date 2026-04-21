@@ -29,19 +29,14 @@ locals {
     if lookup(remediation, "role_file", null) != null
   }
 
-  # Create a mapping of role files to their full paths
-  role_file_paths = {
-    "gcp_restart_vm_role.json"                           = "gcp_restart_vm_role.json"
-    "gcp_isolated_vm_from_firewall.json"                 = "gcp_isolated_vm_from_firewall.json"
-    "gcp_remove_service_account_from_vm.json"            = "gcp_remove_service_account_from_vm.json"
-    "vm_mig_detach_policy.json"                          = "vm_mig_detach_policy.json"
-    "gcp_vm_create_snapshot_role.json"                   = "gcp_vm_create_snapshot_role.json"
-    "gcp_stop_vm_role.json"                              = "gcp_stop_vm_role.json"
-    "gcp_enable_versioning_for_storage_bucket_role.json" = "shared/remediation/gcp_roles/gcp_enable_versioning_for_storage_bucket_role.json"
-    "gcp_disable_public_access_bucket.json"              = "gcp_disable_public_access_bucket.json"
-    "gcp_replace_function_service_account_role.json"     = "gcp_replace_function_service_account_role.json"
-    "gcp_remove_iam_role_from_instance.json"             = "shared/gcp_remove_iam_role_from_instance.json"
-  }
+  # role_file_paths previously worked around two role JSONs that had been
+  # committed at broken nested paths in the monorepo
+  # (shared/gcp_remove_iam_role_from_instance.json and
+  # shared/remediation/gcp_roles/gcp_enable_versioning_for_storage_bucket_role.json).
+  # Those are now at the canonical path alongside the others, so the map
+  # collapses to identity and we can just use each.value.role_file directly
+  # in the file(...) reads below.
+  role_file_paths = {}
 
   # Determine the project where service accounts will be created
   # For org-level: use the first project in the list

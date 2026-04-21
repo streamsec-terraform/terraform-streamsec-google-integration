@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+    "storage.buckets.getIamPolicy",
+    "storage.buckets.setIamPolicy",
+    "logging.logEntries.create"
+  ],
+  "name": "projects/${projectId}/roles/customRestrictBucketToPrincipalsRole",
+  "title": "GCP Stream Restrict Bucket to Principals Role"
+}
