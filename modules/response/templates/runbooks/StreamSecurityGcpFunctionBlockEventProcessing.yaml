@@ -10,7 +10,7 @@ main:
     - logInput:
         call: sys.log
         args:
-          text: ${"Runbook started. Disabling Cloud Run function" + function_id}
+          text: ${"Runbook started. Disabling Cloud Run function " + function_id}
           severity: INFO
 
     # Step 2: Disable the Cloud Run service by setting manualInstanceCount to 0
@@ -27,7 +27,7 @@ main:
           as: disable_error
           raise:
             status_code: "error"
-            message: ${"Failed to disable Cloud Run service" + disable_error.message}
+            message: ${"Failed to disable Cloud Run service: " + disable_error.body.error.message}
 
     # Step 3: Verify the updated service
     - verifyService:
@@ -40,7 +40,7 @@ main:
           as: get_error
           raise:
             status_code: "error"
-            message: ${"Failed to retrieve Cloud Run service details " + get_error.message}
+            message: ${"Failed to retrieve Cloud Run service details " + get_error.body.error.message}
     # Step 4: Check if scaling section is missing or empty
     - checkScaling:
         assign:

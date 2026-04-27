@@ -1,0 +1,9 @@
+{
+  "includedPermissions": [
+    "apikeys.keys.delete",
+    "apikeys.keys.get",
+    "logging.logEntries.create"
+  ],
+  "name": "projects/${projectId}/roles/customRevokeApiKeyRole",
+  "title": "GCP Stream Revoke API Key Role"
+}

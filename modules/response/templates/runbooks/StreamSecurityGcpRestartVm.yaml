@@ -1,9 +1,26 @@
 main:
-  params: [VmId]
+  params: [input]
   steps:
     - parseId:
         assign:
-          - parts: ${text.split(VmId, "/")}
+          - vm_id: ${input.VmId}
+          - parts: ${text.split(vm_id, "/")}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. Received parameter vm_id = '" + vm_id + "'"}
+          severity: INFO
+
+    - validateParts:
+        switch:
+          - condition: ${len(parts) != 6}
+            raise:
+              status_code: "error"
+              message: ${"Invalid VmId format. Expected 'projects/<project_id>/zones/<zone>/instances/<instance_name>', got: " + vm_id}
+
+    - extractIds:
+        assign:
           - project: ${parts[1]}
           - zone: ${parts[3]}
           - instance: ${parts[5]}
@@ -16,8 +33,11 @@ main:
             zone: ${zone}
             instance: ${instance}
         except:
-            as: reset_error
-            raise: '${"VM reset failed or is not in RUNNING state: " + reset_error.message}'
+          as: reset_error
+          raise:
+            status_code: "error"
+            message: ${"VM reset failed: " + reset_error.body.error.message}
+
     - wait:
         call: sys.sleep
         args:
@@ -32,8 +52,10 @@ main:
             instance: ${instance}
           result: vmInfo
         except:
-          as: reset_error
-          raise: '${"Failed to retrieve VM status after reset: " + reset_error.message}'
+          as: get_error
+          raise:
+            status_code: "error"
+            message: ${"Failed to retrieve VM status after reset: " + get_error.body.error.message}
 
     - verifyStatus:
         switch:
@@ -41,8 +63,13 @@ main:
             next: done
           - condition: true
             next: failed
+
     - done:
-        return: "VM was successfully reset and is now running."
+        return:
+          status_code: "success"
+          message: ${"VM " + vm_id + " was successfully reset and is now running."}
 
     - failed:
-        raise: '${"VM reset did not complete successfully. Current status:" + vmInfo.status}'
+        raise:
+          status_code: "error"
+          message: ${"VM reset did not complete successfully. Current status: " + vmInfo.status}

@@ -14,9 +14,9 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpIsolatedVMFromAllNetwork
-  description: Isolate VM Instance from all firewalls networks
-  disabled_reason: Action is not applicable because the isolated firewalls is already attached to the VM instance
-  display_name: Isolated VM instance from all network
+  description: Creates deny-all ingress and egress firewall rules and assigns the isolation network tag to the VM instance, blocking all network traffic.
+  disabled_reason: Action is not applicable because the isolation firewall rules are already attached to the VM instance.
+  display_name: Isolate VM Instance from All Networks
   remediation_type: runbook
   cloud_provider: gcp
   resource_type: gcp_vm_instance
@@ -28,7 +28,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRemoveServiceAccountFromVM
-  description: Detach service account from VM instance
+  description: Stops the VM, detaches its service account, then restarts it. The instance will be briefly unavailable.
   disabled_reason: Action is not applicable because the virtual machine is not attached to a service account.
   display_name: Detach service account from VM instance
   remediation_type: runbook
@@ -58,7 +58,8 @@ Remediations:
   - name: GcpInstanceGroupId
     type: String
 - name: StreamSecurityGcpVmCreateDiskSnapshot
-  description: Creates point-in-time snapshots of the OS and every data disk, preserving exact disk state for later forensic analysis without touching the running VM.
+  description: Creates point-in-time snapshots of all persistent disks attached to a VM instance, preserving exact disk state for forensic analysis without interrupting the running workload.
+  disabled_reason: Action is not applicable because the VM instance has no persistent disks to snapshot.
   display_name: Create Virtual Machine Disks Snapshots
   remediation_type: runbook
   cloud_provider: gcp
@@ -71,14 +72,14 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpStopVm
-  description: Stop the Compute Engine VM instance.
+  description: Stops a running Compute Engine VM instance, terminating all workloads and network connections on that instance immediately.
   disabled_reason: Action is not applicable because the virtual machine is already in a stopped state.
   display_name: Stop Virtual Machine
   remediation_type: runbook
   cloud_provider: gcp
   resource_type: gcp_vm_instance
   runbook_owner: StreamSecurity
-  role_name: customStopVmRole
+  role_name: GCP Stream Stop VM Role
   role_file: gcp_stop_vm_role.json
   Parameters:
   - name: VmId
@@ -99,7 +100,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpReplaceFunctionServiceAccount
-  description: "Replace the Cloud Run service\u05D2\u20AC\u2122s service account with a service account that has no IAM roles assigned."
+  description: Replace the Cloud Run service's service account with a service account that has no IAM roles assigned.
   disabled_reason: Action is not applicable because the service is already using the service account without roles.
   display_name: Replace Function Service Account with one that has no roles
   remediation_type: runbook
@@ -141,8 +142,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRemoveAllTcp
-  description: Detect and remediate GCP firewall rules that allow unrestricted inbound access to all TCP ports (1-65535 or 0-65535) or IPProtocol=all from 0.0.0.0/0. The runbook disables the rule if it
-    only allows TCP, or updates the rule to remove the TCP-all entry if other protocols are also allowed.
+  description: Detect and remediate GCP firewall rules that allow unrestricted inbound access to all TCP ports (1-65535 or 0-65535) or IPProtocol=all from 0.0.0.0/0. The runbook disables the rule if it only allows TCP, or updates the rule to remove the TCP-all entry if other protocols are also allowed.
   disabled_reason: Action is not applicable because the firewall rule does not allow all TCP ports (or IPProtocol=all) from the source 0.0.0.0/0.
   display_name: Remove Network Firewall Rule
   remediation_type: runbook
@@ -184,8 +184,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpEditFirewallRules
-  description: Remove public SSH (TCP port 22) access from GCP firewall rules that expose it to 0.0.0.0/0. The runbook disables or updates the rule to block port 22 while preserving other allowed protocols
-    and ports.
+  description: Remove public SSH (TCP port 22) access from GCP firewall rules that expose it to 0.0.0.0/0. The runbook disables or updates the rule to block port 22 while preserving other allowed protocols and ports.
   disabled_reason: Action is not applicable because the firewall rule does not allow TCP port 22 from source 0.0.0.0/0.
   display_name: Remove Network Firewall Rule
   remediation_type: runbook
@@ -227,23 +226,25 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Revokes all IAM role bindings for a suspicious principal on a storage bucket. Matches the Tines "revoke IAM - storage.objectViewer / storage.admin" containment step.
-  disabled_reason: Action is not applicable because the principal has no bindings on this bucket.
-  display_name: Revoke Bucket IAM from Principal
+  description: Removes a principal from a specific project-level IAM role binding. The exact role and member are taken from the violating gcp_iam_policy_binding — all other bindings are untouched.
+  disabled_reason: Action is not applicable because the principal has no binding for this role on the project.
+  display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
   cloud_provider: gcp
-  resource_type: gcp_bucket
+  resource_type: gcp_iam_policy_binding
   runbook_owner: StreamSecurity
   role_name: GCP Stream Revoke Bucket IAM From Principal Role
   role_file: gcp_revoke_bucket_iam_from_principal.json
   Parameters:
-  - name: BucketId
+  - name: Member
     type: String
     resource_name: true
-  - name: Principal
+  - name: Role
+    type: String
+  - name: ProjectId
     type: String
 - name: StreamSecurityGcpDisableServiceAccount
-  description: Disables a compromised service account so it cannot authenticate. Matches the Tines "disable the service account" containment step.
+  description: Disables a compromised service account so it cannot authenticate. Also invalidates any signed URLs issued using that service account identity, since GCP rejects requests from disabled principals immediately.
   disabled_reason: Action is not applicable because the service account is already disabled.
   display_name: Disable Service Account
   remediation_type: runbook
@@ -257,39 +258,52 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRotateServiceAccountKeys
-  description: Deletes every user-managed key on a service account, forcing rotation. Matches the Tines "rotate compromised keys" containment step and invalidates any signed URLs issued by those keys.
+  description: Immediately deletes all USER_MANAGED keys from a service account, revoking any signed URLs and persistent credentials issued with those keys. Does not create replacement keys — this is emergency credential revocation, not planned key rotation.
   disabled_reason: Action is not applicable because the service account has no user-managed keys.
-  display_name: Rotate Service Account Keys
+  display_name: Revoke Service Account Keys
   remediation_type: runbook
   cloud_provider: gcp
   resource_type: gcp_service_account
   runbook_owner: StreamSecurity
-  role_name: GCP Stream Rotate Service Account Keys Role
+  role_name: GCP Stream Revoke Service Account Keys Role
   role_file: gcp_rotate_service_account_keys.json
   Parameters:
   - name: ServiceAccountId
     type: String
     resource_name: true
-- name: StreamSecurityGcpRestrictBucketToPrincipals
-  description: Locks a bucket's IAM policy down to an allowlist of principals, stripping every other member reference. Pragmatic equivalent of the Tines "add conditional IAM restriction (IP-based)" step
-    that avoids the Access Context Manager dependency.
-  disabled_reason: Action is not applicable because the bucket policy already matches the allowlist.
-  display_name: Restrict Bucket to Allowlisted Principals
+- name: StreamSecurityGcpRevokeApiKey
+  description: Deletes a GCP API key, immediately revoking all credentials issued with it. The key is recoverable via GCP Console within 30 days using the undelete operation.
+  disabled_reason: Action is not applicable because the API key no longer exists.
+  display_name: Revoke API Key
+  remediation_type: runbook
+  cloud_provider: gcp
+  resource_type: gcp_api_key
+  runbook_owner: StreamSecurity
+  role_name: GCP Stream Revoke API Key Role
+  role_file: gcp_revoke_api_key.json
+  Parameters:
+  - name: ApiKeyId
+    type: String
+    resource_name: true
+- name: StreamSecurityGcpRestrictBucketAccessByIp
+  description: Adds an IP-based IAM condition to every binding on a GCS bucket, restricting access to requests originating from the supplied IP addresses or CIDR ranges. Uses CEL origin.ip conditions on IAM policy version 3 — no Access Context Manager dependency.
+  disabled_reason: Action is not applicable because the bucket has no IAM bindings to apply IP conditions to.
+  display_name: Restrict Bucket Access by IP
   remediation_type: runbook
   cloud_provider: gcp
   resource_type: gcp_bucket
   runbook_owner: StreamSecurity
-  role_name: GCP Stream Restrict Bucket to Principals Role
-  role_file: gcp_restrict_bucket_to_principals.json
+  role_name: GCP Stream Restrict Bucket Access By IP Role
+  role_file: gcp_restrict_bucket_access_by_ip.json
   Parameters:
   - name: BucketId
     type: String
     resource_name: true
-  - name: AllowedPrincipals
+  - name: AllowedIps
     type: StringList
 - name: StreamSecurityGcpBlockIpWithCloudArmor
-  description: Adds a deny rule to a Cloud Armor security policy blocking up to 10 CIDR ranges. Matches the Tines "block suspicious IPs using Cloud Armor" containment step.
-  disabled_reason: Action is not applicable because the CIDRs are already blocked at this priority.
+  description: Adds a deny(403) rule to a Cloud Armor security policy to block up to 10 suspicious CIDR ranges. Automatically finds a free priority slot starting from the supplied value (default 100) so it evaluates before existing allow rules.
+  disabled_reason: Action is not applicable because the Cloud Armor security policy does not exist or has no available priority slots.
   display_name: Block IP with Cloud Armor
   remediation_type: runbook
   cloud_provider: gcp
@@ -304,20 +318,21 @@ Remediations:
   - name: BlockedCidr
     type: StringList
   - name: Priority
-    type: String
+    type: Integer
 - name: StreamSecurityGcpApplyDenyPolicyToPrincipal
-  description: Creates a project-level IAM Deny Policy blocking a principal from a set of permissions (defaults to Cloud Storage read/list). Matches the Tines "apply IAM deny policy at org/folder/project
-    level" containment step.
-  disabled_reason: Action is not applicable because a deny policy of this name already exists.
+  description: Creates an IAM Deny Policy at organization, folder, or project level to block a principal from a set of permissions. Defaults to blocking Cloud Storage read/list. Supports all three GCP resource hierarchy scopes.
+  disabled_reason: Action is not applicable because the principal has no IAM bindings that grant access at this scope.
   display_name: Apply IAM Deny Policy to Principal
   remediation_type: runbook
   cloud_provider: gcp
-  resource_type: gcp_iam_user
+  resource_type: gcp_iam_policy_binding
   runbook_owner: StreamSecurity
   role_name: GCP Stream Apply Deny Policy to Principal Role
   role_file: gcp_apply_deny_policy_to_principal.json
   Parameters:
-  - name: ProjectId
+  - name: Scope
+    type: String
+  - name: ScopeId
     type: String
   - name: Principal
     type: String

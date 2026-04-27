@@ -1,22 +1,17 @@
 main:
   params: [input]
   steps:
-    # SecurityPolicyId carries the full Stream resource id:
-    # projects/<project>/global/securityPolicies/<policy>. We extract the
-    # two pieces the addRule call needs: project and policy name.
-    # BlockedCidr is a list of CIDR blocks (e.g. "1.2.3.4/32"), and
-    # Priority is an integer (0 highest) — defaults to 1000 if unset.
     - parseInputs:
         assign:
           - policy_id: ${input.SecurityPolicyId}
           - cidrs: ${input.BlockedCidr}
-          - priority_in: ${default(input.Priority, "1000")}
+          - priority_hint: ${int(default(input.Priority, "100"))}
           - parts: ${text.split(policy_id, "/")}
 
     - logInput:
         call: sys.log
         args:
-          text: ${"Runbook started. SecurityPolicyId='" + policy_id + "', BlockedCidr=" + json.encode_to_string(cidrs) + ", Priority=" + string(priority_in)}
+          text: ${"Runbook started. SecurityPolicyId='" + policy_id + "', BlockedCidr=" + json.encode_to_string(cidrs) + ", PriorityHint=" + string(priority_hint)}
           severity: INFO
 
     - validatePolicy:
@@ -24,13 +19,12 @@ main:
           - condition: ${len(parts) < 5}
             raise:
               status_code: "error"
-              message: ${"Invalid SecurityPolicyId. Expected 'projects/<p>/global/securityPolicies/<name>', got; " + policy_id}
+              message: ${"Invalid SecurityPolicyId. Expected 'projects/<p>/global/securityPolicies/<name>', got: " + policy_id}
 
     - extractIds:
         assign:
           - project_id: ${parts[1]}
           - policy_name: ${parts[4]}
-          - priority: ${int(priority_in)}
 
     - validateCidrs:
         switch:
@@ -38,12 +32,58 @@ main:
             raise:
               status_code: "error"
               message: "BlockedCidr must contain at least one CIDR block."
-          # Cloud Armor v1 allows up to 10 src IP ranges per rule; enforce
-          # client-side to surface a clean error instead of an API 400.
           - condition: ${len(cidrs) > 10}
             raise:
               status_code: "error"
               message: ${"BlockedCidr must be at most 10 entries per rule; got " + string(len(cidrs)) + ". Split across multiple rules with different priorities."}
+
+    # Fetch the policy to collect all priorities currently in use.
+    - getPolicy:
+        try:
+          call: googleapis.compute.v1.securityPolicies.get
+          args:
+            project: ${project_id}
+            securityPolicy: ${policy_name}
+          result: policy
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to get security policy: " + er.body.error.message}
+
+    - collectPriorities:
+        assign:
+          - usedPriorities: []
+
+    - buildPrioritySet:
+        for:
+          value: rule
+          in: ${default(policy.rules, [])}
+          steps:
+            - trackPriority:
+                assign:
+                  - usedPriorities: ${list.concat(usedPriorities, rule.priority)}
+
+    # Walk from priority_hint upward until a free slot is found.
+    - initSearch:
+        assign:
+          - priority: ${priority_hint}
+          - attempt: 0
+
+    - prioritySearchLoop:
+        switch:
+          - condition: ${attempt >= 100}
+            raise:
+              status_code: "error"
+              message: ${"No free priority found in range [" + string(priority_hint) + ", " + string(priority_hint + 99) + "]. All slots taken — supply a different Priority value."}
+          - condition: ${list.index_of(usedPriorities, priority) >= 0}
+            steps:
+              - bumpPriority:
+                  assign:
+                    - priority: ${priority + 1}
+                    - attempt: ${attempt + 1}
+              - retrySearch:
+                  next: prioritySearchLoop
 
     - addRule:
         try:
@@ -65,9 +105,50 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to add Cloud Armor rule " + er.body.error.message}
+            message: ${"Failed to add Cloud Armor rule: " + er.body.error.message}
+
+    # Poll the global operation until DONE.
+    - initPoll:
+        assign:
+          - opStatus: ${default(op.status, "RUNNING")}
+          - opName: ${op.name}
+          - finalOp: ${op}
+
+    - pollOp:
+        switch:
+          - condition: ${opStatus != "DONE"}
+            steps:
+              - waitBeforePoll:
+                  call: sys.sleep
+                  args:
+                    seconds: 3
+              - fetchOp:
+                  try:
+                    call: googleapis.compute.v1.globalOperations.get
+                    args:
+                      project: ${project_id}
+                      operation: ${opName}
+                    result: fetchedOp
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to poll operation: " + er.body.error.message}
+              - refreshStatus:
+                  assign:
+                    - opStatus: ${fetchedOp.status}
+                    - finalOp: ${fetchedOp}
+              - loopBack:
+                  next: pollOp
+
+    - checkOpError:
+        switch:
+          - condition: ${default(finalOp.error, null) != null}
+            raise:
+              status_code: "error"
+              message: ${"Cloud Armor addRule operation failed: " + json.encode_to_string(finalOp.error)}
 
     - done:
         return:
           status_code: "success"
-          message: ${"Added deny rule at priority " + string(priority) + " on Cloud Armor policy " + policy_name + " for CIDRs " + json.encode_to_string(cidrs) + ". Operation; " + default(op.name, "unknown")}
+          message: ${"Added deny rule at priority " + string(priority) + " on Cloud Armor policy " + policy_name + " blocking CIDRs: " + json.encode_to_string(cidrs)}

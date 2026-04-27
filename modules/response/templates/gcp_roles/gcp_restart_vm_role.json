@@ -1,7 +1,8 @@
 {
   "includedPermissions": [
      "compute.instances.get",
-     "compute.instances.reset"
+     "compute.instances.reset",
+     "logging.logEntries.create"
     ],
   "name": "projects/${projectId}/roles/customResetVmRole",
   "title": "GCP Stream Restart VM Role"

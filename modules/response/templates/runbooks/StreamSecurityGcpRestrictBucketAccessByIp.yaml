@@ -1,0 +1,120 @@
+main:
+  params: [input]
+  steps:
+    # Adds an IAM condition to every binding on a bucket restricting access
+    # to requests originating from the supplied IP addresses or CIDR ranges.
+    # Uses CEL expressions on the bucket IAM policy (policy version 3).
+    # Single IPs use: origin.ip == 'x.x.x.x'
+    # CIDRs use: 'x.x.x.x/n'.inIpRange(origin.ip)
+    # Multiple entries are joined with || so any trusted IP grants access.
+    - parseInputs:
+        assign:
+          - bucket_id: ${input.BucketId}
+          - allowed_ips: ${input.AllowedIps}
+          - parts: ${text.split(bucket_id, "/")}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. BucketId='" + bucket_id + "', AllowedIps=" + json.encode_to_string(allowed_ips)}
+          severity: INFO
+
+    - validateBucket:
+        switch:
+          - condition: ${len(parts) < 4}
+            raise:
+              status_code: "error"
+              message: ${"Invalid BucketId format. Expected 'projects/_/buckets/<bucket_name>', got: " + bucket_id}
+
+    - validateIps:
+        switch:
+          - condition: ${len(allowed_ips) == 0}
+            raise:
+              status_code: "error"
+              message: "AllowedIps must contain at least one IP address or CIDR range."
+
+    - extractBucketName:
+        assign:
+          - bucket_name: ${parts[3]}
+          - conditions: []
+
+    # Build a CEL expression from the IP list.
+    # CIDR entries (contain '/') use inIpRange(); plain IPs use equality.
+    - buildConditionLoop:
+        for:
+          value: ip
+          in: ${allowed_ips}
+          steps:
+            - checkCidr:
+                switch:
+                  - condition: ${text.find_all(ip, "/") != []}
+                    steps:
+                      - addCidrClause:
+                          assign:
+                            - conditions: ${list.concat(conditions, "'" + ip + "'.inIpRange(origin.ip)")}
+                  - condition: true
+                    steps:
+                      - addIpClause:
+                          assign:
+                            - conditions: ${list.concat(conditions, "origin.ip == '" + ip + "'")}
+
+    - joinExpression:
+        assign:
+          - expression: ${text.join(conditions, " || ")}
+
+    # Policy version 3 is required to read and write IAM conditions.
+    - getPolicy:
+        try:
+          call: googleapis.storage.v1.buckets.getIamPolicy
+          args:
+            bucket: ${bucket_name}
+            optionsRequestedPolicyVersion: 3
+          result: policy
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to getIamPolicy: " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - initBindings:
+        assign:
+          - newBindings: []
+
+    # Overwrite every binding's condition with the IP restriction.
+    # Existing conditions are replaced — this is emergency containment.
+    - iterateBindings:
+        for:
+          value: binding
+          in: ${default(policy.bindings, [])}
+          steps:
+            - addCondition:
+                assign:
+                  - newBinding:
+                      role: ${binding.role}
+                      members: ${binding.members}
+                      condition:
+                        expression: ${expression}
+                        title: "stream-security-ip-restriction"
+                        description: "Temporary IP restriction applied by Stream Security"
+                  - newBindings: ${list.concat(newBindings, newBinding)}
+
+    - setPolicy:
+        try:
+          call: googleapis.storage.v1.buckets.setIamPolicy
+          args:
+            bucket: ${bucket_name}
+            body:
+              version: 3
+              bindings: ${newBindings}
+              etag: ${policy.etag}
+          result: updated
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to setIamPolicy: " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - done:
+        return:
+          status_code: "success"
+          message: ${"Bucket " + bucket_name + " restricted to IPs: " + json.encode_to_string(allowed_ips) + ". Applied IP condition to " + string(len(newBindings)) + " binding(s)."}

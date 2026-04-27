@@ -4,6 +4,6 @@
     "storage.buckets.setIamPolicy",
     "logging.logEntries.create"
   ],
-  "name": "projects/${projectId}/roles/customRestrictBucketToPrincipalsRole",
-  "title": "GCP Stream Restrict Bucket to Principals Role"
+  "name": "projects/${projectId}/roles/customRestrictBucketAccessByIpRole",
+  "title": "GCP Stream Restrict Bucket Access By IP Role"
 }

@@ -1,95 +1,104 @@
 main:
   params: [input]
   steps:
-    # Parse BucketId (format: projects/_/buckets/<name>) and Principal
-    # (e.g. "user:alice@example.com", "serviceAccount:foo@p.iam.gserviceaccount.com",
-    # "group:eng@example.com", or a bare email that we'll coerce to user: form).
+    # Member and Role are taken directly from the gcp_iam_policy_binding violating
+    # resource identified by the rule. ProjectId is auto-derived from that binding's
+    # ScopeId. Before removing the binding we verify the role actually grants
+    # storage.objects.get or storage.objects.list as a safety guard.
     - parseInputs:
         assign:
-          - bucket_id: ${input.BucketId}
-          - principal_raw: ${input.Principal}
-          - parts: ${text.split(bucket_id, "/")}
+          - member: ${input.Member}
+          - role: ${input.Role}
+          - project_id: ${input.ProjectId}
 
     - logInput:
         call: sys.log
         args:
-          text: ${"Runbook started. BucketId='" + bucket_id + "', Principal='" + principal_raw + "'"}
+          text: ${"Runbook started. ProjectId='" + project_id + "', Role='" + role + "', Member='" + member + "'"}
           severity: INFO
 
-    - validateBucket:
-        switch:
-          - condition: ${len(parts) < 4}
-            raise:
-              status_code: "error"
-              message: ${"Invalid BucketId format. Expected 'projects/_/buckets/<bucket_name>', got; " + bucket_id}
+    # Safety check: confirm the role grants storage read before acting.
+    - getRoleDetails:
+        try:
+          call: http.get
+          args:
+            url: ${"https://iam.googleapis.com/v1/" + role}
+            auth:
+              type: OAuth2
+          result: roleResp
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to get role details for " + role + "; " + default(er.body.error.message, json.encode_to_string(er))}
 
-    - extractBucketName:
+    - checkStorageReadPermission:
         assign:
-          - bucket_name: ${parts[3]}
+          - perms: ${default(roleResp.body.includedPermissions, [])}
+          - hasStorageRead: ${list.index_of(perms, "storage.objects.get") >= 0 or list.index_of(perms, "storage.objects.list") >= 0}
 
-    # Coerce a bare email to "user:<email>". Principals that already carry
-    # a prefix (user:, serviceAccount:, group:, domain:) pass through.
-    - normalizePrincipal:
+    - guardStorageRead:
         switch:
-          - condition: ${text.find_all(principal_raw, ":") != []}
-            assign:
-              - principal: ${principal_raw}
-          - condition: true
-            assign:
-              - principal: ${"user:" + principal_raw}
+          - condition: ${not(hasStorageRead)}
+            return:
+              status_code: "success"
+              message: ${"Role " + role + " does not grant storage.objects.get or storage.objects.list; no action taken."}
+        next: getPolicy
 
     - getPolicy:
         try:
-          call: googleapis.storage.v1.buckets.getIamPolicy
+          call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
           args:
-            bucket: ${bucket_name}
+            resource: ${"projects/" + project_id}
+            body: {}
           result: policy
         except:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to getIamPolicy " + er.body.error.message}
+            message: ${"Failed to getIamPolicy; " + er.body.error.message}
 
-    # The Tines playbook specifically calls out revoking storage.objectViewer
-    # and storage.admin — but defensively we drop ALL role bindings for the
-    # suspicious principal, not just those two. If the investigator wants to
-    # preserve some access they can re-grant after triage.
     - filterBindings:
         assign:
           - newBindings: []
-          - removedBindings: []
+          - removed: false
 
     - iterateBindings:
         try:
           for:
             value: binding
-            in: ${policy.bindings}
+            in: ${default(policy.bindings, [])}
             steps:
-              - initMembers:
-                  assign:
-                    - members: []
-              - loopMembers:
-                  for:
-                    value: m
-                    in: ${binding.members}
-                    steps:
-                      - checkMember:
-                          switch:
-                            - condition: ${m != principal}
-                              steps:
-                                - keepMember:
-                                    assign:
-                                      - members: ${list.concat(members, m)}
-                            - condition: true
-                              steps:
-                                - trackRemoval:
-                                    assign:
-                                      - removedBindings: ${list.concat(removedBindings, binding.role)}
-              - checkKeep:
+              - checkRole:
                   switch:
-                    - condition: ${len(members) > 0}
+                    - condition: ${binding.role != role}
                       steps:
-                        - buildBinding:
+                        - keepOtherRole:
+                            assign:
+                              - newBindings: ${list.concat(newBindings, binding)}
+                    - condition: true
+                      steps:
+                        - initMembers:
+                            assign:
+                              - members: []
+                        - loopMembers:
+                            for:
+                              value: m
+                              in: ${default(binding.members, [])}
+                              steps:
+                                - checkMember:
+                                    switch:
+                                      - condition: ${m != member}
+                                        steps:
+                                          - keepMember:
+                                              assign:
+                                                - members: ${list.concat(members, m)}
+                                      - condition: true
+                                        steps:
+                                          - markRemoved:
+                                              assign:
+                                                - removed: true
+                        - rebuildBinding:
                             assign:
                               - newBinding:
                                   role: ${binding.role}
@@ -101,30 +110,32 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to iterateBindings " + er.body.error.message}
+            message: ${"Failed to iterateBindings; " + er.body.error.message}
 
     - checkNoChange:
         switch:
-          - condition: ${len(removedBindings) == 0}
+          - condition: ${not(removed)}
             return:
               status_code: "success"
-              message: ${"Principal " + principal + " had no bindings on bucket " + bucket_name + "; nothing to revoke."}
+              message: ${"Member " + member + " was not found in role " + role + " on project " + project_id + "; nothing to revoke."}
 
     - setPolicy:
         try:
-          call: googleapis.storage.v1.buckets.setIamPolicy
+          call: googleapis.cloudresourcemanager.v3.projects.setIamPolicy
           args:
-            bucket: ${bucket_name}
+            resource: ${"projects/" + project_id}
             body:
-              bindings: ${newBindings}
+              policy:
+                bindings: ${newBindings}
+                etag: ${policy.etag}
           result: updated
         except:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to setIamPolicy " + er.body.error.message}
+            message: ${"Failed to setIamPolicy; " + er.body.error.message}
 
     - done:
         return:
           status_code: "success"
-          message: ${"Revoked " + string(len(removedBindings)) + " role binding(s) for " + principal + " on bucket " + bucket_name + ". Removed roles; " + json.encode_to_string(removedBindings)}
+          message: ${"Removed " + member + " from role " + role + " on project " + project_id + "."}
