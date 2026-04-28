@@ -24,6 +24,7 @@ variable "exclude_runbooks" {
 variable "workflow_invoker_service_account" {
   description = "Service account email to grant roles/workflows.invoker permission for invoking workflows."
   type        = string
+  default     = ""
 }
 
 variable "auto_grant_workflow_invoker" {
