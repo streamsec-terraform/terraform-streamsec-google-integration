@@ -320,7 +320,7 @@ Remediations:
   - name: Priority
     type: Integer
 - name: StreamSecurityGcpApplyDenyPolicyToPrincipal
-  description: Creates an IAM Deny Policy at organization, folder, or project level to block a principal from a set of permissions. Defaults to blocking Cloud Storage read/list. Supports all three GCP resource hierarchy scopes.
+  description: Creates an IAM Deny Policy at the same scope as the violating IAM binding (organization, folder, or project), blocking the principal from storage.googleapis.com/objects.get and storage.googleapis.com/objects.list by default.
   disabled_reason: Action is not applicable because the principal has no IAM bindings that grant access at this scope.
   display_name: Apply IAM Deny Policy to Principal
   remediation_type: runbook
