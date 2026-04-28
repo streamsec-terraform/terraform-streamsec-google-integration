@@ -286,7 +286,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRestrictBucketAccessByIp
-  description: Adds an IP-based IAM condition to the specific IAM binding (Member + Role) on the project policy identified by the violating gcp_iam_policy_binding, restricting access to the supplied IP ranges only.
+  description: Restricts the violating IAM binding (Member + Role) to specific IPs via a CEL condition applied to the project/org/folder IAM policy.
   disabled_reason: Action is not applicable because the principal has no IAM bindings that grant access at this scope.
   display_name: Restrict Bucket Access by IP
   remediation_type: runbook
