@@ -49,7 +49,7 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to get security policy: " + er.body.error.message}
+            message: ${"Failed to get security policy; " + er.body.error.message}
 
     - collectPriorities:
         assign:
@@ -105,7 +105,7 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to add Cloud Armor rule: " + er.body.error.message}
+            message: ${"Failed to add Cloud Armor rule; " + er.body.error.message}
 
     # Poll the global operation until DONE.
     - initPoll:
@@ -133,7 +133,7 @@ main:
                     as: er
                     raise:
                       status_code: "error"
-                      message: ${"Failed to poll operation: " + er.body.error.message}
+                      message: ${"Failed to poll operation; " + er.body.error.message}
               - refreshStatus:
                   assign:
                     - opStatus: ${fetchedOp.status}
