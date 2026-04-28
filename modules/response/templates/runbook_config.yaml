@@ -303,7 +303,6 @@ Remediations:
     type: StringList
 - name: StreamSecurityGcpBlockIpWithCloudArmor
   description: Adds a deny(403) rule to a Cloud Armor security policy to block up to 10 suspicious CIDR ranges. Automatically finds a free priority slot starting from the supplied value (default 100) so it evaluates before existing allow rules.
-  disabled_reason: Action is not applicable because the Cloud Armor security policy does not exist or has no available priority slots.
   display_name: Block IP with Cloud Armor
   remediation_type: runbook
   cloud_provider: gcp
