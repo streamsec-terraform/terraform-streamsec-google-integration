@@ -1,3 +1,26 @@
+terraform {
+  required_version = ">= 1.5"
+
+  required_providers {
+    streamsec = {
+      source  = "streamsec-terraform/streamsec"
+      version = ">= 1.13"
+    }
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 6.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.10"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.0"
+    }
+  }
+}
+
 provider "google" {
   project = var.project
   region  = var.region
@@ -19,7 +42,7 @@ variable "region" {
 module "response" {
   source = "../../modules/response"
 
-  projects              = [var.project]
-  org_level_permissions = false
+  projects                    = [var.project]
+  org_level_permissions       = false
   auto_grant_workflow_invoker = false
 }
