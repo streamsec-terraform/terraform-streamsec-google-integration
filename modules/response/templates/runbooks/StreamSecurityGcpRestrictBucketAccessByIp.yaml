@@ -65,9 +65,23 @@ main:
                           assign:
                             - ip_clauses: ${list.concat(ip_clauses, "origin.ip == '" + ip + "'")}
 
-    - joinExpression:
+    - initJoin:
         assign:
-          - ip_expression: ${text.join(ip_clauses, " || ")}
+          - ip_expression: ""
+
+    - joinLoop:
+        for:
+          value: clause
+          in: ${ip_clauses}
+          steps:
+            - appendClause:
+                switch:
+                  - condition: ${ip_expression == ""}
+                    assign:
+                      - ip_expression: ${clause}
+                  - condition: true
+                    assign:
+                      - ip_expression: ${ip_expression + " || " + clause}
 
     # Policy version 3 is required to read and write IAM conditions.
     - getPolicy:
