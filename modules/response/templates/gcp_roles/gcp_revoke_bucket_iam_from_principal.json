@@ -1,0 +1,10 @@
+{
+  "includedPermissions": [
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.projects.setIamPolicy",
+    "iam.roles.get",
+    "logging.logEntries.create"
+  ],
+  "name": "projects/${projectId}/roles/customRevokeBucketIamFromPrincipalRole",
+  "title": "GCP Stream Revoke Bucket IAM From Principal Role"
+}

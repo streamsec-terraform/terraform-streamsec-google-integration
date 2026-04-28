@@ -70,7 +70,6 @@ main:
     - checkPrivate:
         assign:
           - has_private: ${"privateNetwork" in current_instance.settings.ipConfiguration}
-          - has_public_ip: ${"ipv4Enabled" in current_instance.settings.ipConfiguration and current_instance.settings.ipConfiguration.ipv4Enabled == false}
 
     # Step 5: Disable public IPv4 only if private network is configured
     - disablePublicIP:

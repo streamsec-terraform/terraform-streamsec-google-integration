@@ -1,0 +1,143 @@
+main:
+  params: [input]
+  steps:
+    # Member and Role are taken directly from the gcp_iam_policy_binding violating
+    # resource identified by the rule. ProjectId is auto-derived from that binding's
+    # ScopeId. Before removing the binding we verify the role actually grants
+    # storage.objects.get or storage.objects.list as a safety guard.
+    - parseInputs:
+        assign:
+          - member: ${input.Member}
+          - role: ${input.Role}
+          - project_id: ${input.ProjectId}
+
+    - logInput:
+        call: sys.log
+        args:
+          text: ${"Runbook started. ProjectId='" + project_id + "', Role='" + role + "', Member='" + member + "'"}
+          severity: INFO
+
+    # Safety check: confirm the role grants storage read before acting.
+    - getRoleDetails:
+        try:
+          call: http.get
+          args:
+            url: ${"https://iam.googleapis.com/v1/" + role}
+            auth:
+              type: OAuth2
+          result: roleResp
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to get role details for " + role + "; " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - checkStorageReadPermission:
+        assign:
+          - perms: ${default(roleResp.body.includedPermissions, [])}
+          - hasStorageRead: ${list.index_of(perms, "storage.objects.get") >= 0 or list.index_of(perms, "storage.objects.list") >= 0}
+
+    - guardStorageRead:
+        switch:
+          - condition: ${not(hasStorageRead)}
+            return:
+              status_code: "success"
+              message: ${"Role " + role + " does not grant storage.objects.get or storage.objects.list; no action taken."}
+        next: getPolicy
+
+    - getPolicy:
+        try:
+          call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
+          args:
+            resource: ${"projects/" + project_id}
+            body:
+              options:
+                requestedPolicyVersion: 3
+          result: policy
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to getIamPolicy; " + er.body.error.message}
+
+    - filterBindings:
+        assign:
+          - newBindings: []
+          - removed: false
+
+    - iterateBindings:
+        try:
+          for:
+            value: binding
+            in: ${default(policy.bindings, [])}
+            steps:
+              - checkRole:
+                  switch:
+                    - condition: ${binding.role != role}
+                      steps:
+                        - keepOtherRole:
+                            assign:
+                              - newBindings: ${list.concat(newBindings, binding)}
+                    - condition: true
+                      steps:
+                        - initMembers:
+                            assign:
+                              - members: []
+                        - loopMembers:
+                            for:
+                              value: m
+                              in: ${default(binding.members, [])}
+                              steps:
+                                - checkMember:
+                                    switch:
+                                      - condition: ${m != member}
+                                        steps:
+                                          - keepMember:
+                                              assign:
+                                                - members: ${list.concat(members, m)}
+                                      - condition: true
+                                        steps:
+                                          - markRemoved:
+                                              assign:
+                                                - removed: true
+                        - rebuildBinding:
+                            assign:
+                              - newBinding:
+                                  role: ${binding.role}
+                                  members: ${members}
+                        - addBinding:
+                            assign:
+                              - newBindings: ${list.concat(newBindings, newBinding)}
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to iterateBindings; " + er.body.error.message}
+
+    - checkNoChange:
+        switch:
+          - condition: ${not(removed)}
+            return:
+              status_code: "success"
+              message: ${"Member " + member + " was not found in role " + role + " on project " + project_id + "; nothing to revoke."}
+
+    - setPolicy:
+        try:
+          call: googleapis.cloudresourcemanager.v3.projects.setIamPolicy
+          args:
+            resource: ${"projects/" + project_id}
+            body:
+              policy:
+                bindings: ${newBindings}
+                etag: ${policy.etag}
+          result: updated
+        except:
+          as: er
+          raise:
+            status_code: "error"
+            message: ${"Failed to setIamPolicy; " + er.body.error.message}
+
+    - done:
+        return:
+          status_code: "success"
+          message: ${"Removed " + member + " from role " + role + " on project " + project_id + "."}

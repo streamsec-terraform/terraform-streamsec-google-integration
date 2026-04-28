@@ -4,6 +4,6 @@
      "compute.instances.setIamPolicy",
      "compute.instances.getIamPolicy"
     ],
-  "name": "projects/${projectId}/roles/customRemoveIamRoleFromeInstance",
-  "title": "GCP Remove Iam Role Permission From Instanse"
+  "name": "projects/${projectId}/roles/customRemoveIamRoleFromInstance",
+  "title": "GCP Remove IAM Role Permission From Instance"
 }

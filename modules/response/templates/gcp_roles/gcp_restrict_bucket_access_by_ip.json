@@ -1,0 +1,13 @@
+{
+  "includedPermissions": [
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.projects.setIamPolicy",
+    "resourcemanager.organizations.getIamPolicy",
+    "resourcemanager.organizations.setIamPolicy",
+    "resourcemanager.folders.getIamPolicy",
+    "resourcemanager.folders.setIamPolicy",
+    "logging.logEntries.create"
+  ],
+  "name": "projects/${projectId}/roles/customRestrictBucketAccessByIpRole",
+  "title": "GCP Stream Restrict Bucket Access By IP Role"
+}
