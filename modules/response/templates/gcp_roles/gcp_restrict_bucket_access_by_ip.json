@@ -1,7 +1,7 @@
 {
   "includedPermissions": [
-    "storage.buckets.getIamPolicy",
-    "storage.buckets.setIamPolicy",
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.projects.setIamPolicy",
     "logging.logEntries.create"
   ],
   "name": "projects/${projectId}/roles/customRestrictBucketAccessByIpRole",

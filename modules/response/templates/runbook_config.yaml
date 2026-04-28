@@ -100,7 +100,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpReplaceFunctionServiceAccount
-  description: Replace the Cloud Run service's service account with a service account that has no IAM roles assigned.
+  description: Replace the Cloud Run service’s service account with a service account that has no IAM roles assigned.
   disabled_reason: Action is not applicable because the service is already using the service account without roles.
   display_name: Replace Function Service Account with one that has no roles
   remediation_type: runbook
@@ -266,7 +266,7 @@ Remediations:
   resource_type: gcp_service_account
   runbook_owner: StreamSecurity
   role_name: GCP Stream Revoke Service Account Keys Role
-  role_file: gcp_rotate_service_account_keys.json
+  role_file: gcp_revoke_service_account_keys.json
   Parameters:
   - name: ServiceAccountId
     type: String
@@ -286,7 +286,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRestrictBucketAccessByIp
-  description: Adds an IP-based IAM condition to the specific IAM binding (Member + Role) on a GCS bucket identified by the violating gcp_iam_policy_binding.
+  description: Adds an IP-based IAM condition to the specific IAM binding (Member + Role) on the project policy identified by the violating gcp_iam_policy_binding, restricting access to the supplied IP ranges only.
   disabled_reason: Action is not applicable because the principal has no IAM bindings that grant access at this scope.
   display_name: Restrict Bucket Access by IP
   remediation_type: runbook
@@ -300,6 +300,8 @@ Remediations:
     type: String
     resource_name: true
   - name: Role
+    type: String
+  - name: ProjectId
     type: String
   - name: AllowedIps
     type: StringList
