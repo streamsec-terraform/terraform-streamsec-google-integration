@@ -33,6 +33,7 @@ main:
             call: googleapis.storage.v1.buckets.getIamPolicy
             args:
                 bucket: ${bucket_name}
+                optionsRequestedPolicyVersion: 3
             result: policy
         except:
           as: er
