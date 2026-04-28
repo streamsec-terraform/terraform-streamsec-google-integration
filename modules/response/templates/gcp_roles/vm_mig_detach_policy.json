@@ -2,7 +2,6 @@
   "includedPermissions": [
      "compute.instances.get",
      "compute.instanceGroupManagers.update",
-     "compute.regionInstanceGroupManagers.update",
      "logging.logEntries.create"
     ],
   "name": "projects/${projectId}/roles/vm_mig_detach_role",
