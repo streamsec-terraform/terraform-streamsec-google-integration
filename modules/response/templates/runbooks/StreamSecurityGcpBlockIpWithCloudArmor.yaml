@@ -19,7 +19,7 @@ main:
           - condition: ${len(parts) < 5}
             raise:
               status_code: "error"
-              message: ${"Invalid SecurityPolicyId. Expected 'projects/<p>/global/securityPolicies/<name>', got: " + policy_id}
+              message: ${"Invalid SecurityPolicyId. Expected projects/PROJECT/global/securityPolicies/NAME; got " + policy_id}
 
     - extractIds:
         assign:
@@ -53,7 +53,7 @@ main:
 
     - collectPriorities:
         assign:
-          - usedPriorities: []
+          - usedPriorityMap: {}
 
     - buildPrioritySet:
         for:
@@ -62,7 +62,7 @@ main:
           steps:
             - trackPriority:
                 assign:
-                  - usedPriorities: ${list.concat(usedPriorities, rule.priority)}
+                  - usedPriorityMap: ${map.set(usedPriorityMap, string(rule.priority), true)}
 
     # Walk from priority_hint upward until a free slot is found.
     - initSearch:
@@ -76,7 +76,7 @@ main:
             raise:
               status_code: "error"
               message: ${"No free priority found in range [" + string(priority_hint) + ", " + string(priority_hint + 99) + "]. All slots taken — supply a different Priority value."}
-          - condition: ${list.index_of(usedPriorities, priority) >= 0}
+          - condition: ${default(map.get(usedPriorityMap, string(priority)), false)}
             steps:
               - bumpPriority:
                   assign:
@@ -146,9 +146,9 @@ main:
           - condition: ${default(finalOp.error, null) != null}
             raise:
               status_code: "error"
-              message: ${"Cloud Armor addRule operation failed: " + json.encode_to_string(finalOp.error)}
+              message: ${"Cloud Armor addRule operation failed; " + json.encode_to_string(finalOp.error)}
 
     - done:
         return:
           status_code: "success"
-          message: ${"Added deny rule at priority " + string(priority) + " on Cloud Armor policy " + policy_name + " blocking CIDRs: " + json.encode_to_string(cidrs)}
+          message: ${"Added deny rule at priority " + string(priority) + " on Cloud Armor policy " + policy_name + " blocking CIDRs " + json.encode_to_string(cidrs)}

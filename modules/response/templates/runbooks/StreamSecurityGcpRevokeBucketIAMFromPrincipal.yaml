@@ -35,7 +35,17 @@ main:
     - checkStorageReadPermission:
         assign:
           - perms: ${default(roleResp.body.includedPermissions, [])}
-          - hasStorageRead: ${list.index_of(perms, "storage.objects.get") >= 0 or list.index_of(perms, "storage.objects.list") >= 0}
+          - hasStorageRead: false
+    - findStorageReadPerm:
+        for:
+          value: p
+          in: ${perms}
+          steps:
+            - matchStoragePerm:
+                switch:
+                  - condition: ${p == "storage.objects.get" or p == "storage.objects.list"}
+                    assign:
+                      - hasStorageRead: true
 
     - guardStorageRead:
         switch:

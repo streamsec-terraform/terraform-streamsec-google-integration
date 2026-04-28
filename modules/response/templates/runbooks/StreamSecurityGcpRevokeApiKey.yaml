@@ -13,15 +13,23 @@ main:
 
     - deleteKey:
         try:
-          call: googleapis.apikeys.v2.projects.locations.keys.delete
+          call: http.delete
           args:
-            name: ${api_key_id}
+            url: ${"https://apikeys.googleapis.com/v2/" + api_key_id}
+            auth:
+              type: OAuth2
           result: deleteResp
         except:
           as: er
           raise:
             status_code: "error"
             message: ${"Failed to delete API key " + api_key_id + "; " + default(er.body.error.message, json.encode_to_string(er))}
+    - checkDeleteStatus:
+        switch:
+          - condition: ${deleteResp.code >= 400}
+            raise:
+              status_code: "error"
+              message: ${"Failed to delete API key " + api_key_id + "; HTTP " + string(deleteResp.code)}
 
     - done:
         return:

@@ -41,7 +41,7 @@ main:
           - condition: true
             raise:
               status_code: "error"
-              message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got: " + scope}
+              message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got " + scope}
 
     - resolvePermissions:
         switch:
@@ -78,4 +78,4 @@ main:
     - done:
         return:
           status_code: "success"
-          message: ${"Created IAM Deny Policy " + policy_id + " on " + scope + " " + scope_id + " blocking " + principal_raw + " from: " + json.encode_to_string(permissions)}
+          message: ${"Created IAM Deny Policy " + policy_id + " on " + scope + " " + scope_id + " blocking " + principal_raw + " from " + json.encode_to_string(permissions)}

@@ -27,7 +27,7 @@ main:
           as: disable_error
           raise:
             status_code: "error"
-            message: ${"Failed to disable Cloud Run service: " + disable_error.body.error.message}
+            message: ${"Failed to disable Cloud Run service; " + disable_error.body.error.message}
 
     # Step 3: Verify the updated service
     - verifyService:

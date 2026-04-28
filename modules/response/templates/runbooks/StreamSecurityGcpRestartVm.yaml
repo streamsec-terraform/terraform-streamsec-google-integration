@@ -17,7 +17,7 @@ main:
           - condition: ${len(parts) != 6}
             raise:
               status_code: "error"
-              message: ${"Invalid VmId format. Expected 'projects/<project_id>/zones/<zone>/instances/<instance_name>', got: " + vm_id}
+              message: ${"Invalid VmId format. Expected projects/PROJECT/zones/ZONE/instances/NAME; got " + vm_id}
 
     - extractIds:
         assign:
@@ -36,7 +36,7 @@ main:
           as: reset_error
           raise:
             status_code: "error"
-            message: ${"VM reset failed: " + reset_error.body.error.message}
+            message: ${"VM reset failed; " + reset_error.body.error.message}
 
     - wait:
         call: sys.sleep
@@ -55,7 +55,7 @@ main:
           as: get_error
           raise:
             status_code: "error"
-            message: ${"Failed to retrieve VM status after reset: " + get_error.body.error.message}
+            message: ${"Failed to retrieve VM status after reset; " + get_error.body.error.message}
 
     - verifyStatus:
         switch:
@@ -72,4 +72,4 @@ main:
     - failed:
         raise:
           status_code: "error"
-          message: ${"VM reset did not complete successfully. Current status: " + vmInfo.status}
+          message: ${"VM reset did not complete successfully. Current status is " + vmInfo.status}

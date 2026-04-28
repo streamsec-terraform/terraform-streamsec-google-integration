@@ -99,7 +99,7 @@ main:
           steps:
             - checkBinding:
                 switch:
-                  - condition: ${binding.role == role and list.index_of(default(binding.members, []), member) >= 0}
+                  - condition: ${binding.role == role and text.find_all(json.encode_to_string(default(binding.members, [])), member) != []}
                     steps:
                       - buildExpression:
                           assign:
@@ -155,4 +155,4 @@ main:
     - done:
         return:
           status_code: "success"
-          message: ${"Added IP restriction to binding '" + member + "' / '" + role + "' on project " + scope_id + ". Allowed IPs: " + json.encode_to_string(allowed_ips)}
+          message: ${"Added IP restriction to binding '" + member + "' / '" + role + "' on project " + scope_id + ". Allowed IPs " + json.encode_to_string(allowed_ips)}
