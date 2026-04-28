@@ -301,7 +301,9 @@ Remediations:
     resource_name: true
   - name: Role
     type: String
-  - name: ProjectId
+  - name: Scope
+    type: String
+  - name: ScopeId
     type: String
   - name: AllowedIps
     type: StringList

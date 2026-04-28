@@ -1,8 +1,9 @@
 main:
   params: [input]
   steps:
-    # Adds an IP-based IAM condition to a specific binding on the project policy,
-    # identified by Member + Role from the violating gcp_iam_policy_binding.
+    # Adds an IP-based IAM condition to a specific binding identified by
+    # Member + Role on the IAM policy at project, organization, or folder scope.
+    # Scope and ScopeId are auto-populated from the gcp_iam_policy_binding resource.
     # If the binding already has a condition, the IP restriction is appended
     # with && so existing conditions are preserved.
     # Single IPs use: origin.ip == 'x.x.x.x'
@@ -10,15 +11,16 @@ main:
     # Multiple entries are joined with || so any trusted IP grants access.
     - parseInputs:
         assign:
+          - scope: ${input.Scope}
+          - scope_id: ${input.ScopeId}
           - member: ${input.Member}
           - role: ${input.Role}
-          - project_id: ${input.ProjectId}
           - allowed_ips: ${input.AllowedIps}
 
     - logInput:
         call: sys.log
         args:
-          text: ${"Runbook started. ProjectId='" + project_id + "', Member='" + member + "', Role='" + role + "', AllowedIps=" + json.encode_to_string(allowed_ips)}
+          text: ${"Runbook started. Scope='" + scope + "', ScopeId='" + scope_id + "', Member='" + member + "', Role='" + role + "', AllowedIps=" + json.encode_to_string(allowed_ips)}
           severity: INFO
 
     - validateIps:
@@ -27,6 +29,22 @@ main:
             raise:
               status_code: "error"
               message: "AllowedIps must contain at least one IP address or CIDR range."
+
+    - buildResource:
+        switch:
+          - condition: ${scope == "organization"}
+            assign:
+              - resource: ${"organizations/" + scope_id}
+          - condition: ${scope == "folder"}
+            assign:
+              - resource: ${"folders/" + scope_id}
+          - condition: ${scope == "project"}
+            assign:
+              - resource: ${"projects/" + scope_id}
+          - condition: true
+            raise:
+              status_code: "error"
+              message: ${"Unsupported scope '" + scope + "'. Expected project, organization, or folder."}
 
     - initClauses:
         assign:
@@ -58,19 +76,55 @@ main:
 
     # Policy version 3 is required to read and write IAM conditions.
     - getPolicy:
-        try:
-          call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
-          args:
-            resource: ${"projects/" + project_id}
-            body:
-              options:
-                requestedPolicyVersion: 3
-          result: policy
-        except:
-          as: er
-          raise:
-            status_code: "error"
-            message: ${"Failed to getIamPolicy: " + default(er.body.error.message, json.encode_to_string(er))}
+        switch:
+          - condition: ${scope == "organization"}
+            steps:
+              - getPolicyOrg:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.organizations.getIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        options:
+                          requestedPolicyVersion: 3
+                    result: policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to getIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
+          - condition: ${scope == "folder"}
+            steps:
+              - getPolicyFolder:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.folders.getIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        options:
+                          requestedPolicyVersion: 3
+                    result: policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to getIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
+          - condition: true
+            steps:
+              - getPolicyProject:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        options:
+                          requestedPolicyVersion: 3
+                    result: policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to getIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
 
     - initBindings:
         assign:
@@ -121,25 +175,63 @@ main:
           - condition: ${not(updated)}
             return:
               status_code: "success"
-              message: ${"Binding for member '" + member + "' with role '" + role + "' not found on project " + project_id + "; no changes made."}
+              message: ${"Binding for member '" + member + "' with role '" + role + "' not found on " + scope + " " + scope_id + "; no changes made."}
 
     - setPolicy:
-        try:
-          call: googleapis.cloudresourcemanager.v3.projects.setIamPolicy
-          args:
-            resource: ${"projects/" + project_id}
-            body:
-              policy:
-                bindings: ${newBindings}
-                etag: ${policy.etag}
-          result: updated_policy
-        except:
-          as: er
-          raise:
-            status_code: "error"
-            message: ${"Failed to setIamPolicy: " + default(er.body.error.message, json.encode_to_string(er))}
+        switch:
+          - condition: ${scope == "organization"}
+            steps:
+              - setPolicyOrg:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.organizations.setIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        policy:
+                          bindings: ${newBindings}
+                          etag: ${policy.etag}
+                    result: updated_policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to setIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
+          - condition: ${scope == "folder"}
+            steps:
+              - setPolicyFolder:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.folders.setIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        policy:
+                          bindings: ${newBindings}
+                          etag: ${policy.etag}
+                    result: updated_policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to setIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
+          - condition: true
+            steps:
+              - setPolicyProject:
+                  try:
+                    call: googleapis.cloudresourcemanager.v3.projects.setIamPolicy
+                    args:
+                      resource: ${resource}
+                      body:
+                        policy:
+                          bindings: ${newBindings}
+                          etag: ${policy.etag}
+                    result: updated_policy
+                  except:
+                    as: er
+                    raise:
+                      status_code: "error"
+                      message: ${"Failed to setIamPolicy; " + default(er.body.error.message, json.encode_to_string(er))}
 
     - done:
         return:
           status_code: "success"
-          message: ${"Added IP restriction to binding '" + member + "' / '" + role + "' on project " + project_id + ". Allowed IPs: " + json.encode_to_string(allowed_ips)}
+          message: ${"Added IP restriction to binding '" + member + "' / '" + role + "' on " + scope + " " + scope_id + ". Allowed IPs; " + json.encode_to_string(allowed_ips)}
