@@ -1,6 +1,5 @@
 {
   "includedPermissions": [
-     "compute.instances.get",
      "compute.instanceGroupManagers.update",
      "compute.regionInstanceGroupManagers.update",
      "logging.logEntries.create"
