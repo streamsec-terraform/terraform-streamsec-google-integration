@@ -286,12 +286,11 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRestrictBucketAccessByIp
-  description: Adds an IP-based IAM condition to every binding on a GCS bucket, restricting access to requests originating from the supplied IP addresses or CIDR ranges. Uses CEL origin.ip conditions on IAM policy version 3 — no Access Context Manager dependency.
-  disabled_reason: Action is not applicable because the bucket has no IAM bindings to apply IP conditions to.
+  description: Adds an IP-based IAM condition to the specific IAM binding (Member + Role) on a GCS bucket identified by the violating gcp_iam_policy_binding.
   display_name: Restrict Bucket Access by IP
   remediation_type: runbook
   cloud_provider: gcp
-  resource_type: gcp_bucket
+  resource_type: gcp_iam_policy_binding
   runbook_owner: StreamSecurity
   role_name: GCP Stream Restrict Bucket Access By IP Role
   role_file: gcp_restrict_bucket_access_by_ip.json
