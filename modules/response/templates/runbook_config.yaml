@@ -226,7 +226,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Removes a principal from a specific project-level IAM role binding. The exact role and member are taken from the violating gcp_iam_policy_binding — all other bindings are untouched.
+  description: Removes a principal from a specific IAM role binding at project scope. The exact role and member are taken from the violating gcp_iam_policy_binding — all other bindings are untouched. This runbook operates at project scope only; bindings at organization or folder scope are not affected.
   disabled_reason: Action is not applicable because the principal has no binding for this role on the project.
   display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
@@ -296,9 +296,11 @@ Remediations:
   role_name: GCP Stream Restrict Bucket Access By IP Role
   role_file: gcp_restrict_bucket_access_by_ip.json
   Parameters:
-  - name: BucketId
+  - name: Member
     type: String
     resource_name: true
+  - name: Role
+    type: String
   - name: AllowedIps
     type: StringList
 - name: StreamSecurityGcpBlockIpWithCloudArmor

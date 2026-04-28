@@ -41,7 +41,7 @@ main:
     - wait:
         call: sys.sleep
         args:
-          seconds: 5
+          seconds: 30
 
     - getStatus:
         try:
