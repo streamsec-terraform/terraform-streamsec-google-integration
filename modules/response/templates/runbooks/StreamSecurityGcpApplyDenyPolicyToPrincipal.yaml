@@ -43,23 +43,6 @@ main:
               status_code: "error"
               message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got: " + scope}
 
-    # Normalize principal into IAM deny policy principal:// identifier.
-    - normalizePrincipal:
-        switch:
-          - condition: ${text.find_all(principal_raw, "://") != []}
-            assign:
-              - principal: ${principal_raw}
-          - condition: ${text.match_regex(principal_raw, ".+@.+\\.iam\\.gserviceaccount\\.com$")}
-            assign:
-              - principal: ${"principal://iam.googleapis.com/projects/-/serviceAccounts/" + principal_raw}
-          - condition: ${text.find_all(principal_raw, "@") != []}
-            assign:
-              - principal: ${"principal://goog/subject/" + principal_raw}
-          - condition: true
-            raise:
-              status_code: "error"
-              message: ${"Unrecognized Principal shape. Provide an email, a service account email, or a fully-qualified principal:// identifier. Got: " + principal_raw}
-
     - resolvePermissions:
         switch:
           - condition: ${permissions_raw == ""}
@@ -83,7 +66,7 @@ main:
               rules:
                 - denyRule:
                     deniedPrincipals:
-                      - ${principal}
+                      - ${principal_raw}
                     deniedPermissions: ${permissions}
           result: response
         except:
@@ -95,4 +78,4 @@ main:
     - done:
         return:
           status_code: "success"
-          message: ${"Created IAM Deny Policy " + policy_id + " on " + scope + " " + scope_id + " blocking " + principal + " from: " + json.encode_to_string(permissions)}
+          message: ${"Created IAM Deny Policy " + policy_id + " on " + scope + " " + scope_id + " blocking " + principal_raw + " from: " + json.encode_to_string(permissions)}
