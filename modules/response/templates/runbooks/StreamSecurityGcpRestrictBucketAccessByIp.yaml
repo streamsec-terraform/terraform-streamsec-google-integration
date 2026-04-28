@@ -15,7 +15,7 @@ main:
           - scope_id: ${input.ScopeId}
           - member: ${input.Member}
           - role: ${input.Role}
-          - allowed_ips: ${input.AllowedIps}
+          - allowed_ips: ${text.split(text.replace_all(string(input.AllowedIps), " ", ""), ",")}
 
     - logInput:
         call: sys.log

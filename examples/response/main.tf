@@ -43,6 +43,7 @@ module "response" {
   source = "../../modules/response"
 
   projects                    = [var.project]
+  region                      = var.region
   org_level_permissions       = false
   auto_grant_workflow_invoker = false
 }

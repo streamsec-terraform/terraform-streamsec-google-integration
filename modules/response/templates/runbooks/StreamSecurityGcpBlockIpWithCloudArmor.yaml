@@ -4,7 +4,7 @@ main:
     - parseInputs:
         assign:
           - policy_id: ${input.SecurityPolicyId}
-          - cidrs: ${input.BlockedCidr}
+          - cidrs: ${text.split(text.replace_all(string(input.BlockedCidr), " ", ""), ",")}
           - priority_hint: ${int(default(input.Priority, "100"))}
           - parts: ${text.split(policy_id, "/")}
 

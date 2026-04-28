@@ -10,13 +10,18 @@ This example deploys Stream Security remediation Cloud Workflows to a single GCP
 
 ## Run
 
-The environment variables below are pre-populated by the Stream Security UI.
-Paste the command you copied, then run it:
+The Stream Security UI generates a ready-to-run command. Paste and run it in Cloud Shell:
 
 ```sh
-terraform init
-terraform apply -auto-approve
+export STREAMSEC_HOST=<value> && \
+export STREAMSEC_API_TOKEN=<value> && \
+export STREAMSEC_WORKSPACE_ID=<value> && \
+export TF_VAR_project=<value> && \
+export TF_VAR_region=<value> && \
+terraform init && terraform apply -auto-approve
 ```
+
+> **Note:** The `export` form is required. Inline env vars (`VAR=value terraform init && terraform apply`) only apply to the first command and will cause auth errors on `terraform apply`.
 
 ## Variables
 
