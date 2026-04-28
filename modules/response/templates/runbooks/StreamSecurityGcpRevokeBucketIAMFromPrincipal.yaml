@@ -50,7 +50,9 @@ main:
           call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
           args:
             resource: ${"projects/" + project_id}
-            body: {}
+            body:
+              options:
+                requestedPolicyVersion: 3
           result: policy
         except:
           as: er

@@ -73,7 +73,7 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to create deny policy: " + default(er.body.error.message, json.encode_to_string(er))}
+            message: ${"Failed to create deny policy; " + default(er.body.error.message, json.encode_to_string(er))}
 
     - done:
         return:
