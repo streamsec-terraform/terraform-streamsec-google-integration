@@ -51,19 +51,6 @@ main:
             status_code: "error"
             message: ${"Failed to get security policy; " + er.body.error.message}
 
-    - collectPriorities:
-        assign:
-          - usedPriorityMap: {}
-
-    - buildPrioritySet:
-        for:
-          value: rule
-          in: ${default(policy.rules, [])}
-          steps:
-            - trackPriority:
-                assign:
-                  - usedPriorityMap: ${map.set(usedPriorityMap, string(rule.priority), true)}
-
     # Walk from priority_hint upward until a free slot is found.
     - initSearch:
         assign:
@@ -76,7 +63,25 @@ main:
             raise:
               status_code: "error"
               message: ${"No free priority found in range [" + string(priority_hint) + ", " + string(priority_hint + 99) + "]. All slots taken — supply a different Priority value."}
-          - condition: ${default(map.get(usedPriorityMap, string(priority)), false)}
+
+    - checkPriorityFree:
+        assign:
+          - priorityInUse: false
+
+    - scanRules:
+        for:
+          value: rule
+          in: ${default(policy.rules, [])}
+          steps:
+            - matchRule:
+                switch:
+                  - condition: ${rule.priority == priority}
+                    assign:
+                      - priorityInUse: true
+
+    - decidePriority:
+        switch:
+          - condition: ${priorityInUse}
             steps:
               - bumpPriority:
                   assign:

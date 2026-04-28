@@ -102,8 +102,13 @@ main:
                   - condition: ${binding.role == role and text.find_all(json.encode_to_string(default(binding.members, [])), member) != []}
                     steps:
                       - buildExpression:
-                          assign:
-                            - existing: ${default(map.get(default(binding.condition, {}), "expression", ""), "")}
+                          switch:
+                            - condition: ${binding.condition != null}
+                              assign:
+                                - existing: ${default(binding.condition.expression, "")}
+                            - condition: true
+                              assign:
+                                - existing: ""
                       - mergeExpression:
                           switch:
                             - condition: ${existing == ""}
