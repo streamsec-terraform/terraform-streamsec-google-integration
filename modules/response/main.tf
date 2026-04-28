@@ -1,5 +1,3 @@
-data "google_client_config" "current" {}
-
 # Generate a random suffix for custom roles to avoid conflicts with pending deletion
 resource "random_id" "role_suffix" {
   byte_length = 4
@@ -180,7 +178,7 @@ resource "google_workflows_workflow" "gcp_remediations" {
 
   name                = each.value.remediation.name
   description         = lookup(each.value.remediation, "description", "Stream Security GCP Remediation Workflow")
-  region              = data.google_client_config.current.region
+  region              = var.region
   project             = each.value.project
   source_contents     = file("${path.module}/templates/runbooks/${each.value.remediation.name}.yaml")
   service_account     = local.workflow_sa_map[each.key]
@@ -224,7 +222,7 @@ resource "streamsec_gcp_response_ack" "this" {
   for_each         = { for p in var.projects : p => p }
   cloud_account_id = each.value
   runbook_list     = [for k, v in google_workflows_workflow.gcp_remediations : v.name]
-  location         = data.google_client_config.current.region
+  location         = var.region
   template_version = "10"
 
   depends_on = [google_workflows_workflow.gcp_remediations]

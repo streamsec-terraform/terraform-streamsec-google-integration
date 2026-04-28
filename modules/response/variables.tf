@@ -32,3 +32,8 @@ variable "auto_grant_workflow_invoker" {
   type        = bool
   default     = true
 }
+
+variable "region" {
+  description = "GCP region for Cloud Workflows deployment."
+  type        = string
+}
