@@ -5,6 +5,7 @@
      "compute.snapshots.create",
      "compute.zoneOperations.get",
      "compute.disks.get",
+     "iam.serviceAccounts.actAs",
     "logging.logEntries.create"
     ],
   "name": "projects/${projectId}/roles/customCreateDiskSnapshotRole",
