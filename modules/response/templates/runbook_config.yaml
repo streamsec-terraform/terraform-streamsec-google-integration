@@ -28,7 +28,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRemoveServiceAccountFromVM
-  description: Stops the VM, detaches its service account, then restarts it. The instance will be briefly unavailable.
+  description: Detaches the service account from the VM instance. If the VM is running it will be stopped, the SA removed, then restarted. If already stopped, only the SA is removed and the VM stays off.
   disabled_reason: Action is not applicable because the virtual machine is not attached to a service account.
   display_name: Detach service account from VM instance
   remediation_type: runbook
