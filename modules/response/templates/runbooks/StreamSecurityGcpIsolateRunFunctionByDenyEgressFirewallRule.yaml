@@ -69,10 +69,12 @@ main:
               message: ${"Service is not connected to a VPC. No action taken."}
         next: extractVpcName
 
-    # Step 5b: Extract VPC connector name
+    # Step 5b: Extract network name from the full resource URL
     - extractVpcName:
         assign:
-          - vpc_name: ${function.template.vpcAccess.networkInterfaces[0].network}
+          - network_full_url: ${function.template.vpcAccess.networkInterfaces[0].network}
+          - network_parts: ${text.split(network_full_url, "/")}
+          - vpc_name: ${network_parts[len(network_parts) - 1]}
 
     # Step 6: Define firewall And Network
     - defineFirewallAndNetwork:
