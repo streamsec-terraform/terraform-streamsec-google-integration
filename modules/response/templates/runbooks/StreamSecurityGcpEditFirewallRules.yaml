@@ -225,7 +225,7 @@ main:
 
     - finishCheck:
         switch:
-          - condition: ${hasPort22 and only22 and not hasOtherProtocols}
+          - condition: ${hasPort22 and only22 and not hasOtherProtocols and len(newAllowed) == 0}
             next: disableRule
           - condition: ${hasPort22}
             next: fixRule
@@ -243,17 +243,14 @@ main:
                     direction: ${fw.direction}
                     priority: ${fw.priority}
                     sourceRanges: ${fw.sourceRanges}
-                    targetTags: ${fw.targetTags}
                     allowed: ${fw.allowed}
                     disabled: true
             result: disable_resp
         except:
           as: e
-          switch:
-            - condition: ${e.body.error.code != 409}
-              raise:
-                status_code: "error"
-                message: ${e.body.error.message}
+          raise:
+            status_code: "error"
+            message: ${string(e)}
         next: done
 
     - fixRule:
@@ -268,16 +265,13 @@ main:
                 direction: ${fw.direction}
                 priority: ${fw.priority}
                 sourceRanges: ${fw.sourceRanges}
-                targetTags: ${fw.targetTags}
                 allowed: ${newAllowed}
             result: patch_resp
         except:
           as: e
-          switch:
-            - condition: ${e.body.error.code != 409}
-              raise:
-                status_code: "error"
-                message: ${e.body.error.message}
+          raise:
+            status_code: "error"
+            message: ${string(e)}
         next: done
 
     - noChange:
