@@ -105,7 +105,7 @@ Remediations:
   display_name: Replace Function Service Account with one that has no roles
   remediation_type: runbook
   cloud_provider: gcp
-  resource_type: gcp_cloud_function
+  resource_type: gcp_run_function
   runbook_owner: StreamSecurity
   role_name: customReplaceFunctionServiceAccountRole
   role_file: gcp_replace_function_service_account_role.json
