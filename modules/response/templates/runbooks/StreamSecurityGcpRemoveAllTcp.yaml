@@ -159,14 +159,13 @@ main:
               direction: ${fw.direction}
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
-              targetTags: ${fw.targetTags}
               allowed: ${fw.allowed}
               disabled: true
         except:
           as: e
           raise:
             status_code: "error"
-            message: ${e.body.error.message}
+            message: ${string(e)}
         next: done
 
     # Step 8b: Patch (after splitAll / remove tcp)
@@ -182,13 +181,12 @@ main:
               direction: ${fw.direction}
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
-              targetTags: ${fw.targetTags}
               allowed: ${newAllowed}
         except:
           as: e
           raise:
             status_code: "error"
-            message: ${e.body.error.message}
+            message: ${string(e)}
         next: done
 
     # Step 9: No change
