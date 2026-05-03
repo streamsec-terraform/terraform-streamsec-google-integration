@@ -226,12 +226,12 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Removes a principal from a specific IAM role binding at project scope. The exact role and member are taken from the violating gcp_iam_policy_binding — all other bindings are untouched. This runbook operates at project scope only; bindings at organization or folder scope are not affected.
-  disabled_reason: Action is not applicable because the principal has no binding for this role on the project.
+  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
   display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
   cloud_provider: gcp
-  resource_type: gcp_iam_policy_binding
+  resource_type: gcp_vm_instance
   runbook_owner: StreamSecurity
   role_name: GCP Stream Revoke Bucket IAM From Principal Role
   role_file: gcp_revoke_bucket_iam_from_principal.json
@@ -241,7 +241,49 @@ Remediations:
     resource_name: true
   - name: Role
     type: String
-  - name: ProjectId
+  - name: Scope
+    type: String
+  - name: ScopeId
+    type: String
+- name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
+  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
+  display_name: Revoke IAM Binding from Principal
+  remediation_type: runbook
+  cloud_provider: gcp
+  resource_type: gcp_run_function
+  runbook_owner: StreamSecurity
+  role_name: GCP Stream Revoke Bucket IAM From Principal Role
+  role_file: gcp_revoke_bucket_iam_from_principal.json
+  Parameters:
+  - name: Member
+    type: String
+    resource_name: true
+  - name: Role
+    type: String
+  - name: Scope
+    type: String
+  - name: ScopeId
+    type: String
+- name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
+  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
+  display_name: Revoke IAM Binding from Principal
+  remediation_type: runbook
+  cloud_provider: gcp
+  resource_type: gcp_iam_user
+  runbook_owner: StreamSecurity
+  role_name: GCP Stream Revoke Bucket IAM From Principal Role
+  role_file: gcp_revoke_bucket_iam_from_principal.json
+  Parameters:
+  - name: Member
+    type: String
+    resource_name: true
+  - name: Role
+    type: String
+  - name: Scope
+    type: String
+  - name: ScopeId
     type: String
 - name: StreamSecurityGcpDisableServiceAccount
   description: Disables a compromised service account so it cannot authenticate. Also invalidates any signed URLs issued using that service account identity, since GCP rejects requests from disabled principals immediately.
