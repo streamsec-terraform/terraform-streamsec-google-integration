@@ -20,11 +20,17 @@ locals {
     ]
   }
 
-  # Get unique remediations with role files for role creation
+  # Get unique remediations with role files for role creation.
+  # Group by name first (handles duplicate names with different resource_type),
+  # then take the first entry per name — role_file and role_name are identical
+  # across all entries that share a name.
   remediations_with_roles = {
-    for remediation in local.runbook_config.Remediations :
-    remediation.name => remediation
-    if lookup(remediation, "role_file", null) != null
+    for name, group in {
+      for remediation in local.runbook_config.Remediations :
+      remediation.name => remediation...
+      if lookup(remediation, "role_file", null) != null
+    } :
+    name => group[0]
   }
 
   # role_file_paths previously worked around two role JSONs that had been
