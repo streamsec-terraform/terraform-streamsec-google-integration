@@ -160,10 +160,6 @@ main:
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
               allowed: ${fw.allowed}
-              # Explicitly carry targetTags so PATCH does not silently clear them.
-              # GCP firewalls.patch uses JSON merge-patch: absent fields are preserved,
-              # but we include targetTags explicitly to be safe across API versions.
-              # Ref: https://cloud.google.com/compute/docs/reference/rest/v1/firewalls/patch
               targetTags: ${default(fw.targetTags, [])}
               disabled: true
         except:
@@ -189,8 +185,6 @@ main:
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
               allowed: ${newAllowed}
-              # Explicitly carry targetTags so PATCH does not silently clear them.
-              # Ref: https://cloud.google.com/compute/docs/reference/rest/v1/firewalls/patch
               targetTags: ${default(fw.targetTags, [])}
         except:
           as: e
