@@ -160,9 +160,16 @@ main:
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
               allowed: ${fw.allowed}
+              # Explicitly carry targetTags so PATCH does not silently clear them.
+              # GCP firewalls.patch uses JSON merge-patch: absent fields are preserved,
+              # but we include targetTags explicitly to be safe across API versions.
+              # Ref: https://cloud.google.com/compute/docs/reference/rest/v1/firewalls/patch
+              targetTags: ${default(fw.targetTags, [])}
               disabled: true
         except:
           as: e
+          # 409 is intentionally re-raised: a conflict on PATCH means the modification
+          # was not confirmed applied. Swallowing it would return success on a no-op.
           raise:
             status_code: "error"
             message: ${string(e)}
@@ -182,8 +189,12 @@ main:
               priority: ${fw.priority}
               sourceRanges: ${fw.sourceRanges}
               allowed: ${newAllowed}
+              # Explicitly carry targetTags so PATCH does not silently clear them.
+              # Ref: https://cloud.google.com/compute/docs/reference/rest/v1/firewalls/patch
+              targetTags: ${default(fw.targetTags, [])}
         except:
           as: e
+          # 409 is intentionally re-raised: concurrent patch = modification unconfirmed.
           raise:
             status_code: "error"
             message: ${string(e)}

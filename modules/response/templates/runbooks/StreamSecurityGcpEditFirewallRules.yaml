@@ -244,10 +244,12 @@ main:
                     priority: ${fw.priority}
                     sourceRanges: ${fw.sourceRanges}
                     allowed: ${fw.allowed}
+                    targetTags: ${default(fw.targetTags, [])}
                     disabled: true
             result: disable_resp
         except:
           as: e
+          # 409 is intentionally re-raised: concurrent patch = modification unconfirmed.
           raise:
             status_code: "error"
             message: ${string(e)}
@@ -266,9 +268,11 @@ main:
                 priority: ${fw.priority}
                 sourceRanges: ${fw.sourceRanges}
                 allowed: ${newAllowed}
+                targetTags: ${default(fw.targetTags, [])}
             result: patch_resp
         except:
           as: e
+          # 409 is intentionally re-raised: concurrent patch = modification unconfirmed.
           raise:
             status_code: "error"
             message: ${string(e)}
