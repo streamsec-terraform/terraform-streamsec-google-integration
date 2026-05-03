@@ -1,21 +1,38 @@
 main:
   params: [input]
   steps:
-    # Member and Role are taken directly from the gcp_iam_policy_binding violating
-    # resource identified by the rule. ProjectId is auto-derived from that binding's
-    # ScopeId. Before removing the binding we verify the role actually grants
-    # storage.objects.get or storage.objects.list as a safety guard.
+    # Member and Role are taken from the violating gcp_iam_policy_binding.
+    # Scope and ScopeId are derived from that same binding so the revocation
+    # targets the correct level (organization, folder, or project).
     - parseInputs:
         assign:
           - member: ${input.Member}
           - role: ${input.Role}
-          - project_id: ${input.ProjectId}
+          - scope: ${default(input.Scope, "project")}
+          - scope_id: ${input.ScopeId}
 
     - logInput:
         call: sys.log
         args:
-          text: ${"Runbook started. ProjectId='" + project_id + "', Role='" + role + "', Member='" + member + "'"}
+          text: ${"Runbook started. Scope='" + scope + "', ScopeId='" + scope_id + "', Role='" + role + "', Member='" + member + "'"}
           severity: INFO
+
+    # Build the CRM resource path based on scope.
+    - buildResource:
+        switch:
+          - condition: ${scope == "organization"}
+            assign:
+              - resource: ${"organizations/" + scope_id}
+          - condition: ${scope == "folder"}
+            assign:
+              - resource: ${"folders/" + scope_id}
+          - condition: ${scope == "project"}
+            assign:
+              - resource: ${"projects/" + scope_id}
+          - condition: true
+            raise:
+              status_code: "error"
+              message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got " + scope}
 
     # Safety check: confirm the role grants storage read before acting.
     - getRoleDetails:
@@ -36,6 +53,7 @@ main:
         assign:
           - perms: ${default(roleResp.body.includedPermissions, [])}
           - hasStorageRead: false
+
     - findStorageReadPerm:
         for:
           value: p
@@ -57,21 +75,31 @@ main:
 
     - getPolicy:
         try:
-          call: googleapis.cloudresourcemanager.v3.projects.getIamPolicy
+          call: http.post
           args:
-            resource: ${"projects/" + project_id}
+            url: ${"https://cloudresourcemanager.googleapis.com/v3/" + resource + ":getIamPolicy"}
+            auth:
+              type: OAuth2
             body:
               options:
                 requestedPolicyVersion: 3
-          result: policy
+          result: policyResp
         except:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to getIamPolicy; " + er.body.error.message}
+            message: ${"Failed to getIamPolicy on " + resource + "; " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - checkPolicyStatus:
+        switch:
+          - condition: ${policyResp.code >= 400}
+            raise:
+              status_code: "error"
+              message: ${"Failed to getIamPolicy on " + resource + "; HTTP " + string(policyResp.code)}
 
     - filterBindings:
         assign:
+          - policy: ${policyResp.body}
           - newBindings: []
           - removed: false
 
@@ -122,32 +150,41 @@ main:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to iterateBindings; " + er.body.error.message}
+            message: ${"Failed to iterateBindings; " + default(er.body.error.message, json.encode_to_string(er))}
 
     - checkNoChange:
         switch:
           - condition: ${not(removed)}
             return:
               status_code: "success"
-              message: ${"Member " + member + " was not found in role " + role + " on project " + project_id + "; nothing to revoke."}
+              message: ${"Member " + member + " was not found in role " + role + " on " + scope + " " + scope_id + "; nothing to revoke."}
 
     - setPolicy:
         try:
-          call: googleapis.cloudresourcemanager.v3.projects.setIamPolicy
+          call: http.post
           args:
-            resource: ${"projects/" + project_id}
+            url: ${"https://cloudresourcemanager.googleapis.com/v3/" + resource + ":setIamPolicy"}
+            auth:
+              type: OAuth2
             body:
               policy:
                 bindings: ${newBindings}
                 etag: ${policy.etag}
-          result: updated
+          result: setResp
         except:
           as: er
           raise:
             status_code: "error"
-            message: ${"Failed to setIamPolicy; " + er.body.error.message}
+            message: ${"Failed to setIamPolicy on " + resource + "; " + default(er.body.error.message, json.encode_to_string(er))}
+
+    - checkSetStatus:
+        switch:
+          - condition: ${setResp.code >= 400}
+            raise:
+              status_code: "error"
+              message: ${"Failed to setIamPolicy on " + resource + "; HTTP " + string(setResp.code)}
 
     - done:
         return:
           status_code: "success"
-          message: ${"Removed " + member + " from role " + role + " on project " + project_id + "."}
+          message: ${"Removed " + member + " from role " + role + " on " + scope + " " + scope_id + "."}
