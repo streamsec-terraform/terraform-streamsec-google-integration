@@ -156,7 +156,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpDisablePublicIpForCloudSqlInstance
-  description: Disable public access to GCP Cloud SQL instance by removing all authorized networks. If a private network is configured, the public IP will also be disabled. If the instance has only a public IP and no private network, the public IP cannot be removed — authorized networks will be cleared to restrict access, but the public IP will remain.
+  description: Disables public access to a Cloud SQL instance. Removes authorized networks and disables the public IP if a private network is configured. If no private network exists, only authorized networks are cleared; the public IP cannot be fully removed.
   disabled_reason: Action is not applicable because SQL IP addresses are private.
   display_name: Disable Public Access for Cloud SQL
   remediation_type: runbook
