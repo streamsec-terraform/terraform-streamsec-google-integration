@@ -34,45 +34,6 @@ main:
               status_code: "error"
               message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got " + scope}
 
-    # Safety check: confirm the role grants storage read before acting.
-    - getRoleDetails:
-        try:
-          call: http.get
-          args:
-            url: ${"https://iam.googleapis.com/v1/" + role}
-            auth:
-              type: OAuth2
-          result: roleResp
-        except:
-          as: er
-          raise:
-            status_code: "error"
-            message: ${"Failed to get role details for " + role + "; " + default(er.body.error.message, json.encode_to_string(er))}
-
-    - checkStorageReadPermission:
-        assign:
-          - perms: ${default(roleResp.body.includedPermissions, [])}
-          - hasStorageRead: false
-
-    - findStorageReadPerm:
-        for:
-          value: p
-          in: ${perms}
-          steps:
-            - matchStoragePerm:
-                switch:
-                  - condition: ${p == "storage.objects.get" or p == "storage.objects.list"}
-                    assign:
-                      - hasStorageRead: true
-
-    - guardStorageRead:
-        switch:
-          - condition: ${not(hasStorageRead)}
-            return:
-              status_code: "success"
-              message: ${"Role " + role + " does not grant storage.objects.get or storage.objects.list; no action taken."}
-        next: getPolicy
-
     - getPolicy:
         try:
           call: http.post
