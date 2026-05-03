@@ -1,7 +1,5 @@
 {
   "includedPermissions": [
-    "iam.denypolicies.create",
-    "iam.denypolicies.get",
     "logging.logEntries.create"
   ],
   "name": "projects/${projectId}/roles/customApplyDenyPolicyToPrincipalRole",

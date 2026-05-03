@@ -225,7 +225,7 @@ main:
 
     - finishCheck:
         switch:
-          - condition: ${hasPort22 and only22 and not hasOtherProtocols}
+          - condition: ${hasPort22 and only22 and not hasOtherProtocols and len(newAllowed) == 0}
             next: disableRule
           - condition: ${hasPort22}
             next: fixRule
@@ -243,17 +243,16 @@ main:
                     direction: ${fw.direction}
                     priority: ${fw.priority}
                     sourceRanges: ${fw.sourceRanges}
-                    targetTags: ${fw.targetTags}
                     allowed: ${fw.allowed}
+                    targetTags: ${default(fw.targetTags, [])}
                     disabled: true
             result: disable_resp
         except:
           as: e
-          switch:
-            - condition: ${e.body.error.code != 409}
-              raise:
-                status_code: "error"
-                message: ${e.body.error.message}
+          # 409 is intentionally re-raised: concurrent patch = modification unconfirmed.
+          raise:
+            status_code: "error"
+            message: ${string(e)}
         next: done
 
     - fixRule:
@@ -268,16 +267,15 @@ main:
                 direction: ${fw.direction}
                 priority: ${fw.priority}
                 sourceRanges: ${fw.sourceRanges}
-                targetTags: ${fw.targetTags}
                 allowed: ${newAllowed}
+                targetTags: ${default(fw.targetTags, [])}
             result: patch_resp
         except:
           as: e
-          switch:
-            - condition: ${e.body.error.code != 409}
-              raise:
-                status_code: "error"
-                message: ${e.body.error.message}
+          # 409 is intentionally re-raised: concurrent patch = modification unconfirmed.
+          raise:
+            status_code: "error"
+            message: ${string(e)}
         next: done
 
     - noChange:
