@@ -120,6 +120,7 @@ main:
               type: OAuth2
             body:
               policy:
+                version: ${policy.version}
                 bindings: ${newBindings}
                 etag: ${policy.etag}
           result: setResp
