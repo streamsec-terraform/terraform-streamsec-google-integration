@@ -20,11 +20,26 @@ locals {
     ]
   }
 
-  # Get unique remediations with role files for role creation
+  # Deduplicate all remediations by name (handles multiple resource_type entries per runbook)
+  remediations_unique = {
+    for name, group in {
+      for remediation in local.runbook_config.Remediations :
+      remediation.name => remediation...
+    } :
+    name => group[0]
+  }
+
+  # Get unique remediations with role files for role creation.
+  # Group by name first (handles duplicate names with different resource_type),
+  # then take the first entry per name — role_file and role_name are identical
+  # across all entries that share a name.
   remediations_with_roles = {
-    for remediation in local.runbook_config.Remediations :
-    remediation.name => remediation
-    if lookup(remediation, "role_file", null) != null
+    for name, group in {
+      for remediation in local.runbook_config.Remediations :
+      remediation.name => remediation...
+      if lookup(remediation, "role_file", null) != null
+    } :
+    name => group[0]
   }
 
   # role_file_paths previously worked around two role JSONs that had been
@@ -46,9 +61,9 @@ locals {
     # For org-level: map remediation name to org-level service account
     for item in flatten([
       for project_id in var.projects : [
-        for remediation in local.runbook_config.Remediations : {
-          key              = "${project_id}_${remediation.name}"
-          remediation_name = remediation.name
+        for name, remediation in local.remediations_unique : {
+          key              = "${project_id}_${name}"
+          remediation_name = name
           has_role_file    = lookup(remediation, "role_file", null) != null
         }
       ]
@@ -57,8 +72,8 @@ locals {
     # For project-level: direct mapping to project-level service account
     for item in flatten([
       for project_id in var.projects : [
-        for remediation in local.runbook_config.Remediations : {
-          key           = "${project_id}_${remediation.name}"
+        for name, remediation in local.remediations_unique : {
+          key           = "${project_id}_${name}"
           has_role_file = lookup(remediation, "role_file", null) != null
         }
       ]
@@ -164,8 +179,8 @@ resource "google_workflows_workflow" "gcp_remediations" {
   for_each = {
     for item in flatten([
       for project_id in var.projects : [
-        for remediation in local.runbook_config.Remediations : {
-          key         = "${project_id}_${remediation.name}"
+        for name, remediation in local.remediations_unique : {
+          key         = "${project_id}_${name}"
           remediation = remediation
           project     = project_id
         }

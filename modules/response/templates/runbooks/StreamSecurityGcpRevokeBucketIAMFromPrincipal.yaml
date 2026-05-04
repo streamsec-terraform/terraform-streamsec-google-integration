@@ -1,9 +1,6 @@
 main:
   params: [input]
   steps:
-    # Member and Role are taken from the violating gcp_iam_policy_binding.
-    # Scope and ScopeId are derived from that same binding so the revocation
-    # targets the correct level (organization, folder, or project).
     - parseInputs:
         assign:
           - member: ${input.Member}
@@ -17,22 +14,16 @@ main:
           text: ${"Runbook started. Scope='" + scope + "', ScopeId='" + scope_id + "', Role='" + role + "', Member='" + member + "'"}
           severity: INFO
 
-    # Build the CRM resource path based on scope.
-    - buildResource:
+    - validateScope:
         switch:
-          - condition: ${scope == "organization"}
-            assign:
-              - resource: ${"organizations/" + scope_id}
-          - condition: ${scope == "folder"}
-            assign:
-              - resource: ${"folders/" + scope_id}
-          - condition: ${scope == "project"}
-            assign:
-              - resource: ${"projects/" + scope_id}
-          - condition: true
+          - condition: ${scope != "project"}
             raise:
               status_code: "error"
-              message: ${"Unrecognized Scope. Expected 'organization', 'folder', or 'project'; got " + scope}
+              message: ${"Unsupported scope '" + scope + "'. This runbook only supports project scope."}
+
+    - buildResource:
+        assign:
+          - resource: ${"projects/" + scope_id}
 
     - getPolicy:
         try:
@@ -118,7 +109,7 @@ main:
           - condition: ${not(removed)}
             return:
               status_code: "success"
-              message: ${"Member " + member + " was not found in role " + role + " on " + scope + " " + scope_id + "; nothing to revoke."}
+              message: ${"Member " + member + " not found in role " + role + " on project " + scope_id + "; nothing to revoke."}
 
     - setPolicy:
         try:
@@ -129,6 +120,7 @@ main:
               type: OAuth2
             body:
               policy:
+                version: ${policy.version}
                 bindings: ${newBindings}
                 etag: ${policy.etag}
           result: setResp
@@ -148,4 +140,4 @@ main:
     - done:
         return:
           status_code: "success"
-          message: ${"Removed " + member + " from role " + role + " on " + scope + " " + scope_id + "."}
+          message: ${"Removed " + member + " from role " + role + " on project " + scope_id + "."}
