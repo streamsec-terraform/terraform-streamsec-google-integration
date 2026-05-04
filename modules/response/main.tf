@@ -139,7 +139,7 @@ resource "google_project_iam_custom_role" "remediation_roles_project" {
 resource "google_service_account" "remediation_sa_org" {
   for_each = local.org_service_accounts
 
-  account_id   = lower(substr(replace(replace(each.value.name, "StreamSecurityGcp", "streamsec"), "/[^a-zA-Z0-9]/", "-"), 0, 30))
+  account_id   = lower("${substr(replace(replace(each.value.name, "StreamSecurityGcp", "streamsec"), "/[^a-zA-Z0-9]/", "-"), 0, 21)}-${random_id.role_suffix.hex}")
   display_name = "Service Account for ${each.value.name}"
   description  = "Service account for Stream Security remediation: ${each.value.name}"
   project      = local.sa_project
@@ -149,7 +149,7 @@ resource "google_service_account" "remediation_sa_org" {
 resource "google_service_account" "remediation_sa_project" {
   for_each = local.project_service_accounts
 
-  account_id   = lower(substr(replace(replace(each.value.remediation.name, "StreamSecurityGcp", "streamsec"), "/[^a-zA-Z0-9]/", "-"), 0, 30))
+  account_id   = lower("${substr(replace(replace(each.value.remediation.name, "StreamSecurityGcp", "streamsec"), "/[^a-zA-Z0-9]/", "-"), 0, 21)}-${random_id.role_suffix.hex}")
   display_name = "Service Account for ${each.value.remediation.name}"
   description  = "Service account for Stream Security remediation: ${each.value.remediation.name}"
   project      = each.value.project_id
@@ -191,7 +191,7 @@ resource "google_workflows_workflow" "gcp_remediations" {
     }
   }
 
-  name                = each.value.remediation.name
+  name                = "${each.value.remediation.name}-${random_id.role_suffix.hex}"
   description         = lookup(each.value.remediation, "description", "Stream Security GCP Remediation Workflow")
   region              = var.region
   project             = each.value.project
@@ -236,7 +236,7 @@ resource "google_project_iam_member" "workflow_invoker_project" {
 resource "streamsec_gcp_response_ack" "this" {
   for_each         = { for p in var.projects : p => p }
   cloud_account_id = each.value
-  runbook_list     = [for k, v in google_workflows_workflow.gcp_remediations : v.name]
+  runbook_list     = [for k, v in google_workflows_workflow.gcp_remediations : v.name if startswith(k, "${each.value}_")]
   location         = var.region
   template_version = "10"
 
