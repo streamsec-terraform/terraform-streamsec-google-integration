@@ -227,9 +227,9 @@ Remediations:
     resource_name: true
 # Three entries for RevokeBucketIAMFromPrincipal — one per principal resource type.
 # resource_type is the resource the rule fires on (the principal: VM, Cloud Run function, IAM user),
-# not the resource the runbook modifies (which is the IAM policy binding at org/folder/project scope).
+# not the resource the runbook modifies (which is the IAM policy binding at project scope).
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  description: Revokes access for a principal by removing it from the IAM role binding at project scope.
   disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
   display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
@@ -249,7 +249,7 @@ Remediations:
   - name: ScopeId
     type: String
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  description: Revokes access for a principal by removing it from the IAM role binding at project scope.
   disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
   display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
@@ -269,7 +269,7 @@ Remediations:
   - name: ScopeId
     type: String
 - name: StreamSecurityGcpRevokeBucketIAMFromPrincipal
-  description: Revokes access for a principal by removing it from the IAM role binding. Operates at organization, folder, or project scope as derived from the violating binding
+  description: Revokes access for a principal by removing it from the IAM role binding at project scope.
   disabled_reason: Action is not applicable because the principal has no binding for this role at the detected scope.
   display_name: Revoke IAM Binding from Principal
   remediation_type: runbook
