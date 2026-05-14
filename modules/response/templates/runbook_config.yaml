@@ -302,3 +302,18 @@ Remediations:
   - name: ServiceAccountId
     type: String
     resource_name: true
+    
+- name: StreamSecurityGcpRevokeServiceAccountKeys
+  description: Immediately deletes all USER_MANAGED keys from a service account, revoking any signed URLs and persistent credentials issued with those keys. Does not create replacement keys
+  disabled_reason: Action is not applicable because the service account has no user-managed keys.
+  display_name: Revoke Service Account Keys
+  remediation_type: runbook
+  cloud_provider: gcp
+  resource_type: gcp_service_account
+  runbook_owner: StreamSecurity
+  role_name: GCP Stream Revoke Service Account Keys Role
+  role_file: gcp_revoke_service_account_keys.json
+  Parameters:
+  - name: ServiceAccountId
+    type: String
+    resource_name: true
