@@ -14,7 +14,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpIsolatedVMFromAllNetwork
-  description: Creates deny-all ingress and egress firewall rules and replaces all VM network tags with the isolation tag. Pre-existing tags and their firewall targeting are removed.
+  description: Isolates a VM by creating priority-0 deny-all firewall rules across all connected VPCs and appending the isolation tag. Existing tags are preserved.
   disabled_reason: Action is not applicable because the isolation firewall rules are already attached to the VM instance.
   display_name: Isolate VM Instance from All Networks
   remediation_type: runbook
@@ -212,8 +212,8 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpIsolateRunFunctionByDenyEgressFirewallRule
-  description: Blocks all outbound traffic from a Cloud Run service using Direct VPC Egress by creating a deny-all egress firewall rule in its VPC and tagging the service's network interface to enforce the rule.
-  disabled_reason: Action is not applicable because the function is already isolated by a deny-egress firewall rule.
+  description: Blocks outbound VPC traffic from a Cloud Run service by creating high-priority deny-all egress firewall rules across all configured Direct VPC Egress network interfaces and appending an isolation tag to each interface. Existing tags are preserved.
+  disabled_reason: Action is not applicable because the Cloud Run service has no Direct VPC Egress network interfaces configured.
   display_name: Isolate Cloud Function by Deny Egress Firewall Rule
   remediation_type: runbook
   cloud_provider: gcp
