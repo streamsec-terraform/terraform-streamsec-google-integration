@@ -14,7 +14,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpIsolatedVMFromAllNetwork
-  description: Creates deny-all ingress and egress firewall rules and replaces all VM network tags with the isolation tag. Pre-existing tags and their firewall targeting are removed.
+  description: Isolates a VM by creating priority-0 deny-all firewall rules across all connected VPCs and appending the isolation tag. Existing tags are preserved.
   disabled_reason: Action is not applicable because the isolation firewall rules are already attached to the VM instance.
   display_name: Isolate VM Instance from All Networks
   remediation_type: runbook
