@@ -1,0 +1,14 @@
+project_id               = "my-gcp-project-id"
+region                   = "us-central1"
+streamsec_collection_url = "https://collection.streamsec.io/api/v1/collection/gcp-audit-log"
+streamsec_api_token      = "your-api-token-here"
+
+# BigQuery — set create_bigquery_dataset=false if the dataset already exists
+create_bigquery_dataset     = true
+bigquery_dataset            = "vertex_ai_logs"
+bigquery_table              = "predictions_"
+bigquery_location           = "US"
+bigquery_log_retention_days = 30
+
+schedule_cron     = "*/5 * * * *"
+batch_size        = 20

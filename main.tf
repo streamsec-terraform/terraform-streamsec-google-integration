@@ -129,3 +129,15 @@ module "gke" {
   secret_name     = var.gke_secret_name
   streamsec_token = var.gke_streamsec_token
 }
+
+module "vertex_ai_logging" {
+  count                   = var.enable_vertex_ai_logging ? 1 : 0
+  source                  = "./modules/vertex-ai-logging"
+  project_id              = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
+  region                  = var.vertex_ai_region
+  secret_name             = var.secret_name
+  create_bigquery_dataset = var.vertex_ai_create_bigquery_dataset
+  bigquery_dataset        = var.vertex_ai_bigquery_dataset
+  bigquery_location       = var.vertex_ai_bigquery_location
+  schedule_cron           = var.vertex_ai_schedule_cron
+}
