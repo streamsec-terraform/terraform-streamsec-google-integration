@@ -75,6 +75,29 @@ variable "name_prefix" {
   default     = "streamsec"
 }
 
+variable "enable_request_response_logging" {
+  description = "Whether to enable Vertex AI request-response logging on the publisher model via local-exec. Requires Python with the google-cloud-aiplatform SDK installed."
+  type        = bool
+  default     = true
+}
+
+variable "vertex_ai_model" {
+  description = "Publisher model name to enable request-response logging on (e.g., gemini-2.5-flash, gemini-2.5-pro)"
+  type        = string
+  default     = "gemini-2.5-flash"
+}
+
+variable "logging_sampling_rate" {
+  description = "Fraction of requests to log (0.0 to 1.0)"
+  type        = number
+  default     = 1.0
+
+  validation {
+    condition     = var.logging_sampling_rate >= 0 && var.logging_sampling_rate <= 1
+    error_message = "logging_sampling_rate must be between 0.0 and 1.0."
+  }
+}
+
 variable "labels" {
   description = "Labels to apply to all resources"
   type        = map(string)

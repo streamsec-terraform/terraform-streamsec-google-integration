@@ -169,6 +169,34 @@ resource "google_cloud_scheduler_job" "poll_trigger" {
   }
 }
 
+# --- Enable request-response logging on publisher model ---
+
+resource "null_resource" "enable_logging" {
+  count = var.enable_request_response_logging ? 1 : 0
+
+  triggers = {
+    model         = var.vertex_ai_model
+    sampling_rate = var.logging_sampling_rate
+    dataset       = var.bigquery_dataset
+    table         = var.bigquery_table
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      python3 ${path.module}/scripts/enable_logging.py \
+        --project ${var.project_id} \
+        --location ${var.region} \
+        --model ${var.vertex_ai_model} \
+        --sampling-rate ${var.logging_sampling_rate} \
+        --bq-destination "bq://${var.project_id}.${var.bigquery_dataset}.${var.bigquery_table}"
+    EOT
+  }
+
+  depends_on = [
+    google_bigquery_dataset.vertex_ai_logs,
+  ]
+}
+
 # --- Allow Scheduler to invoke the function ---
 
 resource "google_cloud_run_service_iam_member" "scheduler_invoker" {
