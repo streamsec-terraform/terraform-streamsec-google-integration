@@ -66,6 +66,7 @@ main:
                             - IPProtocol: "all"
                             sourceRanges:
                             - "0.0.0.0/0"
+                            - "::/0"
                             targetTags: ["isolatedstream"]
                 except:
                   as: e
@@ -88,6 +89,7 @@ main:
                             - IPProtocol: "all"
                             destinationRanges:
                             - "0.0.0.0/0"
+                            - "::/0"
                             targetTags: ["isolatedstream"]
                 except:
                   as: e
