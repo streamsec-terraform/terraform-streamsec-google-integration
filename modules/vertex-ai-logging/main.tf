@@ -12,6 +12,9 @@ resource "google_service_account" "collector" {
   project      = var.project_id
   account_id   = local.sa_name
   display_name = "Stream Security Vertex AI Log Collector"
+  # Explicit so terraform re-enables the SA if it gets disabled out-of-band. A disabled
+  # runtime/OIDC SA breaks token minting -> function 500s and scheduler can't invoke.
+  disabled = false
 }
 
 resource "google_project_iam_member" "bq_reader" {
@@ -30,6 +33,17 @@ resource "google_project_iam_member" "secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.collector.email}"
+}
+
+# Vertex AI service agent needs write access to create and populate BigQuery logging tables
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
+resource "google_project_iam_member" "vertex_ai_bq_writer" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
 }
 
 # --- GCS Bucket (watermark state) ---
@@ -64,11 +78,11 @@ resource "google_storage_bucket_iam_member" "state_writer" {
 resource "google_bigquery_dataset" "vertex_ai_logs" {
   count = var.create_bigquery_dataset ? 1 : 0
 
-  project                    = var.project_id
-  dataset_id                 = var.bigquery_dataset
-  location                   = var.bigquery_location
+  project                     = var.project_id
+  dataset_id                  = var.bigquery_dataset
+  location                    = var.bigquery_location
   default_table_expiration_ms = var.bigquery_log_retention_days * 86400000
-  delete_contents_on_destroy = true
+  delete_contents_on_destroy  = true
 
   labels = var.labels
 
@@ -129,16 +143,18 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
     available_memory      = "${var.function_memory_mb}M"
     timeout_seconds       = var.function_timeout_seconds
     service_account_email = google_service_account.collector.email
-    ingress_settings      = "ALLOW_INTERNAL_ONLY"
+    # ALLOW_ALL so the (external) Cloud Scheduler can invoke; access is still gated by
+    # OIDC auth + the run.invoker binding below. ALLOW_INTERNAL_ONLY 404s the scheduler.
+    ingress_settings = "ALLOW_ALL"
 
     environment_variables = {
-      GCP_PROJECT_ID          = var.project_id
-      BIGQUERY_DATASET        = var.bigquery_dataset
-      BIGQUERY_TABLE          = var.bigquery_table
-      API_URL                 = data.streamsec_host.this.host
-      STATE_BUCKET            = google_storage_bucket.state.name
-      BATCH_SIZE              = tostring(var.batch_size)
-      SECRET_NAME             = var.secret_name
+      GCP_PROJECT_ID   = var.project_id
+      BIGQUERY_DATASET = var.bigquery_dataset
+      BIGQUERY_TABLE   = var.bigquery_table
+      API_URL          = data.streamsec_host.this.host
+      STATE_BUCKET     = google_storage_bucket.state.name
+      BATCH_SIZE       = tostring(var.batch_size)
+      SECRET_NAME      = var.secret_name
     }
   }
 }
