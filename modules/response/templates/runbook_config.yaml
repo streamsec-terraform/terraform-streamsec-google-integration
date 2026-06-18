@@ -212,7 +212,7 @@ Remediations:
     type: String
     resource_name: true
 - name: StreamSecurityGcpIsolateRunFunctionByDenyEgressFirewallRule
-  description: Blocks all outbound traffic from a Cloud Run service by creating a priority-0 deny-all egress firewall rule (IPv4 + IPv6) on its VPC and tagging its network interfaces. Applies to Direct VPC Egress services only.
+  description: Blocks all outbound traffic from a Cloud Run service by creating a priority-0 deny-all egress firewall rule (IPv4 only) on its VPC and tagging its network interfaces. Applies to Direct VPC Egress services only.
   disabled_reason: Action is not applicable because the function is already isolated by a deny-egress firewall rule.
   display_name: Isolate Cloud Function by Deny Egress Firewall Rule
   remediation_type: runbook
