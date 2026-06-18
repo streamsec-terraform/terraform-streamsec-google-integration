@@ -217,6 +217,36 @@ variable "enable_vertex_ai_logging" {
   default     = false
 }
 
+variable "vertex_ai_env" {
+  description = "Stream Security environment / subdomain prefix for Vertex AI logging (e.g. 'app', 'demo'). REQUIRED when enable_vertex_ai_logging is true. Drives the collection URL (https://<env>.<vertex_ai_streamsec_domain>) and suffixes resource names so the module can be applied once per environment."
+  type        = string
+  default     = ""
+}
+
+variable "vertex_ai_api_url" {
+  description = "Optional explicit Stream Security collection URL for Vertex AI logging (e.g. https://app.streamsec.io). Overrides the vertex_ai_env-derived URL."
+  type        = string
+  default     = ""
+}
+
+variable "vertex_ai_streamsec_domain" {
+  description = "Base domain used to build the Vertex AI collection URL from vertex_ai_env. Set to target non-prod environments, e.g. 'staging.streamsec.io' or 'dev.streamsec.io'."
+  type        = string
+  default     = "streamsec.io"
+}
+
+variable "vertex_ai_manage_apis" {
+  description = "Whether the Vertex AI logging deployment enables the required project APIs. Set to false for an additional per-env deployment in the same project."
+  type        = bool
+  default     = true
+}
+
+variable "vertex_ai_secret_version_name" {
+  description = "Optional override for the full Secret Manager version resource name the Vertex AI collector reads (e.g. projects/<p>/secrets/<s>/versions/latest). When empty, the shared secret created by the real-time-events module is used. Requires enable_real_time_events=true (or this override) so a token secret exists."
+  type        = string
+  default     = ""
+}
+
 variable "vertex_ai_project_id" {
   description = "GCP project ID for Vertex AI logging resources. Defaults to project_for_resources if empty."
   type        = string

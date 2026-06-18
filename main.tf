@@ -84,20 +84,20 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count                                 = var.enable_real_time_events ? 1 : 0 
-  source                                = "./modules/real-time-events"
-  projects                              = local.projects
-  use_existing_function_sa              = var.use_existing_function_sa
-  function_service_account_id           = var.use_existing_function_sa ? var.function_service_account_id : null
-  grant_function_service_account_roles  = var.grant_function_service_account_roles
-  use_secret_manager                    = var.use_secret_manager
-  secret_name                           = var.secret_name
-  org_level_sink                        = var.org_level_sink
-  organization_id                       = var.org_id
-  project_for_resources                 = var.project_for_resources
-  log_sink_filter                       = var.log_sink_filter
-  regional_secret                       = var.regional_secret
-  depends_on                  = [streamsec_gcp_project_ack.this]
+  count                                = var.enable_real_time_events ? 1 : 0
+  source                               = "./modules/real-time-events"
+  projects                             = local.projects
+  use_existing_function_sa             = var.use_existing_function_sa
+  function_service_account_id          = var.use_existing_function_sa ? var.function_service_account_id : null
+  grant_function_service_account_roles = var.grant_function_service_account_roles
+  use_secret_manager                   = var.use_secret_manager
+  secret_name                          = var.secret_name
+  org_level_sink                       = var.org_level_sink
+  organization_id                      = var.org_id
+  project_for_resources                = var.project_for_resources
+  log_sink_filter                      = var.log_sink_filter
+  regional_secret                      = var.regional_secret
+  depends_on                           = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {
@@ -131,13 +131,25 @@ module "gke" {
 }
 
 module "vertex_ai_logging" {
-  count                   = var.enable_vertex_ai_logging ? 1 : 0
-  source                  = "./modules/vertex-ai-logging"
-  project_id              = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
-  region                  = var.vertex_ai_region
+  count            = var.enable_vertex_ai_logging ? 1 : 0
+  source           = "./modules/vertex-ai-logging"
+  project_id       = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
+  region           = var.vertex_ai_region
+  env              = var.vertex_ai_env
+  api_url          = var.vertex_ai_api_url
+  streamsec_domain = var.vertex_ai_streamsec_domain
+  manage_apis      = var.vertex_ai_manage_apis
+  # Read the token secret created by the real-time-events module (Case B). The collector
+  # derives the secret path from these shared inputs; override with vertex_ai_secret_version_name.
+  use_secret_manager      = var.use_secret_manager
   secret_name             = var.secret_name
+  regional_secret         = var.regional_secret
+  secret_version_name     = var.vertex_ai_secret_version_name
   create_bigquery_dataset = var.vertex_ai_create_bigquery_dataset
   bigquery_dataset        = var.vertex_ai_bigquery_dataset
   bigquery_location       = var.vertex_ai_bigquery_location
   schedule_cron           = var.vertex_ai_schedule_cron
+
+  # Ensure the shared secret exists before the collector function references it.
+  depends_on = [module.real_time_events]
 }

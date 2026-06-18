@@ -1,3 +1,13 @@
+output "env" {
+  description = "Stream Security environment this deployment reports to (empty for the single-env/legacy deployment)"
+  value       = var.env
+}
+
+output "collection_url" {
+  description = "Resolved Stream Security collection base URL the function posts to"
+  value       = local.api_url
+}
+
 output "function_name" {
   description = "Name of the deployed Cloud Function"
   value       = google_cloudfunctions2_function.vertex_ai_collector.name

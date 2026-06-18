@@ -24,6 +24,10 @@ COLLECTION_PATH = "/api/v1/collection/gcp-audit-log"
 COLLECTION_URL = f"{API_URL.rstrip('/')}{COLLECTION_PATH}"
 STATE_BUCKET = os.environ["STATE_BUCKET"]
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "20"))
+# Full Secret Manager secret version resource name, e.g.
+#   projects/<p>/secrets/<s>/versions/latest                      (global)
+#   projects/<p>/locations/<r>/secrets/<s>/versions/latest        (regional)
+# Passed verbatim so the secret can be owned/shared by another module (real-time-events).
 SECRET_NAME = os.environ["SECRET_NAME"]
 
 WATERMARK_BLOB = "watermark/last_processed_timestamp.txt"
@@ -32,9 +36,16 @@ REQUEST_TIMEOUT_SECONDS = 30
 
 
 def get_api_token() -> str:
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{GCP_PROJECT_ID}/secrets/{SECRET_NAME}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
+    # SECRET_NAME is the full version resource name. Regional secrets must be read via a
+    # regional endpoint; global secrets via the default endpoint.
+    region = extract_region(SECRET_NAME)
+    if region:
+        client = secretmanager.SecretManagerServiceClient(
+            client_options={"api_endpoint": f"secretmanager.{region}.rep.googleapis.com"}
+        )
+    else:
+        client = secretmanager.SecretManagerServiceClient()
+    response = client.access_secret_version(request={"name": SECRET_NAME})
     return response.payload.data.decode("utf-8")
 
 

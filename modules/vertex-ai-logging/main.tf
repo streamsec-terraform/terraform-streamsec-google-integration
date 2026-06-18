@@ -1,9 +1,30 @@
-data "streamsec_host" "this" {}
+# Region the (regional) shared secret lives in — same provider region the real-time-events
+# module uses when it creates the regional secret, so the derived path matches.
+data "google_client_config" "current" {}
 
 locals {
-  function_name = "${var.name_prefix}-vertex-ai-collector"
-  sa_name       = "${var.name_prefix}-vtx-collector"
-  bucket_name   = "${var.name_prefix}-vtx-collector-state-${var.project_id}"
+  # Per-env suffix so the module can be deployed once per environment (separate state/workspace)
+  # against the same project without resource-name collisions. env is required.
+  suffix = "-${var.env}"
+
+  # Full secret VERSION resource name the function reads. Derived from the existing
+  # secret_name / regional_secret inputs (matching the secret real-time-events creates),
+  # unless an explicit secret_version_name override is provided. Read verbatim by the function.
+  secret_version_name = var.secret_version_name != "" ? var.secret_version_name : (
+    var.regional_secret
+    ? "projects/${var.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
+    : "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
+  )
+
+  # Collection target: explicit api_url override, else derived from env + domain. The function
+  # appends /api/v1/collection/gcp-audit-log to this. Control streamsec_domain to target
+  # staging/dev (e.g. staging.streamsec.io) instead of the default prod domain.
+  api_url = var.api_url != "" ? var.api_url : "https://${var.env}.${var.streamsec_domain}"
+
+  function_name = "${var.name_prefix}-vertex-ai-collector${local.suffix}"
+  # SA account_id is capped at 30 chars; use a short base. Length validated via precondition below.
+  sa_name     = "${var.name_prefix}-vtx-col${local.suffix}"
+  bucket_name = lower("${var.name_prefix}-vtx-collector-state-${var.project_id}${local.suffix}")
 }
 
 # --- Service Account ---
@@ -11,10 +32,17 @@ locals {
 resource "google_service_account" "collector" {
   project      = var.project_id
   account_id   = local.sa_name
-  display_name = "Stream Security Vertex AI Log Collector"
+  display_name = "Stream Security Vertex AI Log Collector (${var.env})"
   # Explicit so terraform re-enables the SA if it gets disabled out-of-band. A disabled
   # runtime/OIDC SA breaks token minting -> function 500s and scheduler can't invoke.
   disabled = false
+
+  lifecycle {
+    precondition {
+      condition     = length(local.sa_name) <= 30
+      error_message = "Derived service account account_id '${local.sa_name}' exceeds 30 chars. Shorten name_prefix or env."
+    }
+  }
 }
 
 resource "google_project_iam_member" "bq_reader" {
@@ -151,10 +179,10 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
       GCP_PROJECT_ID   = var.project_id
       BIGQUERY_DATASET = var.bigquery_dataset
       BIGQUERY_TABLE   = var.bigquery_table
-      API_URL          = data.streamsec_host.this.host
+      API_URL          = local.api_url
       STATE_BUCKET     = google_storage_bucket.state.name
       BATCH_SIZE       = tostring(var.batch_size)
-      SECRET_NAME      = var.secret_name
+      SECRET_NAME      = local.secret_version_name
     }
   }
 }
@@ -163,7 +191,7 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
 
 resource "google_cloud_scheduler_job" "poll_trigger" {
   project   = var.project_id
-  name      = "${var.name_prefix}-vertex-ai-poll"
+  name      = "${var.name_prefix}-vertex-ai-poll${local.suffix}"
   region    = var.region
   schedule  = var.schedule_cron
   time_zone = "UTC"
