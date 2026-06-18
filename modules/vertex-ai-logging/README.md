@@ -23,8 +23,24 @@ Cloud Scheduler ──► Cloud Function (2nd Gen)
 ## Prerequisites
 
 - Python 3 with the `google-cloud-aiplatform` SDK installed (used by `local-exec` to enable logging on the publisher model)
-- Stream Security API token stored in Secret Manager (default secret name: `stream-security-collection-token`)
-- Required GCP APIs are enabled automatically by the module
+- **Stream Security API token already stored in Secret Manager** in the same project. This module *reads* the token — it does **not** create the secret. It derives the secret's full version path from the shared `secret_name` / `regional_secret` inputs (the same ones the `real-time-events` module uses to create it), so set them to match. Global and regional secrets are both supported. `use_secret_manager` must be `true`.
+- Required GCP APIs are enabled automatically by the module (toggle with `manage_apis`)
+- Only the Google provider is required (ADC). This module does **not** use the `streamsec` provider — the collection URL is built from `env` + `streamsec_domain`, so it can be applied standalone without Stream Security API credentials.
+
+## Collection URL & environments
+
+The function posts to `https://<env>.<streamsec_domain>/api/v1/collection/gcp-audit-log`.
+
+- `env` is **required** and also suffixes every resource name (`...-<env>`), so the module can be deployed **once per environment** against the same project without collisions.
+- `streamsec_domain` (default `streamsec.io`) selects the target environment family:
+
+  | `env` | `streamsec_domain` | Resulting URL |
+  |-------|--------------------|---------------|
+  | `app` | `streamsec.io` (default) | `https://app.streamsec.io` |
+  | `tenant1` | `staging.streamsec.io` | `https://tenant1.staging.streamsec.io` |
+  | `tenant1` | `dev.streamsec.io` | `https://tenant1.dev.streamsec.io` |
+
+- Set `api_url` to override the full URL explicitly (bypasses `env` + `streamsec_domain`).
 
 ## Usage
 
@@ -34,6 +50,17 @@ module "vertex_ai_logging" {
 
   project_id = "my-gcp-project"
   region     = "us-central1"
+
+  # REQUIRED: environment / subdomain prefix. Drives the URL and resource naming.
+  env              = "app"
+  streamsec_domain = "streamsec.io" # override for staging/dev, e.g. "staging.streamsec.io"
+
+  # Shared token secret (created by real-time-events). Match its inputs so the derived
+  # secret version path resolves to the same secret. The module reads, never creates, it.
+  use_secret_manager = true
+  secret_name        = "stream-security-collection-token"
+  regional_secret    = true # match real-time-events (true = regional, false = global)
+  # secret_version_name = "projects/<p>/.../versions/latest" # optional explicit override
 
   # Set to false if the dataset already exists
   create_bigquery_dataset     = true
@@ -51,6 +78,27 @@ module "vertex_ai_logging" {
   logging_sampling_rate           = 1.0
 }
 ```
+
+### Deploying multiple environments
+
+Apply the module once per environment with isolated state (a Terraform workspace or a
+separate state file per env). Each run targets a different env and gets its own
+`...-<env>` service account, bucket, function, and scheduler.
+
+```bash
+# env "app" -> https://app.streamsec.io
+terraform workspace new app
+terraform apply -var="project_id=my-gcp-project" -var="env=app" \
+  -var="secret_name=streamsec-vtx-token-app"
+
+# env "demo" -> https://demo.streamsec.io (same project, no collisions)
+terraform workspace new demo
+terraform apply -var="project_id=my-gcp-project" -var="env=demo" \
+  -var="secret_name=streamsec-vtx-token-demo" -var="manage_apis=false"
+```
+
+> When deploying additional environments into the **same** project, set `manage_apis = false`
+> on all but the first so they don't redundantly own the shared `google_project_service` resources.
 
 ## How Logging Is Enabled
 
@@ -129,15 +177,16 @@ curl -s -X POST "$FUNCTION_URL" \
 
 ### 4. Verify Cloud Scheduler Runs
 
-Check that the scheduled trigger is firing correctly.
+Check that the scheduled trigger is firing correctly. Resource names are suffixed with
+`env` (e.g. `streamsec-vertex-ai-poll-app`), so prefer the module outputs:
 
 ```bash
-gcloud scheduler jobs describe streamsec-vertex-ai-poll \
+gcloud scheduler jobs describe "$(terraform output -raw scheduler_job_name)" \
   --project=my-gcp-project \
   --location=us-central1
 
 # Check recent execution logs
-gcloud functions logs read streamsec-vertex-ai-collector \
+gcloud functions logs read "$(terraform output -raw function_name)" \
   --project=my-gcp-project \
   --region=us-central1 \
   --limit=20
@@ -149,7 +198,14 @@ gcloud functions logs read streamsec-vertex-ai-collector \
 |------|-------------|------|---------|
 | `project_id` | GCP project ID | `string` | — |
 | `region` | GCP region | `string` | `us-central1` |
-| `secret_name` | Secret Manager secret ID for the API token | `string` | `stream-security-collection-token` |
+| `env` | **Required.** Environment / subdomain prefix; drives the URL and suffixes resource names | `string` | — |
+| `streamsec_domain` | Base domain for the collection URL (`https://<env>.<streamsec_domain>`); set for staging/dev | `string` | `streamsec.io` |
+| `api_url` | Optional explicit collection URL override (bypasses env + domain) | `string` | `""` |
+| `manage_apis` | Whether this deployment enables the required project APIs (false for extra per-env deploys in the same project) | `bool` | `true` |
+| `use_secret_manager` | Token is stored in Secret Manager (must be `true`) | `bool` | `true` |
+| `secret_name` | Secret ID of the shared API-token secret (match `real-time-events`) | `string` | `stream-security-collection-token` |
+| `regional_secret` | Whether the shared secret is regional (`true`) or global (`false`); match `real-time-events` | `bool` | `true` |
+| `secret_version_name` | Optional explicit full secret VERSION resource name; overrides the derived path | `string` | `""` |
 | `create_bigquery_dataset` | Create the BigQuery dataset | `bool` | `true` |
 | `bigquery_dataset` | BigQuery dataset ID | `string` | `vertex_ai_logs` |
 | `bigquery_table` | BigQuery table prefix (date-sharded) | `string` | `predictions_` |
@@ -169,6 +225,8 @@ gcloud functions logs read streamsec-vertex-ai-collector \
 
 | Name | Description |
 |------|-------------|
+| `env` | Environment this deployment reports to |
+| `collection_url` | Resolved collection base URL the function posts to |
 | `function_name` | Deployed Cloud Function name |
 | `function_url` | Cloud Function URL (for manual trigger) |
 | `service_account_email` | Service account used by the function |

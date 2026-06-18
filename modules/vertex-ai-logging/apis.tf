@@ -1,5 +1,5 @@
 resource "google_project_service" "required_apis" {
-  for_each = toset([
+  for_each = var.manage_apis ? toset([
     "cloudfunctions.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudscheduler.googleapis.com",
@@ -7,7 +7,7 @@ resource "google_project_service" "required_apis" {
     "bigquery.googleapis.com",
     "secretmanager.googleapis.com",
     "storage.googleapis.com",
-  ])
+  ]) : toset([])
 
   project            = var.project_id
   service            = each.value
