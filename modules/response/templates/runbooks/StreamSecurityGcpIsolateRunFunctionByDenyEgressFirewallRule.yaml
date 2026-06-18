@@ -99,7 +99,6 @@ main:
                             - IPProtocol: "all"
                             destinationRanges:
                             - "0.0.0.0/0"
-                            - "::/0"
                             targetTags: ["isolatedfunctionegressstream"]
                 except:
                   as: e
