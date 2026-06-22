@@ -14,15 +14,17 @@ locals {
   _all_projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
     project_id = p.project_id
     name       = p.name
-    } if !contains(var.exclude_projects, p) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
+    } if !contains(var.exclude_projects, p.project_id) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
     project_id = split("projects/", p.name)[1]
     name       = p.display_name
   } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
 
   projects = { for k, v in local._all_projects : k => v
     if(
-      !anytrue([for prefix in var.excluded_project_prefixes : startswith(v.name, prefix)])
-      && !anytrue([for s in var.excluded_project_strings : strcontains(v.name, s)])
+      !anytrue([for prefix in var.excluded_project_prefixes : startswith(v.name, prefix) if prefix != ""])
+      && !anytrue([for s in var.excluded_project_strings : strcontains(v.name, s) if s != ""])
+      && !anytrue([for prefix in var.excluded_project_id_prefixes : startswith(v.project_id, prefix) if prefix != ""])
+      && !anytrue([for s in var.excluded_project_id_strings : strcontains(v.project_id, s) if s != ""])
     )
   }
 }
@@ -84,20 +86,20 @@ resource "streamsec_gcp_project_ack" "this" {
 
 
 module "real_time_events" {
-  count                                 = var.enable_real_time_events ? 1 : 0 
-  source                                = "./modules/real-time-events"
-  projects                              = local.projects
-  use_existing_function_sa              = var.use_existing_function_sa
-  function_service_account_id           = var.use_existing_function_sa ? var.function_service_account_id : null
-  grant_function_service_account_roles  = var.grant_function_service_account_roles
-  use_secret_manager                    = var.use_secret_manager
-  secret_name                           = var.secret_name
-  org_level_sink                        = var.org_level_sink
-  organization_id                       = var.org_id
-  project_for_resources                 = var.project_for_resources
-  log_sink_filter                       = var.log_sink_filter
-  regional_secret                       = var.regional_secret
-  depends_on                  = [streamsec_gcp_project_ack.this]
+  count                                = var.enable_real_time_events ? 1 : 0
+  source                               = "./modules/real-time-events"
+  projects                             = local.projects
+  use_existing_function_sa             = var.use_existing_function_sa
+  function_service_account_id          = var.use_existing_function_sa ? var.function_service_account_id : null
+  grant_function_service_account_roles = var.grant_function_service_account_roles
+  use_secret_manager                   = var.use_secret_manager
+  secret_name                          = var.secret_name
+  org_level_sink                       = var.org_level_sink
+  organization_id                      = var.org_id
+  project_for_resources                = var.project_for_resources
+  log_sink_filter                      = var.log_sink_filter
+  regional_secret                      = var.regional_secret
+  depends_on                           = [streamsec_gcp_project_ack.this]
 }
 
 module "flowlogs" {
@@ -111,11 +113,21 @@ module "response" {
   count                            = length(var.response_enabled_projects) > 0 ? 1 : 0
   source                           = "./modules/response"
   projects                         = var.response_enabled_projects
+  region                           = var.region
   exclude_runbooks                 = var.exclude_runbooks
   org_level_permissions            = var.response_org_level_permissions
   organization_id                  = var.org_id
   workflow_invoker_service_account = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
+}
+
+# Fail clearly if response is enabled but no region was provided (region is
+# required by modules/response for Cloud Workflows deployment).
+check "response_region" {
+  assert {
+    condition     = length(var.response_enabled_projects) == 0 || try(var.region != null && var.region != "", false)
+    error_message = "`region` is required when `response_enabled_projects` is set (used for Cloud Workflows deployment in modules/response)."
+  }
 }
 
 module "gke" {

@@ -17,6 +17,8 @@ module "streamsec_google_projects" {
   # exclude_projects            = ["xxxxx", "xxxxx"] # will exclude these projects from the integration
   # excluded_project_prefixes   = ["sys-", "test-"]  # will exclude projects whose names start with these prefixes
   # excluded_project_strings    = ["sandbox"]         # will exclude projects whose names contain these strings
+  # excluded_project_id_prefixes = ["sys-", "test-"]  # will exclude projects whose project IDs start with these prefixes
+  # excluded_project_id_strings  = ["sandbox"]         # will exclude projects whose project IDs contain these strings
   # include_projects            = ["xxxxxx", "xxxxxx"] # will include all projects in the organization if not set
   # org_id                = "xxxxxxxx" # required if create_sa is true
   # create_sa             = false

@@ -19,6 +19,18 @@ variable "excluded_project_strings" {
   default     = []
 }
 
+variable "excluded_project_id_prefixes" {
+  description = "A list of project ID prefixes to exclude. Any project whose project ID starts with one of these prefixes will be excluded."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_id_strings" {
+  description = "A list of substrings to exclude by project ID. Any project whose project ID contains one of these strings will be excluded."
+  type        = list(string)
+  default     = []
+}
+
 variable "include_projects" {
   description = "A list of projects to include from the Organization Integration. If not set, all projects will be included."
   type        = list(string)
@@ -147,6 +159,12 @@ variable "response_enabled_projects" {
   description = "A list of project IDs to create response resources for."
   type        = list(string)
   default     = []
+}
+
+variable "region" {
+  description = "GCP region for Cloud Workflows deployment. Required when response_enabled_projects is set."
+  type        = string
+  default     = null
 }
 
 variable "response_org_level_permissions" {
