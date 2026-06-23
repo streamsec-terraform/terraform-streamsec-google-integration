@@ -8,13 +8,25 @@ variable "exclude_projects" {
 }
 
 variable "excluded_project_prefixes" {
-  description = "A list of project name prefixes to exclude. Any project whose name starts with one of these prefixes will be excluded."
+  description = "A list of project display name prefixes to exclude. Any project whose display name starts with one of these prefixes will be excluded."
   type        = list(string)
   default     = []
 }
 
 variable "excluded_project_strings" {
-  description = "A list of substrings to exclude. Any project whose name contains one of these strings will be excluded."
+  description = "A list of substrings to exclude. Any project whose display name contains one of these strings will be excluded."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_id_prefixes" {
+  description = "A list of project ID prefixes to exclude. Any project whose project ID starts with one of these prefixes will be excluded."
+  type        = list(string)
+  default     = []
+}
+
+variable "excluded_project_id_strings" {
+  description = "A list of substrings to exclude by project ID. Any project whose project ID contains one of these strings will be excluded."
   type        = list(string)
   default     = []
 }
@@ -147,6 +159,12 @@ variable "response_enabled_projects" {
   description = "A list of project IDs to create response resources for."
   type        = list(string)
   default     = []
+}
+
+variable "region" {
+  description = "GCP region for Cloud Workflows deployment. Required when response_enabled_projects is set."
+  type        = string
+  default     = null
 }
 
 variable "response_org_level_permissions" {
