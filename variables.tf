@@ -8,13 +8,13 @@ variable "exclude_projects" {
 }
 
 variable "excluded_project_prefixes" {
-  description = "A list of project name prefixes to exclude. Any project whose name starts with one of these prefixes will be excluded."
+  description = "A list of project display name prefixes to exclude. Any project whose display name starts with one of these prefixes will be excluded."
   type        = list(string)
   default     = []
 }
 
 variable "excluded_project_strings" {
-  description = "A list of substrings to exclude. Any project whose name contains one of these strings will be excluded."
+  description = "A list of substrings to exclude. Any project whose display name contains one of these strings will be excluded."
   type        = list(string)
   default     = []
 }
