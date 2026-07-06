@@ -131,14 +131,12 @@ module "gke" {
 }
 
 module "vertex_ai_logging" {
-  count            = var.enable_vertex_ai_logging ? 1 : 0
-  source           = "./modules/vertex-ai-logging"
-  project_id       = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
-  region           = var.vertex_ai_region
-  env              = var.vertex_ai_env
-  api_url          = var.vertex_ai_api_url
-  streamsec_domain = var.vertex_ai_streamsec_domain
-  manage_apis      = var.vertex_ai_manage_apis
+  count       = var.enable_vertex_ai_logging ? 1 : 0
+  source      = "./modules/vertex-ai-logging"
+  project_id  = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
+  region      = var.vertex_ai_region
+  api_url     = var.vertex_ai_api_url
+  manage_apis = var.vertex_ai_manage_apis
   # Read the token secret created by the real-time-events module (Case B). The collector
   # derives the secret path from these shared inputs; override with vertex_ai_secret_version_name.
   use_secret_manager      = var.use_secret_manager

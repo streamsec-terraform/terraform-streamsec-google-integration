@@ -9,30 +9,18 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "env" {
-  description = "REQUIRED. Stream Security environment / subdomain prefix (e.g. 'app', 'demo'). Used to derive the collection URL (https://<env>.<streamsec_domain>) and to suffix resource names so the module can be deployed once per environment (separate state/workspace) against the same project."
+variable "api_url" {
+  description = "REQUIRED. Full Stream Security collection URL the function posts to, e.g. https://app.streamsec.io (scheme included). The function appends /api/v1/collection/gcp-audit-log to this."
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9-]+$", var.env))
-    error_message = "env is required and must be lowercase alphanumeric/hyphen (it is used in DNS-style hostnames and GCP resource names)."
+    condition     = can(regex("^https?://", var.api_url))
+    error_message = "api_url is required and must be a full URL including scheme (http:// or https://)."
   }
 }
 
-variable "api_url" {
-  description = "Optional explicit Stream Security collection URL, e.g. https://app.streamsec.io. Overrides the env-derived URL (https://<env>.<streamsec_domain>). Leave empty to derive from env + streamsec_domain."
-  type        = string
-  default     = ""
-}
-
-variable "streamsec_domain" {
-  description = "Base domain used to build the collection URL from var.env (https://<env>.<streamsec_domain>). Set this to target non-prod environments, e.g. 'staging.streamsec.io' or 'dev.streamsec.io'."
-  type        = string
-  default     = "streamsec.io"
-}
-
 variable "manage_apis" {
-  description = "Whether this deployment manages (enables) the required project APIs. Set to false for additional per-env deployments in the SAME project so they don't redundantly own the shared google_project_service resources."
+  description = "Whether this deployment manages (enables) the required project APIs. Set to false when the APIs are already enabled/owned elsewhere so this module doesn't redundantly own the shared google_project_service resources."
   type        = bool
   default     = true
 }
@@ -60,6 +48,12 @@ variable "regional_secret" {
   default     = true
 }
 
+variable "manage_secret_iam" {
+  description = "Whether this module grants the collector SA secretAccessor on the secret. Set false when the secret is owned elsewhere and the deployer lacks secretmanager.secrets.setIamPolicy — the secret owner must then grant the collector SA (output service_account_email) roles/secretmanager.secretAccessor out-of-band."
+  type        = bool
+  default     = true
+}
+
 variable "secret_version_name" {
   description = "Optional override of the full Secret Manager secret VERSION resource name read by the function (e.g. projects/<p>/secrets/<s>/versions/latest, or .../locations/<r>/... for regional). When empty it is derived from project_id + secret_name + regional_secret. Set this for standalone use against an arbitrary secret."
   type        = string
@@ -79,9 +73,14 @@ variable "bigquery_dataset" {
 }
 
 variable "bigquery_table" {
-  description = "BigQuery table name (supports wildcard suffix for date-sharded tables, e.g., 'predictions_')"
+  description = "BigQuery table the publisher model logs to (also used as the prefix for the collector's wildcard read, '<table>*'). Must be a valid BigQuery table name — no trailing underscore, which Vertex rejects when parsing the bq:// destination URI."
   type        = string
-  default     = "predictions_"
+  default     = "request_response_logging"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_]+$", var.bigquery_table)) && !endswith(var.bigquery_table, "_")
+    error_message = "bigquery_table must be alphanumeric/underscore and must not end with '_' (Vertex rejects a trailing underscore in the bq:// destination URI)."
+  }
 }
 
 variable "bigquery_location" {
@@ -125,12 +124,12 @@ variable "name_prefix" {
   type        = string
   default     = "streamsec"
 
-  # The service account account_id is built as "<name_prefix>-vtx-col-<env>" and GCP caps
-  # account_id at 30 chars. This is a conservative prefix-only sanity check; the full
-  # env-inclusive length is enforced by a precondition on google_service_account.collector.
+  # The service account account_id is built as "<name_prefix>-vtx-col" and GCP caps
+  # account_id at 30 chars. Length is also enforced by a precondition on
+  # google_service_account.collector.
   validation {
-    condition     = length("${var.name_prefix}-vtx-col") <= 26
-    error_message = "name_prefix is too long: '<name_prefix>-vtx-col' must be <= 26 chars to leave room for '-<env>' (GCP service account account_id limit is 30)."
+    condition     = length("${var.name_prefix}-vtx-col") <= 30
+    error_message = "name_prefix is too long: '<name_prefix>-vtx-col' must be <= 30 chars (GCP service account account_id limit)."
   }
 }
 
@@ -140,10 +139,15 @@ variable "enable_request_response_logging" {
   default     = true
 }
 
-variable "vertex_ai_model" {
-  description = "Publisher model name to enable request-response logging on (e.g., gemini-2.5-flash, gemini-2.5-pro)"
-  type        = string
-  default     = "gemini-2.5-flash"
+variable "vertex_ai_models" {
+  description = "Publisher model names to enable request-response logging on (e.g., [\"gemini-2.5-flash\", \"gemini-2.5-pro\"]). Logging is enabled per model; all models share the same env-prefixed BigQuery dataset/table (rows are distinguished by the model column)."
+  type        = list(string)
+  default     = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+  validation {
+    condition     = alltrue([for m in var.vertex_ai_models : length(trimspace(m)) > 0])
+    error_message = "vertex_ai_models must not contain empty strings."
+  }
 }
 
 variable "logging_sampling_rate" {

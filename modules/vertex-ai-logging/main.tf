@@ -3,10 +3,6 @@
 data "google_client_config" "current" {}
 
 locals {
-  # Per-env suffix so the module can be deployed once per environment (separate state/workspace)
-  # against the same project without resource-name collisions. env is required.
-  suffix = "-${var.env}"
-
   # Full secret VERSION resource name the function reads. Derived from the existing
   # secret_name / regional_secret inputs (matching the secret real-time-events creates),
   # unless an explicit secret_version_name override is provided. Read verbatim by the function.
@@ -16,15 +12,27 @@ locals {
     : "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
   )
 
-  # Collection target: explicit api_url override, else derived from env + domain. The function
-  # appends /api/v1/collection/gcp-audit-log to this. Control streamsec_domain to target
-  # staging/dev (e.g. staging.streamsec.io) instead of the default prod domain.
-  api_url = var.api_url != "" ? var.api_url : "https://${var.env}.${var.streamsec_domain}"
+  # Decompose the (externally-owned) secret the function reads so the secretAccessor grant can be
+  # scoped to that ONE secret instead of the whole project. When secret_version_name is overridden,
+  # parse the parts from the path; otherwise use the secret_name/regional_secret/region inputs.
+  secret_overridden  = var.secret_version_name != ""
+  secret_is_regional = local.secret_overridden ? can(regex("/locations/", var.secret_version_name)) : var.regional_secret
+  secret_project     = local.secret_overridden ? regex("projects/([^/]+)/", var.secret_version_name)[0] : var.project_id
+  secret_id          = local.secret_overridden ? regex("secrets/([^/]+)", var.secret_version_name)[0] : var.secret_name
+  secret_location = local.secret_is_regional ? (
+    local.secret_overridden ? regex("locations/([^/]+)", var.secret_version_name)[0] : data.google_client_config.current.region
+  ) : null
 
-  function_name = "${var.name_prefix}-vertex-ai-collector${local.suffix}"
+  function_name = "${var.name_prefix}-vertex-ai-collector"
   # SA account_id is capped at 30 chars; use a short base. Length validated via precondition below.
-  sa_name     = "${var.name_prefix}-vtx-col${local.suffix}"
-  bucket_name = lower("${var.name_prefix}-vtx-collector-state-${var.project_id}${local.suffix}")
+  sa_name = "${var.name_prefix}-vtx-col"
+  # project_id keeps the bucket name globally unique.
+  bucket_name = lower("${var.name_prefix}-vtx-collector-state-${var.project_id}")
+
+  # Prefix the dataset with name_prefix like every other resource. BigQuery dataset IDs allow only
+  # letters/numbers/underscores (no hyphens), so any hyphen in name_prefix is sanitized to '_'
+  # (default -> streamsec_vertex_ai_logs).
+  bigquery_dataset_id = "${replace(var.name_prefix, "-", "_")}_${var.bigquery_dataset}"
 }
 
 # --- Service Account ---
@@ -32,7 +40,7 @@ locals {
 resource "google_service_account" "collector" {
   project      = var.project_id
   account_id   = local.sa_name
-  display_name = "Stream Security Vertex AI Log Collector (${var.env})"
+  display_name = "Stream Security Vertex AI Log Collector"
   # Explicit so terraform re-enables the SA if it gets disabled out-of-band. A disabled
   # runtime/OIDC SA breaks token minting -> function 500s and scheduler can't invoke.
   disabled = false
@@ -40,7 +48,7 @@ resource "google_service_account" "collector" {
   lifecycle {
     precondition {
       condition     = length(local.sa_name) <= 30
-      error_message = "Derived service account account_id '${local.sa_name}' exceeds 30 chars. Shorten name_prefix or env."
+      error_message = "Derived service account account_id '${local.sa_name}' exceeds 30 chars. Shorten name_prefix."
     }
   }
 }
@@ -57,10 +65,23 @@ resource "google_project_iam_member" "bq_job_user" {
   member  = "serviceAccount:${google_service_account.collector.email}"
 }
 
-resource "google_project_iam_member" "secret_accessor" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.collector.email}"
+# Least-privilege: grant secretAccessor on the single external secret the function reads,
+# not the whole project. Global vs regional secret selects the matching IAM resource.
+resource "google_secret_manager_secret_iam_member" "secret_accessor" {
+  count     = var.manage_secret_iam && !local.secret_is_regional ? 1 : 0
+  project   = local.secret_project
+  secret_id = local.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.collector.email}"
+}
+
+resource "google_secret_manager_regional_secret_iam_member" "secret_accessor" {
+  count     = var.manage_secret_iam && local.secret_is_regional ? 1 : 0
+  project   = local.secret_project
+  location  = local.secret_location
+  secret_id = local.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.collector.email}"
 }
 
 # Vertex AI service agent needs write access to create and populate BigQuery logging tables
@@ -107,7 +128,7 @@ resource "google_bigquery_dataset" "vertex_ai_logs" {
   count = var.create_bigquery_dataset ? 1 : 0
 
   project                     = var.project_id
-  dataset_id                  = var.bigquery_dataset
+  dataset_id                  = local.bigquery_dataset_id
   location                    = var.bigquery_location
   default_table_expiration_ms = var.bigquery_log_retention_days * 86400000
   delete_contents_on_destroy  = true
@@ -177,9 +198,9 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
 
     environment_variables = {
       GCP_PROJECT_ID   = var.project_id
-      BIGQUERY_DATASET = var.bigquery_dataset
+      BIGQUERY_DATASET = local.bigquery_dataset_id
       BIGQUERY_TABLE   = var.bigquery_table
-      API_URL          = local.api_url
+      API_URL          = var.api_url
       STATE_BUCKET     = google_storage_bucket.state.name
       BATCH_SIZE       = tostring(var.batch_size)
       SECRET_NAME      = local.secret_version_name
@@ -191,7 +212,7 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
 
 resource "google_cloud_scheduler_job" "poll_trigger" {
   project   = var.project_id
-  name      = "${var.name_prefix}-vertex-ai-poll${local.suffix}"
+  name      = "${var.name_prefix}-vertex-ai-poll"
   region    = var.region
   schedule  = var.schedule_cron
   time_zone = "UTC"
@@ -213,27 +234,24 @@ resource "google_cloud_scheduler_job" "poll_trigger" {
   }
 }
 
-# --- Enable request-response logging on publisher model ---
+# --- Enable request-response logging on publisher model(s) ---
+# One null_resource per model. All models log to the same env-prefixed BigQuery dataset/table
+# (rows are distinguished by the model column), so the destination is shared.
 
 resource "null_resource" "enable_logging" {
-  count = var.enable_request_response_logging ? 1 : 0
+  for_each = var.enable_request_response_logging ? toset(var.vertex_ai_models) : toset([])
 
   triggers = {
-    model         = var.vertex_ai_model
+    model         = each.value
     sampling_rate = var.logging_sampling_rate
-    dataset       = var.bigquery_dataset
+    dataset       = local.bigquery_dataset_id
     table         = var.bigquery_table
   }
 
+  # Single-line command so it runs under both POSIX sh and Windows cmd.exe (Terraform's default
+  # local-exec interpreter on Windows). `python3` must be on PATH.
   provisioner "local-exec" {
-    command = <<-EOT
-      python3 ${path.module}/scripts/enable_logging.py \
-        --project ${var.project_id} \
-        --location ${var.region} \
-        --model ${var.vertex_ai_model} \
-        --sampling-rate ${var.logging_sampling_rate} \
-        --bq-destination "bq://${var.project_id}.${var.bigquery_dataset}.${var.bigquery_table}"
-    EOT
+    command = "python3 ${path.module}/scripts/enable_logging.py --project ${var.project_id} --location ${var.region} --model ${each.value} --sampling-rate ${var.logging_sampling_rate} --bq-destination \"bq://${var.project_id}.${local.bigquery_dataset_id}.${var.bigquery_table}\""
   }
 
   depends_on = [
