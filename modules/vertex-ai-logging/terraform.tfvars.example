@@ -1,18 +1,10 @@
 project_id = "my-gcp-project-id"
 region     = "us-central1"
 
-# REQUIRED. Stream Security environment / subdomain prefix. Drives the collection URL
-# (https://<env>.<streamsec_domain>) and suffixes all resource names so the module can be
-# deployed once per environment (separate state/workspace) against the same project.
-env = "app"
-
-# Base domain for the collection URL. Override to target non-prod, e.g.:
-#   streamsec_domain = "staging.streamsec.io"   ->  https://<env>.staging.streamsec.io
-#   streamsec_domain = "dev.streamsec.io"        ->  https://<env>.dev.streamsec.io
-streamsec_domain = "streamsec.io"
-
-# Optional explicit override of the full collection URL (bypasses env + streamsec_domain).
-# api_url = "https://app.streamsec.io"
+# REQUIRED. Full Stream Security collection URL (scheme included). The function appends
+# /api/v1/collection/gcp-audit-log to it. Set to your environment's host, e.g.
+# https://app.streamsec.io or https://tenant1.staging.streamsec.io.
+api_url = "https://app.streamsec.io"
 
 # Shared token secret. These must match the real-time-events module that creates the secret
 # (same project_id) so the collector reads the same secret. The module derives the full
@@ -24,14 +16,16 @@ regional_secret    = true                              # true = regional secret,
 # Optional: override the derived path with an explicit full version resource name (standalone use).
 # secret_version_name = "projects/my-gcp-project-id/locations/us-central1/secrets/stream-security-collection-token/versions/latest"
 
-# Set manage_apis = false for an ADDITIONAL per-env deployment in the SAME project, so it
-# doesn't redundantly own the shared google_project_service resources.
+# Set manage_apis = false when the required APIs are already enabled/owned elsewhere in the
+# SAME project, so this module doesn't redundantly own the shared google_project_service resources.
 manage_apis = true
 
-# BigQuery — set create_bigquery_dataset = false if the dataset already exists
+# BigQuery — set create_bigquery_dataset = false if the dataset already exists.
+# The effective dataset id is prefixed by name_prefix: <name_prefix>_<bigquery_dataset>
+# (default -> streamsec_vertex_ai_logs).
 create_bigquery_dataset     = true
 bigquery_dataset            = "vertex_ai_logs"
-bigquery_table              = "predictions_"
+bigquery_table              = "request_response_logging"
 bigquery_location           = "US"
 bigquery_log_retention_days = 30
 
@@ -40,5 +34,5 @@ batch_size    = 20
 
 # Publisher model logging (enabled by default)
 enable_request_response_logging = true
-vertex_ai_model                 = "gemini-2.5-flash"
+vertex_ai_models                = ["gemini-2.5-flash", "gemini-2.5-pro"]
 logging_sampling_rate           = 1.0

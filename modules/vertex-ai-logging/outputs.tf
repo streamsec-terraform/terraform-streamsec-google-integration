@@ -1,11 +1,6 @@
-output "env" {
-  description = "Stream Security environment this deployment reports to (empty for the single-env/legacy deployment)"
-  value       = var.env
-}
-
 output "collection_url" {
-  description = "Resolved Stream Security collection base URL the function posts to"
-  value       = local.api_url
+  description = "Stream Security collection base URL the function posts to"
+  value       = var.api_url
 }
 
 output "function_name" {
@@ -34,8 +29,8 @@ output "watermark_bucket" {
 }
 
 output "bigquery_dataset_id" {
-  description = "BigQuery dataset ID for Vertex AI logs (created or referenced)"
-  value       = var.bigquery_dataset
+  description = "Effective (prefixed) BigQuery dataset ID for Vertex AI logs, <name_prefix>_<bigquery_dataset>."
+  value       = local.bigquery_dataset_id
 }
 
 output "bigquery_table_prefix" {

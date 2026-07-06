@@ -217,26 +217,14 @@ variable "enable_vertex_ai_logging" {
   default     = false
 }
 
-variable "vertex_ai_env" {
-  description = "Stream Security environment / subdomain prefix for Vertex AI logging (e.g. 'app', 'demo'). REQUIRED when enable_vertex_ai_logging is true. Drives the collection URL (https://<env>.<vertex_ai_streamsec_domain>) and suffixes resource names so the module can be applied once per environment."
-  type        = string
-  default     = ""
-}
-
 variable "vertex_ai_api_url" {
-  description = "Optional explicit Stream Security collection URL for Vertex AI logging (e.g. https://app.streamsec.io). Overrides the vertex_ai_env-derived URL."
+  description = "Full Stream Security collection URL for Vertex AI logging (e.g. https://app.streamsec.io, scheme included). REQUIRED when enable_vertex_ai_logging is true."
   type        = string
   default     = ""
-}
-
-variable "vertex_ai_streamsec_domain" {
-  description = "Base domain used to build the Vertex AI collection URL from vertex_ai_env. Set to target non-prod environments, e.g. 'staging.streamsec.io' or 'dev.streamsec.io'."
-  type        = string
-  default     = "streamsec.io"
 }
 
 variable "vertex_ai_manage_apis" {
-  description = "Whether the Vertex AI logging deployment enables the required project APIs. Set to false for an additional per-env deployment in the same project."
+  description = "Whether the Vertex AI logging deployment enables the required project APIs. Set to false when the APIs are already enabled/owned elsewhere in the same project."
   type        = bool
   default     = true
 }
