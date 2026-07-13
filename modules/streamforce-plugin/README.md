@@ -14,7 +14,7 @@ environment values.
 
 ```hcl
 module "streamforce_plugin" {
-  source = "streamsec-terraform/streamsec-google-integration//modules/streamforce-plugin"
+  source = "streamsec-terraform/google-integration/streamsec//modules/streamforce-plugin"
 
   project_id       = "my-gcp-project"
   region           = "us-central1"
