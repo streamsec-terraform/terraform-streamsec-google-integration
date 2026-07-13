@@ -9,13 +9,49 @@
 # through the Stream platform.
 ################################################################################
 
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
 locals {
   short_id     = substr(var.plugin_id, 0, 8)
   service_name = "sfplugin-${local.short_id}"
+  has_env      = length(var.plugin_env) > 0
+  # The function's runtime identity (Gen2 defaults to the Compute Engine SA).
+  runtime_sa = "${data.google_project.this.number}-compute@developer.gserviceaccount.com"
 }
 
 resource "random_id" "bucket" {
   byte_length = 4
+}
+
+# The plugin env, stored in Secret Manager (not a plain env var) so the values
+# live in the customer's secret store. The value comes from var.plugin_env — it
+# never passes through the Stream platform.
+resource "google_secret_manager_secret" "env" {
+  count     = local.has_env ? 1 : 0
+  project   = var.project_id
+  secret_id = "${local.service_name}-env"
+  labels    = var.labels
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "env" {
+  count       = local.has_env ? 1 : 0
+  secret      = google_secret_manager_secret.env[0].id
+  secret_data = jsonencode(var.plugin_env)
+}
+
+# Let the function's runtime SA read the secret (granted up-front to avoid a
+# deploy-time access check failing).
+resource "google_secret_manager_secret_iam_member" "env" {
+  count     = local.has_env ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.env[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.runtime_sa}"
 }
 
 # Bucket that holds the staged plugin source for Cloud Build.
@@ -65,19 +101,29 @@ resource "google_cloudfunctions2_function" "this" {
   }
 
   service_config {
-    available_memory   = var.available_memory
-    timeout_seconds    = var.timeout_seconds
-    ingress_settings   = "ALLOW_ALL"
-    environment_variables = merge(
-      {
-        PLUGIN_ID    = var.plugin_id
-        PLUGIN_TOKEN = var.plugin_token
-        PLATFORM_URL = var.platform_url
-      },
-      # The customer env blob, expanded into process.env by the plugin at start.
-      length(var.plugin_env) > 0 ? { PLUGIN_ENV_JSON = jsonencode(var.plugin_env) } : {}
-    )
+    available_memory = var.available_memory
+    timeout_seconds  = var.timeout_seconds
+    ingress_settings = "ALLOW_ALL"
+    environment_variables = {
+      PLUGIN_ID    = var.plugin_id
+      PLUGIN_TOKEN = var.plugin_token
+      PLATFORM_URL = var.platform_url
+    }
+
+    # The customer env blob is delivered from Secret Manager (not a plain env
+    # var) and expanded into process.env by the plugin at start.
+    dynamic "secret_environment_variables" {
+      for_each = local.has_env ? [1] : []
+      content {
+        key        = "PLUGIN_ENV_JSON"
+        project_id = var.project_id
+        secret     = google_secret_manager_secret.env[0].secret_id
+        version    = "latest"
+      }
+    }
   }
+
+  depends_on = [google_secret_manager_secret_iam_member.env]
 }
 
 # Grant the Stream Security integration service account permission to invoke the
