@@ -54,6 +54,32 @@ resource "google_secret_manager_secret_iam_member" "env" {
   member    = "serviceAccount:${local.runtime_sa}"
 }
 
+# The per-plugin platform callback token, stored in Secret Manager (not a plain
+# env var) so it isn't readable from the function/service config. It authorizes
+# the plugin's api_key fetch from the platform, so it's a secret in its own
+# right. The wrapper reads it from process.env identically whether it arrives as
+# a plain or a secret-backed env var.
+resource "google_secret_manager_secret" "token" {
+  project   = var.project_id
+  secret_id = "${local.service_name}-token"
+  labels    = var.labels
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "token" {
+  secret      = google_secret_manager_secret.token.id
+  secret_data = var.plugin_token
+}
+
+resource "google_secret_manager_secret_iam_member" "token" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.runtime_sa}"
+}
+
 # Bucket that holds the staged plugin source for Cloud Build.
 resource "google_storage_bucket" "src" {
   name                        = "${local.service_name}-src-${random_id.bucket.hex}"
@@ -67,7 +93,14 @@ resource "google_storage_bucket" "src" {
 # Fetch the Stream-hosted plugin package and stage it locally (Gen2 source must
 # live in GCS, and can't reference an arbitrary URL).
 resource "null_resource" "fetch_artifact" {
-  triggers = { artifact_url = var.artifact_url }
+  # Re-fetch when the source URL changes OR when service_name (derived from
+  # plugin_id) changes — the staged filename depends on service_name, so without
+  # it a plugin_id change would leave google_storage_bucket_object.src pointing
+  # at a zip that was never downloaded.
+  triggers = {
+    artifact_url = var.artifact_url
+    service_name = local.service_name
+  }
 
   provisioner "local-exec" {
     command = "curl -fsSL '${var.artifact_url}' -o '${path.module}/${local.service_name}.zip'"
@@ -103,11 +136,18 @@ resource "google_cloudfunctions2_function" "this" {
   service_config {
     available_memory = var.available_memory
     timeout_seconds  = var.timeout_seconds
-    ingress_settings = "ALLOW_ALL"
+    ingress_settings = var.ingress_settings
     environment_variables = {
       PLUGIN_ID    = var.plugin_id
-      PLUGIN_TOKEN = var.plugin_token
       PLATFORM_URL = var.platform_url
+    }
+
+    # The platform callback token comes from Secret Manager, not plain config.
+    secret_environment_variables {
+      key        = "PLUGIN_TOKEN"
+      project_id = var.project_id
+      secret     = google_secret_manager_secret.token.secret_id
+      version    = "latest"
     }
 
     # The customer env blob is delivered from Secret Manager (not a plain env
@@ -123,7 +163,10 @@ resource "google_cloudfunctions2_function" "this" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.env]
+  depends_on = [
+    google_secret_manager_secret_iam_member.env,
+    google_secret_manager_secret_iam_member.token,
+  ]
 }
 
 # Grant the Stream Security integration service account permission to invoke the
@@ -131,22 +174,34 @@ resource "google_cloudfunctions2_function" "this" {
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
   project  = var.project_id
   location = var.region
-  name     = google_cloudfunctions2_function.this.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${var.invoker_sa_email}"
+  # The backing Cloud Run service name — not the function name. Gen2 currently
+  # keeps them equal, but that isn't guaranteed, so reference the service the
+  # function reports explicitly.
+  name   = google_cloudfunctions2_function.this.service_config[0].service
+  role   = "roles/run.invoker"
+  member = "serviceAccount:${var.invoker_sa_email}"
 }
 
 # Acknowledge the deployed function URL back to Stream Security (authenticated by
 # the per-plugin token). The plugin flips to Active once its tools are reachable.
 resource "null_resource" "acknowledge" {
+  # Re-acknowledge if the endpoint or the target platform changes. The token is
+  # deliberately left out — triggers persist in state, and it's a secret.
   triggers = {
-    url = google_cloudfunctions2_function.this.url
+    url          = google_cloudfunctions2_function.this.url
+    platform_url = var.platform_url
+    plugin_id    = var.plugin_id
   }
 
+  # Pass the token through the environment (not the command string) so it never
+  # lands in the process argv (visible via `ps`) or in Terraform's echoed command.
   provisioner "local-exec" {
+    environment = {
+      PLUGIN_TOKEN = var.plugin_token
+    }
     command = <<-EOT
       curl -fsS -X POST '${var.platform_url}/api/accounts/streamforce-plugins/acknowledge' \
-        -H 'Authorization: Bearer ${var.plugin_token}' \
+        -H "Authorization: Bearer $PLUGIN_TOKEN" \
         -H 'Content-Type: application/json' \
         -d '{"function_url": "${google_cloudfunctions2_function.this.url}"}'
     EOT
