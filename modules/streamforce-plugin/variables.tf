@@ -64,6 +64,12 @@ variable "timeout_seconds" {
   default     = 60
 }
 
+variable "ingress_settings" {
+  description = "Cloud Run ingress for the function. Defaults to ALLOW_ALL because Stream's executor calls the function over the public internet (auth is IAM/OIDC, not the network). Only restrict this if you have private connectivity (VPC/PSC) between Stream and the function."
+  type        = string
+  default     = "ALLOW_ALL"
+}
+
 variable "labels" {
   description = "Labels to apply to the created resources."
   type        = map(string)
