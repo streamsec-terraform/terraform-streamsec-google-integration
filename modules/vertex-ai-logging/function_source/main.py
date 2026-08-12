@@ -140,6 +140,13 @@ def safe_json_string(payload) -> str:
     return json.dumps(payload, default=str)
 
 
+def to_iso_timestamp(value) -> str:
+    """Render a BigQuery TIMESTAMP value as an ISO-8601 string."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def row_to_gcp_audit_log(row: dict) -> dict:
     """Convert a Vertex AI BigQuery logging row to a GCP audit log JSON object.
 
@@ -161,10 +168,9 @@ def row_to_gcp_audit_log(row: dict) -> dict:
     method_name = f"aiplatform.{api_method}" if api_method else "aiplatform.endpoints.predict"
 
     logging_time = row.get("logging_time")
-    if isinstance(logging_time, datetime):
-        event_time = logging_time.isoformat()
-    else:
-        event_time = str(logging_time) if logging_time else datetime.now(timezone.utc).isoformat()
+    event_time = (
+        to_iso_timestamp(logging_time) if logging_time else datetime.now(timezone.utc).isoformat()
+    )
 
     request_payload = safe_json_string(row.get("full_request"))
     response_payload = safe_json_string(row.get("full_response"))
@@ -210,32 +216,53 @@ def send_log(session: requests.Session, log: dict) -> bool:
     return True
 
 
-def send_logs(logs: list[dict], api_token: str) -> int:
-    """Send logs concurrently using a thread pool. Returns the number of logs sent."""
+def send_logs(logs: list[dict], api_token: str) -> list[bool]:
+    """Send logs concurrently using a thread pool.
+
+    Returns a list of per-log success flags, index-aligned with `logs`, so the caller can tell
+    exactly which rows were delivered rather than only how many.
+    """
     session = requests.Session()
     session.headers.update({
         "Content-Type": "application/json",
         "X-Lightlytics-Token": api_token,
     })
 
-    sent = 0
+    delivered = [False] * len(logs)
     failed = 0
 
     with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
         futures = {executor.submit(send_log, session, log): i for i, log in enumerate(logs)}
         for future in as_completed(futures):
+            index = futures[future]
             try:
                 future.result()
-                sent += 1
+                delivered[index] = True
             except Exception as e:
                 failed += 1
                 if failed <= 5:
-                    print(f"Failed to send log {futures[future]}: {e}")
+                    print(f"Failed to send log {index}: {e}")
 
     if failed:
         print(f"Warning: {failed}/{len(logs)} logs failed to send")
 
-    return sent
+    return delivered
+
+
+def committed_prefix_length(delivered: list[bool]) -> int:
+    """Length of the leading run of successfully delivered logs.
+
+    Rows are queried ORDER BY logging_time ASC, so the watermark may only advance across an
+    unbroken prefix of successes. The first failure stops it: everything from that row onward is
+    re-queried on the next poll. That trades duplicates (downstream dedupes on request_id) for
+    never dropping a row, instead of the reverse.
+    """
+    count = 0
+    for ok in delivered:
+        if not ok:
+            break
+        count += 1
+    return count
 
 
 @functions_framework.http
@@ -259,17 +286,37 @@ def handler(request):
     api_token = get_api_token()
     audit_logs = [row_to_gcp_audit_log(row) for row in rows]
 
-    sent_count = send_logs(audit_logs, api_token)
+    delivered = send_logs(audit_logs, api_token)
+    sent_count = sum(delivered)
+    failed_count = len(rows) - sent_count
 
-    max_timestamp = rows[-1].get("logging_time")
-    if isinstance(max_timestamp, datetime):
-        new_watermark = max_timestamp.isoformat()
+    # Only advance the watermark across rows we know were delivered, and only across an unbroken
+    # leading run of them. Advancing to rows[-1] regardless (as this previously did) skipped every
+    # failed row permanently while still returning 200, so Scheduler never retried them.
+    committed = committed_prefix_length(delivered)
+    if committed:
+        new_watermark = to_iso_timestamp(rows[committed - 1].get("logging_time"))
+        write_watermark(storage_client, new_watermark)
     else:
-        new_watermark = str(max_timestamp)
-
-    write_watermark(storage_client, new_watermark)
+        new_watermark = watermark
 
     elapsed = time.time() - start_time
-    print(f"Done: {sent_count} logs sent in {elapsed:.1f}s, watermark={new_watermark}")
+    print(
+        f"Done: {sent_count}/{len(rows)} logs sent in {elapsed:.1f}s, "
+        f"committed={committed}, watermark={new_watermark}"
+    )
 
-    return {"status": "ok", "rows_processed": sent_count, "new_watermark": new_watermark}, 200
+    body = {
+        "status": "ok" if failed_count == 0 else "partial",
+        "rows_processed": sent_count,
+        "rows_failed": failed_count,
+        "rows_committed": committed,
+        "new_watermark": new_watermark,
+    }
+
+    # No forward progress at all despite having rows: report failure so Scheduler retries and the
+    # error surfaces in monitoring instead of looking like a clean run.
+    if committed == 0:
+        return body, 500
+
+    return body, 200
