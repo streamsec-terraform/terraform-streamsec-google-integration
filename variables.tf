@@ -218,9 +218,9 @@ variable "enable_vertex_ai_logging" {
 }
 
 variable "vertex_ai_api_url" {
-  description = "Full Stream Security collection URL for Vertex AI logging (e.g. https://app.streamsec.io, scheme included). REQUIRED when enable_vertex_ai_logging is true."
+  description = "Full Stream Security collection URL for Vertex AI logging (scheme included; must be https). Defaults to the production endpoint — override for non-prod tenants, e.g. https://tenant1.staging.streamsec.io. Unlike the other modules this is passed explicitly rather than derived from the streamsec provider, so vertex-ai-logging can be applied standalone without Stream Security API credentials."
   type        = string
-  default     = ""
+  default     = "https://app.streamsec.io"
 }
 
 variable "vertex_ai_manage_apis" {

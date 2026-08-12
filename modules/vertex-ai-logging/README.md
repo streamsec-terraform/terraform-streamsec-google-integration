@@ -152,6 +152,38 @@ compare equal. The resource therefore sets `ignore_all_server_changes = true`: c
 the Terraform config are applied normally, but drift introduced **outside** Terraform (e.g. someone
 disabling logging in the console) is not detected. Re-apply to reassert the intended config.
 
+## Permissions granted
+
+Data access is scoped to the logging dataset, not the project — the collector forwards what it
+reads to an external endpoint, so a project-wide `bigquery.dataViewer` would put every unrelated
+dataset in the blast radius of a compromise.
+
+| Identity | Role | Scope |
+|---|---|---|
+| Collector SA | `bigquery.dataViewer` (or dataset `READER`) | the logging dataset only |
+| Collector SA | `roles/bigquery.jobUser` | project — no dataset-scoped equivalent exists, and it grants no data access on its own |
+| Collector SA | `roles/secretmanager.secretAccessor` | the one token secret (toggle with `manage_secret_iam`) |
+| Collector SA | `roles/storage.objectAdmin` | the watermark bucket only |
+| Vertex AI service agent | `bigquery.dataEditor` (or dataset `WRITER`) | the logging dataset only |
+
+When `create_bigquery_dataset = true` the two dataset roles come from the dataset's own `access`
+blocks; when it's `false` they come from `google_bigquery_dataset_iam_member` resources instead.
+The two mechanisms are mutually exclusive on a single dataset, which is why they're `count`-gated.
+
+## Delivery semantics
+
+At-least-once. Each poll reads rows `WHERE logging_time > watermark ORDER BY logging_time ASC`,
+and the watermark advances only across the unbroken **leading run** of rows that were actually
+delivered. A failure partway through a batch leaves the watermark at the last confirmed row, so
+the remainder is re-queried on the next poll — duplicates are possible, dropped rows are not.
+Deduplicate downstream on `request_id`. A poll that delivers nothing while rows exist returns
+`500` so Cloud Scheduler retries and the failure is visible.
+
+**Known gap:** the cursor is timestamp-only. If the 10,000-row-per-poll limit falls in the middle
+of a group of rows sharing one `logging_time`, the remainder is skipped, as are rows that arrive
+in BigQuery below an already-advanced watermark. Closing this needs an overlap window plus
+`request_id` deduplication; it is not implemented yet.
+
 ## Testing
 
 ### 1. Send a Test Prompt
@@ -237,10 +269,11 @@ gcloud functions logs read "$(terraform output -raw function_name)" \
 |------|-------------|------|---------|
 | `project_id` | GCP project ID | `string` | — |
 | `region` | GCP region | `string` | `us-central1` |
-| `api_url` | **Required.** Full Stream Security collection URL (scheme included), e.g. `https://app.streamsec.io` | `string` | — |
+| `api_url` | **Required.** Full Stream Security collection URL, `https://` only (`http://localhost` allowed for dev), e.g. `https://app.streamsec.io` | `string` | — |
 | `manage_apis` | Whether this deployment enables the required project APIs (false when already owned elsewhere in the project) | `bool` | `true` |
 | `use_secret_manager` | Token is stored in Secret Manager (must be `true`) | `bool` | `true` |
 | `secret_name` | Secret ID of the shared API-token secret (match `real-time-events`) | `string` | `stream-security-collection-token` |
+| `secret_project` | Project owning the shared secret, when it isn't `project_id` (needed when `real-time-events` created it in `project_for_resources` only) | `string` | `""` |
 | `regional_secret` | Whether the shared secret is regional (`true`) or global (`false`); match `real-time-events` | `bool` | `true` |
 | `secret_version_name` | Optional explicit full secret VERSION resource name; overrides the derived path | `string` | `""` |
 | `create_bigquery_dataset` | Create the BigQuery dataset | `bool` | `true` |
@@ -251,7 +284,7 @@ gcloud functions logs read "$(terraform output -raw function_name)" \
 | `schedule_cron` | Cloud Scheduler cron expression | `string` | `*/5 * * * *` |
 | `function_memory_mb` | Cloud Function memory (MB) | `number` | `512` |
 | `function_timeout_seconds` | Cloud Function timeout | `number` | `300` |
-| `batch_size` | Concurrent HTTP requests to Stream Security | `number` | `20` |
+| `batch_size` | Concurrent HTTP requests to Stream Security (positive integer) | `number` | `20` |
 | `name_prefix` | Resource name prefix | `string` | `streamsec` |
 | `enable_request_response_logging` | Manage publisher-model logging via `restapi_object` (requires a configured `restapi` provider) | `bool` | `true` |
 | `vertex_ai_models` | Publisher model names to enable logging on (one logging config per model, shared dataset) | `list(string)` | `["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]` |
