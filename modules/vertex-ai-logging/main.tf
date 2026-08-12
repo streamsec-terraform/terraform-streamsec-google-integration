@@ -33,6 +33,41 @@ locals {
   # letters/numbers/underscores (no hyphens), so any hyphen in name_prefix is sanitized to '_'
   # (default -> streamsec_vertex_ai_logs).
   bigquery_dataset_id = "${replace(var.name_prefix, "-", "_")}_${var.bigquery_dataset}"
+
+  # Resource-name prefix for the publisher models whose logging config we manage. The regional
+  # host is set on the restapi provider (https://<region>-aiplatform.googleapis.com) by the caller.
+  publisher_model_prefix = "projects/${var.project_id}/locations/${var.region}/publishers/google/models"
+
+  logging_output_uri = "bq://${var.project_id}.${local.bigquery_dataset_id}.${var.bigquery_table}"
+
+  # Body of SetPublisherModelConfigRequest. updateMask scopes the write to loggingConfig; without
+  # it the API REPLACES the entire PublisherModelConfig, silently clearing sibling settings
+  # (claudeFeatureConfig, inferenceEventLoggingConfig, dataSharingEnabledProvider) on a publisher
+  # model that other teams in the project may also be configuring.
+  publisher_logging_enable = {
+    publisherModelConfig = {
+      loggingConfig = {
+        enabled      = true
+        samplingRate = var.logging_sampling_rate
+        bigqueryDestination = {
+          outputUri = local.logging_output_uri
+        }
+        enableOtelLogging = true
+      }
+    }
+    updateMask = "loggingConfig"
+  }
+
+  # Sent on destroy: there is no DELETE for this API, so tearing the module down turns logging off
+  # instead of leaving it enabled against a dataset that is about to disappear.
+  publisher_logging_disable = {
+    publisherModelConfig = {
+      loggingConfig = {
+        enabled = false
+      }
+    }
+    updateMask = "loggingConfig"
+  }
 }
 
 # --- Service Account ---
@@ -235,24 +270,45 @@ resource "google_cloud_scheduler_job" "poll_trigger" {
 }
 
 # --- Enable request-response logging on publisher model(s) ---
-# One null_resource per model. All models log to the same env-prefixed BigQuery dataset/table
-# (rows are distinguished by the model column), so the destination is shared.
+#
+# There is no first-class provider resource for this. The Google provider's
+# predict_request_response_logging_config lives on google_vertex_ai_endpoint, which covers only
+# self-deployed endpoints -- serverless publisher models (gemini-*) are configured through
+# aiplatform's :setPublisherModelConfig instead. A native resource is requested upstream in
+# hashicorp/terraform-provider-google#24092 but is still unimplemented, so we drive the REST
+# method declaratively via the restapi provider.
+#
+# One object per model. All models write to the same prefixed dataset/table; rows are
+# distinguished by the model column, so the destination is shared.
 
-resource "null_resource" "enable_logging" {
+resource "restapi_object" "publisher_model_logging" {
   for_each = var.enable_request_response_logging ? toset(var.vertex_ai_models) : toset([])
 
-  triggers = {
-    model         = each.value
-    sampling_rate = var.logging_sampling_rate
-    dataset       = local.bigquery_dataset_id
-    table         = var.bigquery_table
-  }
+  # :setPublisherModelConfig returns a long-running Operation rather than the configured object,
+  # so there is no server-assigned id to scrape from the create response. Pin the id to the model
+  # name instead. `path` is only a fallback for verbs without an explicit path (all four have one
+  # below), but the provider requires it.
+  path      = "/v1beta1/${local.publisher_model_prefix}"
+  object_id = each.value
 
-  # Single-line command so it runs under both POSIX sh and Windows cmd.exe (Terraform's default
-  # local-exec interpreter on Windows). `python3` must be on PATH.
-  provisioner "local-exec" {
-    command = "python3 ${path.module}/scripts/enable_logging.py --project ${var.project_id} --location ${var.region} --model ${each.value} --sampling-rate ${var.logging_sampling_rate} --bq-destination \"bq://${var.project_id}.${local.bigquery_dataset_id}.${var.bigquery_table}\""
-  }
+  # This API is "set config", not REST CRUD: create, update and destroy are all POSTs to the same
+  # :setPublisherModelConfig method, differing only in the body. There is no DELETE.
+  create_path    = "/v1beta1/${local.publisher_model_prefix}/${each.value}:setPublisherModelConfig"
+  update_path    = "/v1beta1/${local.publisher_model_prefix}/${each.value}:setPublisherModelConfig"
+  destroy_path   = "/v1beta1/${local.publisher_model_prefix}/${each.value}:setPublisherModelConfig"
+  update_method  = "POST"
+  destroy_method = "POST"
+
+  read_path = "/v1beta1/${local.publisher_model_prefix}/${each.value}:fetchPublisherModelConfig"
+
+  # fetchPublisherModelConfig returns a bare PublisherModelConfig ({"loggingConfig":{...}}) while
+  # the POST body wraps it ({"publisherModelConfig":{...},"updateMask":...}). The two shapes can
+  # never compare equal, so reconciling the read response against `data` would produce a permanent
+  # diff. Edits to `data` (sampling rate, destination) still trigger an update normally.
+  ignore_all_server_changes = true
+
+  data         = jsonencode(local.publisher_logging_enable)
+  destroy_data = jsonencode(local.publisher_logging_disable)
 
   depends_on = [
     google_bigquery_dataset.vertex_ai_logs,

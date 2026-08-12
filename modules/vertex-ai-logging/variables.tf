@@ -134,7 +134,7 @@ variable "name_prefix" {
 }
 
 variable "enable_request_response_logging" {
-  description = "Whether to enable Vertex AI request-response logging on the publisher model via local-exec. Requires Python with the google-cloud-aiplatform SDK installed."
+  description = "Whether to manage Vertex AI request-response logging on the publisher models. When true the caller MUST pass a configured `restapi` provider (see README); when false no restapi resources are created and the provider need not be configured. Note this config is singular per model+location for the whole project: enabling it here overwrites any BigQuery destination another deployment set on the same model+region."
   type        = bool
   default     = true
 }
@@ -155,9 +155,11 @@ variable "logging_sampling_rate" {
   type        = number
   default     = 1.0
 
+  # The API defines samplingRate as a fraction in range(0,1] -- 0 is rejected rather than treated
+  # as "log nothing". Use enable_request_response_logging = false to turn logging off.
   validation {
-    condition     = var.logging_sampling_rate >= 0 && var.logging_sampling_rate <= 1
-    error_message = "logging_sampling_rate must be between 0.0 and 1.0."
+    condition     = var.logging_sampling_rate > 0 && var.logging_sampling_rate <= 1
+    error_message = "logging_sampling_rate must be greater than 0.0 and at most 1.0. To disable logging entirely, set enable_request_response_logging = false."
   }
 }
 
