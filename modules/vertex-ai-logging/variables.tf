@@ -51,6 +51,12 @@ variable "regional_secret" {
   default     = true
 }
 
+variable "secret_project" {
+  description = "GCP project that owns the shared token secret, when it is not the project this pipeline deploys into. real-time-events creates the secret only in project_for_resources when org_level_sink = true, so a cross-project deployment must point here or the derived secret path resolves against the wrong project. Empty means the secret lives in project_id. Ignored when secret_version_name is set (the project is parsed from that path). With manage_secret_iam = true the deployer needs secretmanager.secrets.setIamPolicy in this project."
+  type        = string
+  default     = ""
+}
+
 variable "manage_secret_iam" {
   description = "Whether this module grants the collector SA secretAccessor on the secret. Set false when the secret is owned elsewhere and the deployer lacks secretmanager.secrets.setIamPolicy — the secret owner must then grant the collector SA (output service_account_email) roles/secretmanager.secretAccessor out-of-band."
   type        = bool

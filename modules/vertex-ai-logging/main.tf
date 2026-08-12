@@ -3,13 +3,20 @@
 data "google_client_config" "current" {}
 
 locals {
+  # Project that OWNS the token secret, which is not always the project this pipeline deploys
+  # into: real-time-events creates the shared secret only in project_for_resources when
+  # org_level_sink = true. A cross-project deployment must therefore be told where the secret
+  # lives, or both the derived version path and the IAM grant below target a secret that does
+  # not exist. Defaults to this project, which is the single-project case.
+  secret_owner_project = var.secret_project != "" ? var.secret_project : var.project_id
+
   # Full secret VERSION resource name the function reads. Derived from the existing
   # secret_name / regional_secret inputs (matching the secret real-time-events creates),
   # unless an explicit secret_version_name override is provided. Read verbatim by the function.
   secret_version_name = var.secret_version_name != "" ? var.secret_version_name : (
     var.regional_secret
-    ? "projects/${var.project_id}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
-    : "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
+    ? "projects/${local.secret_owner_project}/locations/${data.google_client_config.current.region}/secrets/${var.secret_name}/versions/latest"
+    : "projects/${local.secret_owner_project}/secrets/${var.secret_name}/versions/latest"
   )
 
   # Decompose the (externally-owned) secret the function reads so the secretAccessor grant can be
@@ -17,7 +24,7 @@ locals {
   # parse the parts from the path; otherwise use the secret_name/regional_secret/region inputs.
   secret_overridden  = var.secret_version_name != ""
   secret_is_regional = local.secret_overridden ? can(regex("/locations/", var.secret_version_name)) : var.regional_secret
-  secret_project     = local.secret_overridden ? regex("projects/([^/]+)/", var.secret_version_name)[0] : var.project_id
+  secret_project     = local.secret_overridden ? regex("projects/([^/]+)/", var.secret_version_name)[0] : local.secret_owner_project
   secret_id          = local.secret_overridden ? regex("secrets/([^/]+)", var.secret_version_name)[0] : var.secret_name
   secret_location = local.secret_is_regional ? (
     local.secret_overridden ? regex("locations/([^/]+)", var.secret_version_name)[0] : data.google_client_config.current.region
