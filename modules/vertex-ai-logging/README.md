@@ -22,7 +22,7 @@ Cloud Scheduler ──► Cloud Function (2nd Gen)
 
 ## Prerequisites
 
-- Python 3 with the `google-cloud-aiplatform` SDK installed (used by `local-exec` to enable logging on each publisher model)
+- A **configured `restapi` provider** passed in by the caller, when `enable_request_response_logging` is `true` (see [How Logging Is Enabled](#how-logging-is-enabled)). No Python, and nothing needs to be installed on the machine running Terraform.
 - **Stream Security API token already stored in Secret Manager** in the same project. This module *reads* the token — it does **not** create the secret. It derives the secret's full version path from the shared `secret_name` / `regional_secret` inputs (the same ones the `real-time-events` module uses to create it), so set them to match. Global and regional secrets are both supported. `use_secret_manager` must be `true`.
 - Required GCP APIs are enabled automatically by the module (toggle with `manage_apis`)
 - Only the Google provider is required (ADC). This module does **not** use the `streamsec` provider — the collection URL is supplied directly via `api_url`, so it can be applied standalone without Stream Security API credentials.
@@ -96,17 +96,61 @@ terraform apply -var="project_id=my-gcp-project" -var="api_url=https://demo.stre
 
 ## How Logging Is Enabled
 
-The module uses one `null_resource` per model in `vertex_ai_models` with `local-exec` to run a
-Python script that calls the Vertex AI SDK's `set_request_response_logging_config()`. This runs
-automatically during `terraform apply` and re-runs for a model when its name, the sampling rate,
-or the dataset changes.
+Logging is configured per publisher model by one `restapi_object.publisher_model_logging` resource
+per entry in `vertex_ai_models`.
 
-The machine running Terraform must have:
-- Python 3 with `google-cloud-aiplatform` installed (`pip install google-cloud-aiplatform`)
-- GCP credentials with permissions to configure Vertex AI endpoints
+**Why not a native resource?** The Google provider's `predict_request_response_logging_config`
+block exists only on `google_vertex_ai_endpoint`, which covers self-deployed endpoints. Serverless
+publisher models (`gemini-*`) have no Endpoint resource — they are configured through aiplatform's
+`:setPublisherModelConfig` REST method. A native resource is requested upstream in
+[hashicorp/terraform-provider-google#24092](https://github.com/hashicorp/terraform-provider-google/issues/24092)
+but is not yet implemented, so the module drives that method through the `restapi` provider.
 
-Set `enable_request_response_logging = false` to skip this step (e.g., if logging is
-already configured manually or managed elsewhere).
+Because create, update and destroy are all `POST`s to the same method, the resource sets
+`update_method`/`destroy_method` to `POST` explicitly. `destroy_data` sends `enabled: false`, so
+`terraform destroy` turns logging **off** rather than leaving it pointed at a deleted dataset.
+Every write carries `updateMask: "loggingConfig"` so it does not clobber sibling settings on the
+model (`claudeFeatureConfig`, `inferenceEventLoggingConfig`, `dataSharingEnabledProvider`).
+
+### Supplying the provider
+
+This module declares `restapi` but does **not** configure it: a module containing a provider block
+cannot be used with `count`, `for_each` or `depends_on`, and the root module wires this one with
+both. Configure it in your root and it is inherited automatically:
+
+```hcl
+data "google_client_config" "default" {}
+
+provider "restapi" {
+  # Regional host — must match the module's `region`.
+  uri = "https://us-central1-aiplatform.googleapis.com"
+
+  headers = {
+    Authorization  = "Bearer ${data.google_client_config.default.access_token}"
+    "Content-Type" = "application/json"
+  }
+
+  # :setPublisherModelConfig returns a long-running Operation, not the object.
+  write_returns_object  = false
+  create_returns_object = false
+}
+```
+
+The token is short-lived (~1h) and read at plan time; a plan left sitting for hours before apply
+can fail with `401`, in which case re-run the plan.
+
+Set `enable_request_response_logging = false` to skip all of this — no `restapi_object` resources
+are created and the provider does not need to be configured at all.
+
+> **Note:** this config is singular per model + location for the entire project. Enabling it here
+> overwrites the BigQuery destination any other deployment set on the same model in the same
+> region.
+
+**Known limitation:** `fetchPublisherModelConfig` returns a bare `PublisherModelConfig` while the
+write body wraps it in `publisherModelConfig` plus `updateMask`, so the two shapes can never
+compare equal. The resource therefore sets `ignore_all_server_changes = true`: changes you make to
+the Terraform config are applied normally, but drift introduced **outside** Terraform (e.g. someone
+disabling logging in the console) is not detected. Re-apply to reassert the intended config.
 
 ## Testing
 
@@ -209,7 +253,7 @@ gcloud functions logs read "$(terraform output -raw function_name)" \
 | `function_timeout_seconds` | Cloud Function timeout | `number` | `300` |
 | `batch_size` | Concurrent HTTP requests to Stream Security | `number` | `20` |
 | `name_prefix` | Resource name prefix | `string` | `streamsec` |
-| `enable_request_response_logging` | Enable logging on publisher model via local-exec | `bool` | `true` |
+| `enable_request_response_logging` | Manage publisher-model logging via `restapi_object` (requires a configured `restapi` provider) | `bool` | `true` |
 | `vertex_ai_models` | Publisher model names to enable logging on (one logging config per model, shared dataset) | `list(string)` | `["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]` |
 | `logging_sampling_rate` | Fraction of requests to log (0.0–1.0) | `number` | `1.0` |
 | `labels` | Labels applied to all resources | `map(string)` | `managed-by=terraform, component=streamsec-vertex-ai-collection` |
