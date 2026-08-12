@@ -9,6 +9,11 @@
 crash.log
 crash.*.log
 
+# Build artifacts. data.archive_file regenerates these on every plan (e.g. the
+# vertex-ai-logging function source zip), so they churn as a binary diff if tracked.
+**/.build/
+__pycache__/
+
 local-tests/
 examples/local
 **.terraform
