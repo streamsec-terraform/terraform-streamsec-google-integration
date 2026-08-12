@@ -10,12 +10,15 @@ variable "region" {
 }
 
 variable "api_url" {
-  description = "REQUIRED. Full Stream Security collection URL the function posts to, e.g. https://app.streamsec.io (scheme included). The function appends /api/v1/collection/gcp-audit-log to this."
+  description = "REQUIRED. Full Stream Security collection URL the function posts to, e.g. https://app.streamsec.io (scheme included). Must be https:// — the request carries the API token and the full Vertex AI request/response bodies. http://localhost is permitted for local development only."
   type        = string
 
+  # Plain http would transmit the X-Lightlytics-Token header and the logged prompt/response
+  # payloads without transport encryption. localhost is exempt so the collector can be pointed
+  # at a local stand-in during development.
   validation {
-    condition     = can(regex("^https?://", var.api_url))
-    error_message = "api_url is required and must be a full URL including scheme (http:// or https://)."
+    condition     = can(regex("^https://", var.api_url)) || can(regex("^http://localhost(:[0-9]+)?(/|$)", var.api_url))
+    error_message = "api_url must be a full https:// URL (http:// is only allowed for localhost during development)."
   }
 }
 
@@ -114,9 +117,16 @@ variable "function_timeout_seconds" {
 }
 
 variable "batch_size" {
-  description = "Number of concurrent HTTP requests when sending logs to Stream Security"
+  description = "Number of concurrent HTTP requests when sending logs to Stream Security. Must be >= 1."
   type        = number
   default     = 20
+
+  # Passed straight to ThreadPoolExecutor(max_workers=...), which raises ValueError on any
+  # non-positive value — every non-empty poll would fail at runtime.
+  validation {
+    condition     = var.batch_size >= 1 && floor(var.batch_size) == var.batch_size
+    error_message = "batch_size must be a positive integer (>= 1)."
+  }
 }
 
 variable "name_prefix" {

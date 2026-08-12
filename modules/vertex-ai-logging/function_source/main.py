@@ -33,13 +33,17 @@ SECRET_NAME = os.environ["SECRET_NAME"]
 WATERMARK_BLOB = "watermark/last_processed_timestamp.txt"
 MAX_ROWS_PER_POLL = 10000
 REQUEST_TIMEOUT_SECONDS = 30
+# Sentinel extract_region() returns when a resource path carries no locations/ segment.
+UNKNOWN_REGION = "unknown"
 
 
 def get_api_token() -> str:
     # SECRET_NAME is the full version resource name. Regional secrets must be read via a
-    # regional endpoint; global secrets via the default endpoint.
+    # regional endpoint; global secrets via the default endpoint. A global path has no
+    # locations/ segment, so extract_region returns its "unknown" sentinel — which must NOT be
+    # treated as a region, or the client targets secretmanager.unknown.rep.googleapis.com.
     region = extract_region(SECRET_NAME)
-    if region:
+    if region and region != UNKNOWN_REGION:
         client = secretmanager.SecretManagerServiceClient(
             client_options={"api_endpoint": f"secretmanager.{region}.rep.googleapis.com"}
         )
@@ -112,13 +116,12 @@ def extract_model_id(model_resource_name: str) -> str:
 
 def extract_region(endpoint_or_model: str) -> str:
     """Extract region from a resource path containing locations/{region}/."""
-    for path in [endpoint_or_model or ""]:
-        parts = path.split("/")
-        if "locations" in parts:
-            idx = parts.index("locations")
-            if idx + 1 < len(parts):
-                return parts[idx + 1]
-    return "unknown"
+    parts = (endpoint_or_model or "").split("/")
+    if "locations" in parts:
+        idx = parts.index("locations")
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+    return UNKNOWN_REGION
 
 
 def extract_caller_from_metadata(metadata) -> str:
