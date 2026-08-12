@@ -34,6 +34,9 @@ locals {
   # (default -> streamsec_vertex_ai_logs).
   bigquery_dataset_id = "${replace(var.name_prefix, "-", "_")}_${var.bigquery_dataset}"
 
+  # Google-managed Vertex AI service agent that writes the request-response logging tables.
+  vertex_ai_service_agent = "service-${data.google_project.this.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+
   # Resource-name prefix for the publisher models whose logging config we manage. The regional
   # host is set on the restapi provider (https://<region>-aiplatform.googleapis.com) by the caller.
   publisher_model_prefix = "projects/${var.project_id}/locations/${var.region}/publishers/google/models"
@@ -88,16 +91,19 @@ resource "google_service_account" "collector" {
   }
 }
 
-resource "google_project_iam_member" "bq_reader" {
-  project = var.project_id
-  role    = "roles/bigquery.dataViewer"
-  member  = "serviceAccount:${google_service_account.collector.email}"
-}
-
+# Read access to the logging data is granted at DATASET scope, not project scope: the collector
+# forwards what it reads to an external endpoint, so a project-wide dataViewer would put every
+# unrelated dataset in the blast radius of a compromise. See the dataset `access` blocks below
+# (created dataset) and google_bigquery_dataset_iam_member.* (pre-existing dataset).
+#
+# jobUser has no dataset-scoped equivalent — running a query job is inherently a project-level
+# permission — so it stays here. It confers no data access on its own.
 resource "google_project_iam_member" "bq_job_user" {
   project = var.project_id
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.api_propagation]
 }
 
 # Least-privilege: grant secretAccessor on the single external secret the function reads,
@@ -108,6 +114,8 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   secret_id = local.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.api_propagation]
 }
 
 resource "google_secret_manager_regional_secret_iam_member" "secret_accessor" {
@@ -117,17 +125,17 @@ resource "google_secret_manager_regional_secret_iam_member" "secret_accessor" {
   secret_id = local.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.api_propagation]
 }
 
-# Vertex AI service agent needs write access to create and populate BigQuery logging tables
+# Vertex AI service agent — needs write access to create and populate the BigQuery logging
+# tables. Also granted at dataset scope only (see local.vertex_ai_service_agent usage below);
+# a project-wide dataEditor would let a managed service agent modify every dataset in the
+# project, and would additionally make `terraform destroy` here revoke a binding other
+# deployments in the same project may depend on.
 data "google_project" "this" {
   project_id = var.project_id
-}
-
-resource "google_project_iam_member" "vertex_ai_bq_writer" {
-  project = var.project_id
-  role    = "roles/bigquery.dataEditor"
-  member  = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
 }
 
 # --- GCS Bucket (watermark state) ---
@@ -138,6 +146,8 @@ resource "google_storage_bucket" "state" {
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = true
+
+  depends_on = [time_sleep.api_propagation]
 
   labels = var.labels
 
@@ -175,10 +185,46 @@ resource "google_bigquery_dataset" "vertex_ai_logs" {
     special_group = "projectOwners"
   }
 
+  # Dataset-scoped read for the collector, in place of a project-wide dataViewer.
   access {
     role          = "READER"
     user_by_email = google_service_account.collector.email
   }
+
+  # Dataset-scoped write for the Vertex AI service agent, in place of a project-wide dataEditor.
+  # WRITER is what lets it create the date-sharded tables and stream rows into them.
+  access {
+    role          = "WRITER"
+    user_by_email = local.vertex_ai_service_agent
+  }
+
+  depends_on = [time_sleep.api_propagation]
+}
+
+# When the dataset is NOT managed here, the authoritative `access` blocks above don't exist, so
+# grant the same two dataset-scoped roles additively instead. google_bigquery_dataset_iam_member
+# and a dataset resource's `access` blocks are mutually exclusive on the same dataset — mixing
+# them makes each fight the other on every plan — hence the count gate.
+resource "google_bigquery_dataset_iam_member" "collector_reader" {
+  count = var.create_bigquery_dataset ? 0 : 1
+
+  project    = var.project_id
+  dataset_id = local.bigquery_dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.api_propagation]
+}
+
+resource "google_bigquery_dataset_iam_member" "vertex_ai_writer" {
+  count = var.create_bigquery_dataset ? 0 : 1
+
+  project    = var.project_id
+  dataset_id = local.bigquery_dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${local.vertex_ai_service_agent}"
+
+  depends_on = [time_sleep.api_propagation]
 }
 
 # Note: Vertex AI request-response logging creates its own date-sharded tables
@@ -205,7 +251,7 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
   name     = local.function_name
   location = var.region
 
-  depends_on = [google_project_service.required_apis]
+  depends_on = [time_sleep.api_propagation]
 
   labels = var.labels
 
@@ -312,6 +358,8 @@ resource "restapi_object" "publisher_model_logging" {
 
   depends_on = [
     google_bigquery_dataset.vertex_ai_logs,
+    google_bigquery_dataset_iam_member.vertex_ai_writer,
+    time_sleep.api_propagation,
   ]
 }
 
