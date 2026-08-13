@@ -112,6 +112,38 @@ Because create, update and destroy are all `POST`s to the same method, the resou
 Every write carries `updateMask: "loggingConfig"` so it does not clobber sibling settings on the
 model (`claudeFeatureConfig`, `inferenceEventLoggingConfig`, `dataSharingEnabledProvider`).
 
+### Adopting a model that already has logging enabled
+
+`:setPublisherModelConfig` is **not idempotent**: posting a config identical to the one already in
+place returns `409 ALREADY_EXISTS` ("The same PublisherModelConfig already exists") rather than
+succeeding as a no-op. So if logging was previously enabled on a model — by the old Python script,
+by hand, or by another deployment — the first `terraform apply` fails on create:
+
+```
+Error: Could not create API object: unexpected response code '409'
+```
+
+Terraform is trying to create what already exists, and the API will not accept the write. Clear the
+existing config first so the create has something to change:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+MODEL=gemini-2.5-flash
+BASE="https://<region>-aiplatform.googleapis.com/v1beta1/projects/<project>/locations/<region>/publishers/google/models"
+
+# check whether logging is already on
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/$MODEL:fetchPublisherModelConfig"
+
+# if it is, turn it off, then apply
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "$BASE/$MODEL:setPublisherModelConfig" \
+  -d '{"publisherModelConfig":{"loggingConfig":{"enabled":false}},"updateMask":"loggingConfig"}'
+```
+
+Logging is off for the few seconds between that call and the apply. `terraform import` is the
+alternative, but the imported state carries no `data` value, so the next plan wants an update that
+posts the identical body — landing back on the same 409. Clearing first is the reliable path.
+
 ### Supplying the provider
 
 This module declares `restapi` but does **not** configure it: a module containing a provider block
