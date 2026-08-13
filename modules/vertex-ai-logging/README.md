@@ -170,6 +170,29 @@ When `create_bigquery_dataset = true` the two dataset roles come from the datase
 blocks; when it's `false` they come from `google_bigquery_dataset_iam_member` resources instead.
 The two mechanisms are mutually exclusive on a single dataset, which is why they're `count`-gated.
 
+### If the apply fails with `bigquery.datasets.update denied`
+
+In BigQuery a dataset's ACL **is** part of the dataset resource, so *any* dataset-scoped grant —
+`access` block or `google_bigquery_dataset_iam_member` alike — is a `datasets.update` call. A
+deployer holding only `bigquery.datasets.create` (e.g. project-level `roles/bigquery.dataEditor`)
+can create the dataset but cannot later modify its access list, and the apply fails with:
+
+```
+Error 403: Access Denied: Dataset <project>:<dataset>: Permission bigquery.datasets.update denied
+```
+
+Two ways out:
+
+1. **Preferred** — grant the deployer `roles/bigquery.dataOwner` on the logging dataset, then keep
+   `bigquery_grant_scope = "dataset"`.
+2. **Fallback** — set `bigquery_grant_scope = "project"`. Both roles are granted as project-level
+   bindings instead, which needs only project `setIamPolicy`. Broader: the collector can read every
+   dataset in the project and the service agent can modify every dataset, and because the bindings
+   are additive, `terraform destroy` revokes them for anything else relying on the same grant.
+
+`bigquery_grant_scope = "none"` skips both, for IAM managed entirely out-of-band. `bigquery.jobUser`
+is granted at project level in all three cases — it has no dataset-scoped equivalent.
+
 ## Delivery semantics
 
 At-least-once. Each poll reads rows `WHERE logging_time > watermark ORDER BY logging_time ASC`,
@@ -289,6 +312,7 @@ gcloud functions logs read "$(terraform output -raw function_name)" \
 | `secret_project` | Project owning the shared secret, when it isn't `project_id` (needed when `real-time-events` created it in `project_for_resources` only) | `string` | `""` |
 | `regional_secret` | Whether the shared secret is regional (`true`) or global (`false`); match `real-time-events` | `bool` | `true` |
 | `secret_version_name` | Optional explicit full secret VERSION resource name; overrides the derived path | `string` | `""` |
+| `bigquery_grant_scope` | Where BigQuery access is granted: `dataset` (least privilege, needs `bigquery.datasets.update`), `project` (fallback), or `none` | `string` | `dataset` |
 | `create_bigquery_dataset` | Create the BigQuery dataset | `bool` | `true` |
 | `bigquery_dataset` | BigQuery dataset ID base; effective dataset is `<name_prefix>_<bigquery_dataset>` | `string` | `vertex_ai_logs` |
 | `bigquery_table` | BigQuery table the publisher model logs to (no trailing underscore) | `string` | `request_response_logging` |
