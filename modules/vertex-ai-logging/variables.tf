@@ -146,6 +146,17 @@ variable "batch_size" {
   }
 }
 
+variable "lookback_minutes" {
+  description = "How far below the watermark each poll re-reads, to catch rows that land in BigQuery after the watermark passed their logging_time (event time). Already-delivered rows in that window are suppressed by a request_id cache, so the cost is query volume rather than duplicates. Size from the vertex_ingestion_lag_seconds metric the function logs — roughly 2x the observed p99. 0 disables the sweep and restores the old skip-prone behaviour."
+  type        = number
+  default     = 15
+
+  validation {
+    condition     = var.lookback_minutes >= 0 && floor(var.lookback_minutes) == var.lookback_minutes
+    error_message = "lookback_minutes must be a non-negative integer."
+  }
+}
+
 variable "name_prefix" {
   description = "Prefix for all resource names (for multi-deployment isolation)"
   type        = string

@@ -227,30 +227,70 @@ is granted at project level in all three cases — it has no dataset-scoped equi
 
 ## Delivery semantics
 
-At-least-once. Each poll reads rows `WHERE logging_time > watermark ORDER BY logging_time ASC`,
-and the watermark advances only across the unbroken **leading run** of rows that were actually
-delivered. A failure partway through a batch leaves the watermark at the last confirmed row, so
-the remainder is re-queried on the next poll — duplicates are possible, dropped rows are not.
-Deduplicate downstream on `request_id`. A poll that delivers nothing while rows exist returns
-`500` so Cloud Scheduler retries and the failure is visible.
+**At-least-once.** Duplicates are possible; dropped rows are not. Deduplicate downstream on
+`request_id`.
 
-**Known gap ([#43](https://github.com/streamsec-terraform/terraform-streamsec-google-integration/issues/43)):**
-the cursor is event-time only. `logging_time` is when the request was served; the row becomes
-visible in BigQuery later. Because the watermark advances to the newest row a poll saw,
-fast-arriving rows drag it past slow-arriving neighbours, and any row lagging more than about a
-poll interval behind its peers is dropped. (The same cursor also skips the remainder of a group
-of rows sharing one `logging_time` if the 10,000-row limit splits it, though that needs ~10k
-requests in a single microsecond and is effectively unreachable.)
+State lives in one JSON object in the watermark bucket: a composite cursor
+`(logging_time, request_id)` plus a bounded map of recently delivered request IDs. Each poll
+issues one query covering two ranges, each with its own row limit:
+
+| Range | Covers | Guards against |
+|---|---|---|
+| **forward** — strictly past the cursor | new rows | the row limit splitting a group that shares one `logging_time`; the `request_id` tiebreak resumes mid-group instead of skipping the remainder |
+| **sweep** — the `lookback_minutes` window *behind* the cursor | rows that became visible after the cursor passed their event time | `logging_time` is event time, so a row can land in BigQuery below an already-advanced cursor |
+
+The two ranges are limited separately on purpose. Sharing one limit lets the sweep's
+already-delivered rows sort first, consume the whole budget, and starve forward progress —
+which would reintroduce the skip the sweep exists to prevent.
+
+Rows the sweep returns that were already delivered are suppressed by the request-ID cache. That
+cache is an **optimization, not a ledger**: it only avoids re-sending. Losing an entry costs a
+duplicate that downstream dedupes, never a lost row, which is why it can be pruned below the
+sweep floor and capped at 50,000 entries without ceremony.
+
+The cursor advances only across the unbroken **leading run** of delivered rows from the forward
+range. A failure partway through a batch leaves it at the last confirmed row. Rows found by the
+sweep never move it — they are behind it by definition. A poll that delivers nothing while rows
+exist returns `500` so Cloud Scheduler retries and the failure is visible; a poll that delivers
+only sweep catch-up commits nothing and is still a success.
+
+State writes use a GCS generation precondition, so overlapping invocations cannot silently
+clobber each other's progress.
+
+### Sizing `lookback_minutes`
 
 Each poll logs `vertex_ingestion_lag_seconds` as structured JSON — `min`/`p50`/`p95`/`max` age of
-the rows it made visible — so the window for the fix can be sized from observed data. The `min`
-approximates current ingestion lag; the spread across polls is what determines exposure:
+the rows it delivered. The `min` approximates current ingestion lag; the spread across polls is
+what the window has to cover. Set `lookback_minutes` to roughly **2x the observed p99**.
 
 ```bash
 gcloud logging read \
   'resource.type=cloud_run_revision AND jsonPayload.metric="vertex_ingestion_lag_seconds"' \
   --project=my-gcp-project --limit=50 --format='value(jsonPayload)'
 ```
+
+Too small and late rows are still missed; too large and each poll re-reads more rows than it
+needs to. `lookback_minutes = 0` disables the sweep entirely, leaving only the composite cursor.
+
+### Upgrading from a pre-lookback deployment
+
+The old bare-text watermark blob is read once, migrated into the new state object, and then left
+alone. The first poll after upgrading starts with an empty ID cache, so it replays one lookback
+window — expected, one-off, and deduped downstream on `request_id`.
+
+## Tests
+
+`tests/test_collector.py` drives the collector through real poll sequences against stubbed GCP
+services. The fake BigQuery models event time and visibility time separately, so late arrival is
+reproduced rather than mocked. No dependencies, no cloud access:
+
+```bash
+python modules/vertex-ai-logging/tests/test_collector.py
+```
+
+Covers late-arrival recovery (and a control proving `lookback_minutes = 0` still drops the row),
+tie-group splitting at the row limit, partial-batch failure, total failure, legacy-state
+migration, concurrent-write rejection, cache pruning, and rows with no `request_id`.
 
 ## Testing
 
@@ -354,6 +394,7 @@ gcloud functions logs read "$(terraform output -raw function_name)" \
 | `function_memory_mb` | Cloud Function memory (MB) | `number` | `512` |
 | `function_timeout_seconds` | Cloud Function timeout | `number` | `300` |
 | `batch_size` | Concurrent HTTP requests to Stream Security (positive integer) | `number` | `20` |
+| `lookback_minutes` | How far below the cursor each poll re-reads, to catch rows that land in BigQuery late; `0` disables the sweep | `number` | `15` |
 | `name_prefix` | Resource name prefix | `string` | `streamsec` |
 | `enable_request_response_logging` | Manage publisher-model logging via `restapi_object` (requires a configured `restapi` provider) | `bool` | `true` |
 | `vertex_ai_models` | Publisher model names to enable logging on (one logging config per model, shared dataset) | `list(string)` | `["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]` |

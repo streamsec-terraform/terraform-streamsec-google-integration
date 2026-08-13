@@ -331,6 +331,7 @@ resource "google_cloudfunctions2_function" "vertex_ai_collector" {
       API_URL          = var.api_url
       STATE_BUCKET     = google_storage_bucket.state.name
       BATCH_SIZE       = tostring(var.batch_size)
+      LOOKBACK_MINUTES = tostring(var.lookback_minutes)
       SECRET_NAME      = local.secret_version_name
     }
   }

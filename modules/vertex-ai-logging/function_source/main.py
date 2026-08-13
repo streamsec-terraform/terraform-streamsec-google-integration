@@ -10,7 +10,7 @@ import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import functions_framework
 import requests
@@ -30,7 +30,20 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "20"))
 # Passed verbatim so the secret can be owned/shared by another module (real-time-events).
 SECRET_NAME = os.environ["SECRET_NAME"]
 
-WATERMARK_BLOB = "watermark/last_processed_timestamp.txt"
+# How far BELOW the watermark each poll re-reads. logging_time is event time and rows land in
+# BigQuery later, so a cursor anchored exactly at the watermark misses any row that becomes
+# visible with an earlier event time than one already committed. Size from the observed
+# vertex_ingestion_lag_seconds tail (roughly 2x p99).
+LOOKBACK_MINUTES = int(os.environ.get("LOOKBACK_MINUTES", "15"))
+
+STATE_BLOB = "watermark/collector_state.json"
+# Pre-lookback layout: the watermark alone, as bare text. Read once to migrate, never written.
+LEGACY_WATERMARK_BLOB = "watermark/last_processed_timestamp.txt"
+DEFAULT_WATERMARK = "2000-01-01T00:00:00Z"
+# Ceiling on remembered request IDs. This map only suppresses duplicate sends -- it is not a
+# delivery ledger -- so overflowing it costs duplicates, never dropped rows.
+MAX_RECENT_IDS = 50000
+
 MAX_ROWS_PER_POLL = 10000
 REQUEST_TIMEOUT_SECONDS = 30
 # Sentinel extract_region() returns when a resource path carries no locations/ segment.
@@ -53,24 +66,151 @@ def get_api_token() -> str:
     return response.payload.data.decode("utf-8")
 
 
-def read_watermark(storage_client: storage.Client) -> str:
+def parse_iso_timestamp(value) -> datetime:
+    """Parse an ISO-8601 timestamp, tolerating the trailing-Z form and naive values."""
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def to_utc_datetime(value):
+    """Coerce a BigQuery TIMESTAMP (or ISO string) to an aware UTC datetime, or None."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not value:
+        return None
+    try:
+        return parse_iso_timestamp(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def request_key(row: dict) -> str:
+    """Dedup key for a row. Empty when the row carries no request_id.
+
+    A row without one is never suppressed and never remembered, so it may be re-sent on the
+    next sweep. Duplicates are safe; guessing an identity would not be.
+    """
+    value = row.get("request_id")
+    return str(value) if value else ""
+
+
+def normalize_state(state) -> dict:
+    """Coerce whatever is in the state blob into the expected shape."""
+    if not isinstance(state, dict):
+        return {"watermark": DEFAULT_WATERMARK, "last_request_id": "", "recent": {}}
+    recent = state.get("recent")
+    return {
+        "watermark": str(state.get("watermark") or DEFAULT_WATERMARK),
+        # Second half of the composite cursor. Empty sorts before every real id, so a state
+        # written by an older version resumes at the start of its watermark second.
+        "last_request_id": str(state.get("last_request_id") or ""),
+        "recent": recent if isinstance(recent, dict) else {},
+    }
+
+
+def is_after_cursor(row: dict, watermark_ts: datetime, last_request_id: str) -> bool:
+    """Whether a row sorts strictly after the composite cursor."""
+    event_time = to_utc_datetime(row.get("logging_time"))
+    if event_time is None:
+        return False
+    if event_time > watermark_ts:
+        return True
+    return event_time == watermark_ts and request_key(row) > last_request_id
+
+
+def sort_key(row: dict, fallback: datetime):
+    """Ascending (logging_time, request_id) ordering, matching the query's ORDER BY."""
+    return (to_utc_datetime(row.get("logging_time")) or fallback, request_key(row))
+
+
+def read_state(storage_client: storage.Client) -> tuple[dict, int]:
+    """Load collector state along with the GCS generation it was read at.
+
+    The generation goes back to write_state as if_generation_match, so a concurrent invocation
+    cannot silently clobber this one's progress. Generation 0 means "must not exist yet".
+    """
     bucket = storage_client.bucket(STATE_BUCKET)
-    blob = bucket.blob(WATERMARK_BLOB)
+    blob = bucket.blob(STATE_BLOB)
+
     if blob.exists():
-        return blob.download_as_text().strip()
-    return "2000-01-01T00:00:00Z"
+        blob.reload()
+        return normalize_state(json.loads(blob.download_as_text())), blob.generation
+
+    # Migration from the pre-lookback layout: seed the watermark, start with an empty cache.
+    # The first poll after upgrading re-reads one lookback window and may re-send it, which
+    # downstream dedupes on request_id.
+    # Both remaining paths go through normalize_state so every caller sees the full shape,
+    # rather than only the blob-exists path being normalized.
+    legacy = bucket.blob(LEGACY_WATERMARK_BLOB)
+    if legacy.exists():
+        watermark = legacy.download_as_text().strip()
+        print(f"Migrating legacy watermark ({watermark}) to {STATE_BLOB}")
+        return normalize_state({"watermark": watermark}), 0
+
+    return normalize_state(None), 0
 
 
-def write_watermark(storage_client: storage.Client, timestamp: str):
-    bucket = storage_client.bucket(STATE_BUCKET)
-    blob = bucket.blob(WATERMARK_BLOB)
-    blob.upload_from_string(timestamp, content_type="text/plain")
+def write_state(storage_client: storage.Client, state: dict, generation: int):
+    """Persist state, refusing the write if another invocation moved it first.
+
+    A precondition failure raises, failing the poll so Cloud Scheduler retries. That is the
+    right outcome: the other invocation's progress stands and this one re-reads from it.
+    """
+    blob = storage_client.bucket(STATE_BUCKET).blob(STATE_BLOB)
+    blob.upload_from_string(
+        json.dumps(state),
+        content_type="application/json",
+        if_generation_match=generation,
+    )
 
 
-def query_vertex_ai_logs(bq_client: bigquery.Client, watermark: str) -> list[dict]:
+def prune_recent(recent: dict, cutoff: datetime) -> dict:
+    """Drop remembered request IDs that can no longer be re-queried.
+
+    Anything older than the sweep floor will never come back in a query, so remembering it
+    serves no purpose. Entries are also capped: the cache exists to avoid re-sending, not to
+    guarantee it, so shedding the oldest costs duplicates rather than correctness.
+    """
+    kept = {}
+    for key, seen_at in recent.items():
+        timestamp = to_utc_datetime(seen_at)
+        if timestamp and timestamp > cutoff:
+            kept[key] = seen_at
+
+    if len(kept) > MAX_RECENT_IDS:
+        print(
+            f"recent-id cache over cap ({len(kept)} > {MAX_RECENT_IDS}); dropping oldest — "
+            "some already-delivered rows may be re-sent and deduped downstream"
+        )
+        newest = sorted(kept.items(), key=lambda item: item[1], reverse=True)[:MAX_RECENT_IDS]
+        kept = dict(newest)
+
+    return kept
+
+
+def query_vertex_ai_logs(
+    bq_client: bigquery.Client, floor: str, watermark: str, last_request_id: str
+) -> list[dict]:
+    """Fetch one poll's worth of rows: everything past the cursor, plus a catch-up sweep.
+
+    Two ranges in one job, each with its own LIMIT, because they fail differently:
+
+    `forward` reads strictly past the composite cursor (logging_time, request_id). The
+    request_id tiebreak is what stops a group of rows sharing one logging_time from being
+    truncated by the LIMIT and then skipped — the cursor resumes mid-group instead of jumping
+    to the next timestamp.
+
+    `sweep` re-reads the lookback window BEHIND the cursor, catching rows that became visible
+    after the cursor had already moved past their event time. It must have its own LIMIT: with
+    a single combined query the sweep's already-delivered rows sort first, consume the whole
+    limit, and starve forward progress entirely. Splitting them guarantees the forward range
+    always gets its full budget no matter how busy the sweep window is.
+    """
     table_ref = f"`{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{BIGQUERY_TABLE}*`"
-    query = f"""
-        SELECT
+    columns = """
             logging_time,
             endpoint,
             deployed_model_id,
@@ -81,15 +221,40 @@ def query_vertex_ai_logs(bq_client: bigquery.Client, watermark: str) -> list[dic
             full_response,
             request_id,
             metadata
-        FROM {table_ref}
-        WHERE logging_time > @watermark
-        ORDER BY logging_time ASC
-        LIMIT @max_rows
     """
 
+    # IFNULL keeps rows with a NULL request_id comparable: a NULL comparison yields NULL, which
+    # would silently drop such a row from the forward range at exactly the cursor timestamp.
+    query = f"""
+        WITH forward AS (
+            SELECT {columns}
+            FROM {table_ref}
+            WHERE logging_time > @watermark
+               OR (logging_time = @watermark AND IFNULL(request_id, '') > @last_request_id)
+            ORDER BY logging_time ASC, IFNULL(request_id, '') ASC
+            LIMIT @max_rows
+        ),
+        sweep AS (
+            SELECT {columns}
+            FROM {table_ref}
+            WHERE logging_time > @floor
+              AND (logging_time < @watermark
+                   OR (logging_time = @watermark AND IFNULL(request_id, '') <= @last_request_id))
+            ORDER BY logging_time DESC, IFNULL(request_id, '') DESC
+            LIMIT @max_rows
+        )
+        SELECT * FROM forward
+        UNION ALL
+        SELECT * FROM sweep
+    """
+
+    # With lookback disabled floor == watermark, so the sweep predicate is unsatisfiable and
+    # the query degrades to the forward range alone.
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
+            bigquery.ScalarQueryParameter("floor", "TIMESTAMP", floor),
             bigquery.ScalarQueryParameter("watermark", "TIMESTAMP", watermark),
+            bigquery.ScalarQueryParameter("last_request_id", "STRING", last_request_id),
             bigquery.ScalarQueryParameter("max_rows", "INT64", MAX_ROWS_PER_POLL),
         ]
     )
@@ -317,51 +482,105 @@ def handler(request):
     storage_client = storage.Client(project=GCP_PROJECT_ID)
     bq_client = bigquery.Client(project=GCP_PROJECT_ID)
 
-    watermark = read_watermark(storage_client)
-    print(f"Polling Vertex AI logs since {watermark}")
+    state, generation = read_state(storage_client)
+    watermark = state["watermark"]
+    watermark_ts = parse_iso_timestamp(watermark)
+    last_request_id = state["last_request_id"]
+    recent = state["recent"]
 
-    rows = query_vertex_ai_logs(bq_client, watermark)
+    # Sweep from BELOW the cursor as well as past it, so rows that became visible late -- with
+    # an event time earlier than one already committed -- are still picked up. `recent` then
+    # suppresses whatever was already delivered from that re-read window.
+    floor_ts = watermark_ts - timedelta(minutes=LOOKBACK_MINUTES)
+    print(
+        f"Polling Vertex AI logs since {floor_ts.isoformat()} "
+        f"(cursor {watermark}/{last_request_id or '-'}, "
+        f"lookback {LOOKBACK_MINUTES}m, {len(recent)} ids cached)"
+    )
+
+    rows = query_vertex_ai_logs(
+        bq_client, floor_ts.isoformat(), watermark, last_request_id
+    )
     if not rows:
-        print("No new rows found")
-        return {"status": "ok", "rows_processed": 0}, 200
+        print("No rows in window")
+        return {"status": "ok", "rows_processed": 0, "new_watermark": watermark}, 200
 
-    print(f"Found {len(rows)} new rows")
-    log_ingestion_lag(rows)
+    # Rows with no request_id have an empty key, which is never stored in `recent`, so they
+    # always fall through as fresh — re-sent rather than silently suppressed.
+    fresh = [row for row in rows if request_key(row) not in recent]
+    fresh.sort(key=lambda row: sort_key(row, floor_ts))
+    suppressed = len(rows) - len(fresh)
+    print(f"Found {len(rows)} rows in window; {len(fresh)} to send, {suppressed} already delivered")
+
+    if not fresh:
+        return {
+            "status": "ok",
+            "rows_processed": 0,
+            "rows_suppressed": suppressed,
+            "new_watermark": watermark,
+        }, 200
+
+    log_ingestion_lag(fresh)
 
     api_token = get_api_token()
-    audit_logs = [row_to_gcp_audit_log(row) for row in rows]
+    audit_logs = [row_to_gcp_audit_log(row) for row in fresh]
 
     delivered = send_logs(audit_logs, api_token)
     sent_count = sum(delivered)
-    failed_count = len(rows) - sent_count
+    failed_count = len(fresh) - sent_count
 
-    # Only advance the watermark across rows we know were delivered, and only across an unbroken
-    # leading run of them. Advancing to rows[-1] regardless (as this previously did) skipped every
-    # failed row permanently while still returning 200, so Scheduler never retried them.
-    committed = committed_prefix_length(delivered)
+    # The cursor only tracks rows past itself. Rows the sweep found behind it are catch-up and
+    # must not move it -- they are behind it by definition, and letting them advance it would
+    # drag the floor forward over ground still being back-filled.
+    forward = [
+        (row, ok)
+        for row, ok in zip(fresh, delivered)
+        if is_after_cursor(row, watermark_ts, last_request_id)
+    ]
+    committed = committed_prefix_length([ok for _, ok in forward])
     if committed:
-        new_watermark = to_iso_timestamp(rows[committed - 1].get("logging_time"))
-        write_watermark(storage_client, new_watermark)
+        last_committed = forward[committed - 1][0]
+        new_watermark = to_iso_timestamp(last_committed.get("logging_time"))
+        new_last_request_id = request_key(last_committed)
     else:
-        new_watermark = watermark
+        new_watermark, new_last_request_id = watermark, last_request_id
+
+    # Remember what was delivered so the next sweep does not re-send it, then forget whatever
+    # has fallen below the new floor and can never be re-queried.
+    for row, ok in zip(fresh, delivered):
+        key = request_key(row)
+        if ok and key:
+            recent[key] = to_iso_timestamp(row.get("logging_time"))
+
+    state["watermark"] = new_watermark
+    state["last_request_id"] = new_last_request_id
+    state["recent"] = prune_recent(
+        recent, parse_iso_timestamp(new_watermark) - timedelta(minutes=LOOKBACK_MINUTES)
+    )
+    write_state(storage_client, state, generation)
 
     elapsed = time.time() - start_time
     print(
-        f"Done: {sent_count}/{len(rows)} logs sent in {elapsed:.1f}s, "
-        f"committed={committed}, watermark={new_watermark}"
+        f"Done: {sent_count}/{len(fresh)} logs sent in {elapsed:.1f}s, committed={committed}, "
+        f"cursor={new_watermark}/{new_last_request_id or '-'}, cached={len(state['recent'])}"
     )
 
     body = {
         "status": "ok" if failed_count == 0 else "partial",
         "rows_processed": sent_count,
         "rows_failed": failed_count,
+        "rows_suppressed": suppressed,
         "rows_committed": committed,
+        "lookback_minutes": LOOKBACK_MINUTES,
         "new_watermark": new_watermark,
+        "new_last_request_id": new_last_request_id,
     }
 
-    # No forward progress at all despite having rows: report failure so Scheduler retries and the
-    # error surfaces in monitoring instead of looking like a clean run.
-    if committed == 0:
+    # Nothing at all got through despite having rows to send: fail loudly so Scheduler retries
+    # and it surfaces in monitoring instead of looking like a clean run. Note this is keyed on
+    # sent_count, not `committed` -- a poll that delivers only catch-up rows from below the
+    # watermark legitimately commits nothing and is still a success.
+    if sent_count == 0:
         return body, 500
 
     return body, 200
