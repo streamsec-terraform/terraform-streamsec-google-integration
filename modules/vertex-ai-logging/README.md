@@ -179,10 +179,23 @@ the remainder is re-queried on the next poll — duplicates are possible, droppe
 Deduplicate downstream on `request_id`. A poll that delivers nothing while rows exist returns
 `500` so Cloud Scheduler retries and the failure is visible.
 
-**Known gap:** the cursor is timestamp-only. If the 10,000-row-per-poll limit falls in the middle
-of a group of rows sharing one `logging_time`, the remainder is skipped, as are rows that arrive
-in BigQuery below an already-advanced watermark. Closing this needs an overlap window plus
-`request_id` deduplication; it is not implemented yet.
+**Known gap ([#43](https://github.com/streamsec-terraform/terraform-streamsec-google-integration/issues/43)):**
+the cursor is event-time only. `logging_time` is when the request was served; the row becomes
+visible in BigQuery later. Because the watermark advances to the newest row a poll saw,
+fast-arriving rows drag it past slow-arriving neighbours, and any row lagging more than about a
+poll interval behind its peers is dropped. (The same cursor also skips the remainder of a group
+of rows sharing one `logging_time` if the 10,000-row limit splits it, though that needs ~10k
+requests in a single microsecond and is effectively unreachable.)
+
+Each poll logs `vertex_ingestion_lag_seconds` as structured JSON — `min`/`p50`/`p95`/`max` age of
+the rows it made visible — so the window for the fix can be sized from observed data. The `min`
+approximates current ingestion lag; the spread across polls is what determines exposure:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND jsonPayload.metric="vertex_ingestion_lag_seconds"' \
+  --project=my-gcp-project --limit=50 --format='value(jsonPayload)'
+```
 
 ## Testing
 

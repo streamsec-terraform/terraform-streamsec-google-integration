@@ -147,6 +147,50 @@ def to_iso_timestamp(value) -> str:
     return str(value)
 
 
+def log_ingestion_lag(rows: list[dict]):
+    """Emit ingestion-lag percentiles for the rows this poll made visible.
+
+    logging_time is event time; a row becomes visible in BigQuery some time later. The MINIMUM
+    age across a poll approximates the current ingestion lag — that row showed up almost
+    immediately — and the spread across polls is what actually matters, because the watermark
+    advances to the newest row seen. Any row lagging more than about a poll interval behind its
+    peers is skipped permanently (see issue #43). Sizing that fix needs the observed tail rather
+    than a guess, so this measures it before anything is changed.
+
+    Emitted as structured JSON so Cloud Logging parses it into jsonPayload and a log-based
+    metric can be built over the fields.
+    """
+    now = datetime.now(timezone.utc)
+
+    ages = []
+    for row in rows:
+        event_time = row.get("logging_time")
+        if not isinstance(event_time, datetime):
+            continue
+        # BigQuery returns TIMESTAMP as UTC-aware, but don't let a naive value raise here —
+        # this is diagnostics and must never break a poll.
+        if event_time.tzinfo is None:
+            event_time = event_time.replace(tzinfo=timezone.utc)
+        ages.append((now - event_time).total_seconds())
+
+    if not ages:
+        return
+
+    ages.sort()
+
+    def percentile(fraction: float) -> float:
+        return ages[min(int(len(ages) * fraction), len(ages) - 1)]
+
+    print(json.dumps({
+        "metric": "vertex_ingestion_lag_seconds",
+        "rows": len(ages),
+        "min": round(ages[0], 1),
+        "p50": round(percentile(0.50), 1),
+        "p95": round(percentile(0.95), 1),
+        "max": round(ages[-1], 1),
+    }))
+
+
 def row_to_gcp_audit_log(row: dict) -> dict:
     """Convert a Vertex AI BigQuery logging row to a GCP audit log JSON object.
 
@@ -282,6 +326,7 @@ def handler(request):
         return {"status": "ok", "rows_processed": 0}, 200
 
     print(f"Found {len(rows)} new rows")
+    log_ingestion_lag(rows)
 
     api_token = get_api_token()
     audit_logs = [row_to_gcp_audit_log(row) for row in rows]
