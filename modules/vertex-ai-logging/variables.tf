@@ -69,6 +69,17 @@ variable "secret_version_name" {
   default     = ""
 }
 
+variable "bigquery_grant_scope" {
+  description = "Where the module grants BigQuery access for the collector (read) and the Vertex AI service agent (write). 'dataset' (default, least privilege) scopes both to the logging dataset — but BigQuery dataset ACLs ARE the dataset resource, so this requires bigquery.datasets.update on it (roles/bigquery.dataOwner or admin); a deployer with only datasets.create can create the dataset but not later modify its access, and the apply fails with 403. 'project' falls back to project-level bigquery.dataViewer/dataEditor bindings, which is broader but needs only project setIamPolicy. 'none' grants nothing and leaves both to be granted out-of-band. bigquery.jobUser is always project-level regardless — it has no dataset-scoped equivalent."
+  type        = string
+  default     = "dataset"
+
+  validation {
+    condition     = contains(["dataset", "project", "none"], var.bigquery_grant_scope)
+    error_message = "bigquery_grant_scope must be one of: dataset, project, none."
+  }
+}
+
 variable "create_bigquery_dataset" {
   description = "Whether to create the BigQuery dataset and logging table. Set to false if the dataset already exists (e.g., customer configured logging manually)"
   type        = bool

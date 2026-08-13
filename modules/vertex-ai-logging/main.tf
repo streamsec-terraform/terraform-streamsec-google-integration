@@ -44,6 +44,11 @@ locals {
   # Google-managed Vertex AI service agent that writes the request-response logging tables.
   vertex_ai_service_agent = "service-${data.google_project.this.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
 
+  # See var.bigquery_grant_scope. Dataset scope is least privilege but requires
+  # bigquery.datasets.update; project scope is the fallback when the deployer lacks it.
+  grant_bq_at_dataset = var.bigquery_grant_scope == "dataset"
+  grant_bq_at_project = var.bigquery_grant_scope == "project"
+
   # Resource-name prefix for the publisher models whose logging config we manage. The regional
   # host is set on the restapi provider (https://<region>-aiplatform.googleapis.com) by the caller.
   publisher_model_prefix = "projects/${var.project_id}/locations/${var.region}/publishers/google/models"
@@ -200,10 +205,45 @@ resource "google_bigquery_dataset" "vertex_ai_logs" {
 
   # Dataset-scoped write for the Vertex AI service agent, in place of a project-wide dataEditor.
   # WRITER is what lets it create the date-sharded tables and stream rows into them.
-  access {
-    role          = "WRITER"
-    user_by_email = local.vertex_ai_service_agent
+  #
+  # Dynamic because adding this entry to an ALREADY-CREATED dataset is a datasets.update call.
+  # A deployer holding only datasets.create can create the dataset with these blocks but cannot
+  # later modify them, so bigquery_grant_scope = "project" omits the entry and grants at project
+  # level instead, leaving the access list byte-identical to what such a deployer first created.
+  dynamic "access" {
+    for_each = local.grant_bq_at_dataset ? [1] : []
+    content {
+      role          = "WRITER"
+      user_by_email = local.vertex_ai_service_agent
+    }
   }
+
+  depends_on = [time_sleep.api_propagation]
+}
+
+# --- Project-scoped BigQuery grants (bigquery_grant_scope = "project") ---
+#
+# Broader than the dataset-scoped default: dataViewer lets the collector read every dataset in
+# the project, and dataEditor lets the Vertex AI service agent modify every dataset. Use only
+# when the deployer cannot hold bigquery.datasets.update on the logging dataset. Note these are
+# additive project bindings, so `terraform destroy` revokes them for anything else in the project
+# that happens to rely on the same grant.
+resource "google_project_iam_member" "bq_reader" {
+  count = local.grant_bq_at_project ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.api_propagation]
+}
+
+resource "google_project_iam_member" "vertex_ai_bq_writer" {
+  count = local.grant_bq_at_project ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${local.vertex_ai_service_agent}"
 
   depends_on = [time_sleep.api_propagation]
 }
@@ -213,7 +253,7 @@ resource "google_bigquery_dataset" "vertex_ai_logs" {
 # and a dataset resource's `access` blocks are mutually exclusive on the same dataset — mixing
 # them makes each fight the other on every plan — hence the count gate.
 resource "google_bigquery_dataset_iam_member" "collector_reader" {
-  count = var.create_bigquery_dataset ? 0 : 1
+  count = !var.create_bigquery_dataset && local.grant_bq_at_dataset ? 1 : 0
 
   project    = var.project_id
   dataset_id = local.bigquery_dataset_id
@@ -224,7 +264,7 @@ resource "google_bigquery_dataset_iam_member" "collector_reader" {
 }
 
 resource "google_bigquery_dataset_iam_member" "vertex_ai_writer" {
-  count = var.create_bigquery_dataset ? 0 : 1
+  count = !var.create_bigquery_dataset && local.grant_bq_at_dataset ? 1 : 0
 
   project    = var.project_id
   dataset_id = local.bigquery_dataset_id
@@ -366,6 +406,7 @@ resource "restapi_object" "publisher_model_logging" {
   depends_on = [
     google_bigquery_dataset.vertex_ai_logs,
     google_bigquery_dataset_iam_member.vertex_ai_writer,
+    google_project_iam_member.vertex_ai_bq_writer,
     time_sleep.api_propagation,
   ]
 }
