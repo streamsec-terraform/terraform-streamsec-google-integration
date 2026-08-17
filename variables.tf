@@ -224,3 +224,67 @@ variable "gke_streamsec_token" {
   sensitive   = true
   default     = ""
 }
+
+################################################################################
+# Vertex AI Logging Module
+################################################################################
+
+variable "enable_vertex_ai_logging" {
+  description = "Boolean to determine if Vertex AI request-response logging should be enabled."
+  type        = bool
+  default     = false
+}
+
+variable "vertex_ai_api_url" {
+  description = "Full Stream Security collection URL for Vertex AI logging (scheme included; must be https). Defaults to the production endpoint — override for non-prod tenants, e.g. https://tenant1.staging.streamsec.io. Unlike the other modules this is passed explicitly rather than derived from the streamsec provider, so vertex-ai-logging can be applied standalone without Stream Security API credentials."
+  type        = string
+  default     = "https://app.streamsec.io"
+}
+
+variable "vertex_ai_manage_apis" {
+  description = "Whether the Vertex AI logging deployment enables the required project APIs. Set to false when the APIs are already enabled/owned elsewhere in the same project."
+  type        = bool
+  default     = true
+}
+
+variable "vertex_ai_secret_version_name" {
+  description = "Optional override for the full Secret Manager version resource name the Vertex AI collector reads (e.g. projects/<p>/secrets/<s>/versions/latest). When empty, the shared secret created by the real-time-events module is used. Requires enable_real_time_events=true (or this override) so a token secret exists."
+  type        = string
+  default     = ""
+}
+
+variable "vertex_ai_project_id" {
+  description = "GCP project ID for Vertex AI logging resources. Defaults to project_for_resources if empty."
+  type        = string
+  default     = ""
+}
+
+variable "vertex_ai_region" {
+  description = "GCP region for the Vertex AI logging Cloud Function and Scheduler."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "vertex_ai_create_bigquery_dataset" {
+  description = "Whether to create the BigQuery dataset for Vertex AI logs. Set to false if it already exists."
+  type        = bool
+  default     = true
+}
+
+variable "vertex_ai_bigquery_dataset" {
+  description = "BigQuery dataset ID for Vertex AI request-response logs."
+  type        = string
+  default     = "vertex_ai_logs"
+}
+
+variable "vertex_ai_bigquery_location" {
+  description = "BigQuery dataset location for Vertex AI logs (must match the region where endpoints run)."
+  type        = string
+  default     = "US"
+}
+
+variable "vertex_ai_schedule_cron" {
+  description = "Cloud Scheduler cron expression for Vertex AI log polling interval."
+  type        = string
+  default     = "*/5 * * * *"
+}
