@@ -1,0 +1,415 @@
+# Vertex AI Logging Module
+
+Terraform module that deploys a log collection pipeline for GCP Vertex AI request-response logs.
+A Cloud Function polls BigQuery on a schedule, converts rows to GCP audit log format,
+and forwards them to the Stream Security platform.
+
+## Architecture
+
+```
+Vertex AI Endpoint (request-response logging enabled)
+        │
+        ▼
+BigQuery (streamsec_vertex_ai_logs.request_response_logging*)
+        │  polled every 5 min
+        ▼
+Cloud Scheduler ──► Cloud Function (2nd Gen)
+                          │
+                          ▼
+               Stream Security API
+        (/api/v1/collection/gcp-audit-log)
+```
+
+## Prerequisites
+
+- A **configured `restapi` provider** passed in by the caller, when `enable_request_response_logging` is `true` (see [How Logging Is Enabled](#how-logging-is-enabled)). No Python, and nothing needs to be installed on the machine running Terraform.
+- **Stream Security API token already stored in Secret Manager** in the same project. This module *reads* the token — it does **not** create the secret. It derives the secret's full version path from the shared `secret_name` / `regional_secret` inputs (the same ones the `real-time-events` module uses to create it), so set them to match. Global and regional secrets are both supported. `use_secret_manager` must be `true`.
+- Required GCP APIs are enabled automatically by the module (toggle with `manage_apis`)
+- Only the Google provider is required (ADC). This module does **not** use the `streamsec` provider — the collection URL is supplied directly via `api_url`, so it can be applied standalone without Stream Security API credentials.
+
+## Collection URL
+
+The function posts to `<api_url>/api/v1/collection/gcp-audit-log`.
+
+- `api_url` is **required** and must be the full URL including scheme, e.g. `https://app.streamsec.io`
+  (or a non-prod host such as `https://tenant1.staging.streamsec.io`).
+- Resource names are prefixed with `name_prefix` (default `streamsec`): `streamsec-vertex-ai-collector`,
+  `streamsec-vertex-ai-poll`, etc. The BigQuery dataset uses the same prefix with underscores
+  (`streamsec_<bigquery_dataset>`, e.g. `streamsec_vertex_ai_logs`), since dataset IDs disallow hyphens.
+- The module deploys **one pipeline per project**. To run more than one in a single project, give each
+  a distinct `name_prefix`.
+
+## Usage
+
+```hcl
+module "vertex_ai_logging" {
+  source = "./modules/vertex-ai-logging"
+
+  project_id = "my-gcp-project"
+  region     = "us-central1"
+
+  # REQUIRED. Full Stream Security collection URL (scheme included).
+  api_url = "https://app.streamsec.io" # e.g. https://tenant1.staging.streamsec.io for non-prod
+
+  # Shared token secret (created by real-time-events). Match its inputs so the derived
+  # secret version path resolves to the same secret. The module reads, never creates, it.
+  use_secret_manager = true
+  secret_name        = "stream-security-collection-token"
+  regional_secret    = true # match real-time-events (true = regional, false = global)
+  # secret_version_name = "projects/<p>/.../versions/latest" # optional explicit override
+
+  # Set to false if the dataset already exists. The effective dataset id is prefixed:
+  # <name_prefix>_<bigquery_dataset> (e.g. streamsec_vertex_ai_logs).
+  create_bigquery_dataset     = true
+  bigquery_dataset            = "vertex_ai_logs"
+  bigquery_table              = "request_response_logging"
+  bigquery_location           = "US"
+  bigquery_log_retention_days = 30
+
+  schedule_cron = "*/5 * * * *"
+  batch_size    = 20
+
+  # Publisher model logging (enabled by default)
+  enable_request_response_logging = true
+  vertex_ai_models                = ["gemini-2.5-flash", "gemini-2.5-pro"]
+  logging_sampling_rate           = 1.0
+}
+```
+
+### Multiple pipelines in one project
+
+The module deploys a single pipeline per project. To run more than one in the same project,
+give each a distinct `name_prefix` (which prefixes every resource name and the dataset) and
+set `manage_apis = false` on all but the first so they don't redundantly own the shared
+`google_project_service` resources.
+
+```bash
+# pipeline "app"
+terraform apply -var="project_id=my-gcp-project" -var="api_url=https://app.streamsec.io" \
+  -var="secret_name=streamsec-vtx-token-app"
+
+# a second pipeline in the same project
+terraform apply -var="project_id=my-gcp-project" -var="api_url=https://demo.streamsec.io" \
+  -var="name_prefix=streamsec-demo" -var="secret_name=streamsec-vtx-token-demo" \
+  -var="manage_apis=false"
+```
+
+## How Logging Is Enabled
+
+Logging is configured per publisher model by one `restapi_object.publisher_model_logging` resource
+per entry in `vertex_ai_models`.
+
+**Why not a native resource?** The Google provider's `predict_request_response_logging_config`
+block exists only on `google_vertex_ai_endpoint`, which covers self-deployed endpoints. Serverless
+publisher models (`gemini-*`) have no Endpoint resource — they are configured through aiplatform's
+`:setPublisherModelConfig` REST method. A native resource is requested upstream in
+[hashicorp/terraform-provider-google#24092](https://github.com/hashicorp/terraform-provider-google/issues/24092)
+but is not yet implemented, so the module drives that method through the `restapi` provider.
+
+Because create, update and destroy are all `POST`s to the same method, the resource sets
+`update_method`/`destroy_method` to `POST` explicitly. `destroy_data` sends `enabled: false`, so
+`terraform destroy` turns logging **off** rather than leaving it pointed at a deleted dataset.
+Every write carries `updateMask: "loggingConfig"` so it does not clobber sibling settings on the
+model (`claudeFeatureConfig`, `inferenceEventLoggingConfig`, `dataSharingEnabledProvider`).
+
+### Adopting a model that already has logging enabled
+
+`:setPublisherModelConfig` is **not idempotent**: posting a config identical to the one already in
+place returns `409 ALREADY_EXISTS` ("The same PublisherModelConfig already exists") rather than
+succeeding as a no-op. So if logging was previously enabled on a model — by the old Python script,
+by hand, or by another deployment — the first `terraform apply` fails on create:
+
+```
+Error: Could not create API object: unexpected response code '409'
+```
+
+Terraform is trying to create what already exists, and the API will not accept the write. Clear the
+existing config first so the create has something to change:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+MODEL=gemini-2.5-flash
+BASE="https://<region>-aiplatform.googleapis.com/v1beta1/projects/<project>/locations/<region>/publishers/google/models"
+
+# check whether logging is already on
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/$MODEL:fetchPublisherModelConfig"
+
+# if it is, turn it off, then apply
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "$BASE/$MODEL:setPublisherModelConfig" \
+  -d '{"publisherModelConfig":{"loggingConfig":{"enabled":false}},"updateMask":"loggingConfig"}'
+```
+
+Logging is off for the few seconds between that call and the apply. `terraform import` is the
+alternative, but the imported state carries no `data` value, so the next plan wants an update that
+posts the identical body — landing back on the same 409. Clearing first is the reliable path.
+
+### Supplying the provider
+
+This module declares `restapi` but does **not** configure it: a module containing a provider block
+cannot be used with `count`, `for_each` or `depends_on`, and the root module wires this one with
+both. Configure it in your root and it is inherited automatically:
+
+```hcl
+data "google_client_config" "default" {}
+
+provider "restapi" {
+  # Regional host — must match the module's `region`.
+  uri = "https://us-central1-aiplatform.googleapis.com"
+
+  headers = {
+    Authorization  = "Bearer ${data.google_client_config.default.access_token}"
+    "Content-Type" = "application/json"
+  }
+
+  # :setPublisherModelConfig returns a long-running Operation, not the object.
+  write_returns_object  = false
+  create_returns_object = false
+}
+```
+
+The token is short-lived (~1h) and read at plan time; a plan left sitting for hours before apply
+can fail with `401`, in which case re-run the plan.
+
+Set `enable_request_response_logging = false` to skip all of this — no `restapi_object` resources
+are created and the provider does not need to be configured at all.
+
+> **Note:** this config is singular per model + location for the entire project. Enabling it here
+> overwrites the BigQuery destination any other deployment set on the same model in the same
+> region.
+
+**Known limitation:** `fetchPublisherModelConfig` returns a bare `PublisherModelConfig` while the
+write body wraps it in `publisherModelConfig` plus `updateMask`, so the two shapes can never
+compare equal. The resource therefore sets `ignore_all_server_changes = true`: changes you make to
+the Terraform config are applied normally, but drift introduced **outside** Terraform (e.g. someone
+disabling logging in the console) is not detected. Re-apply to reassert the intended config.
+
+## Permissions granted
+
+Data access is scoped to the logging dataset, not the project — the collector forwards what it
+reads to an external endpoint, so a project-wide `bigquery.dataViewer` would put every unrelated
+dataset in the blast radius of a compromise.
+
+| Identity | Role | Scope |
+|---|---|---|
+| Collector SA | `bigquery.dataViewer` (or dataset `READER`) | the logging dataset only |
+| Collector SA | `roles/bigquery.jobUser` | project — no dataset-scoped equivalent exists, and it grants no data access on its own |
+| Collector SA | `roles/secretmanager.secretAccessor` | the one token secret (toggle with `manage_secret_iam`) |
+| Collector SA | `roles/storage.objectAdmin` | the watermark bucket only |
+| Vertex AI service agent | `bigquery.dataEditor` (or dataset `WRITER`) | the logging dataset only |
+
+When `create_bigquery_dataset = true` the two dataset roles come from the dataset's own `access`
+blocks; when it's `false` they come from `google_bigquery_dataset_iam_member` resources instead.
+The two mechanisms are mutually exclusive on a single dataset, which is why they're `count`-gated.
+
+### If the apply fails with `bigquery.datasets.update denied`
+
+In BigQuery a dataset's ACL **is** part of the dataset resource, so *any* dataset-scoped grant —
+`access` block or `google_bigquery_dataset_iam_member` alike — is a `datasets.update` call. A
+deployer holding only `bigquery.datasets.create` (e.g. project-level `roles/bigquery.dataEditor`)
+can create the dataset but cannot later modify its access list, and the apply fails with:
+
+```
+Error 403: Access Denied: Dataset <project>:<dataset>: Permission bigquery.datasets.update denied
+```
+
+Two ways out:
+
+1. **Preferred** — grant the deployer `roles/bigquery.dataOwner` on the logging dataset, then keep
+   `bigquery_grant_scope = "dataset"`.
+2. **Fallback** — set `bigquery_grant_scope = "project"`. Both roles are granted as project-level
+   bindings instead, which needs only project `setIamPolicy`. Broader: the collector can read every
+   dataset in the project and the service agent can modify every dataset, and because the bindings
+   are additive, `terraform destroy` revokes them for anything else relying on the same grant.
+
+`bigquery_grant_scope = "none"` skips both, for IAM managed entirely out-of-band. `bigquery.jobUser`
+is granted at project level in all three cases — it has no dataset-scoped equivalent.
+
+## Delivery semantics
+
+**At-least-once.** Duplicates are possible; dropped rows are not. Deduplicate downstream on
+`request_id`.
+
+State lives in one JSON object in the watermark bucket: a composite cursor
+`(logging_time, request_id)` plus a bounded map of recently delivered request IDs. Each poll
+issues one query covering two ranges, each with its own row limit:
+
+| Range | Covers | Guards against |
+|---|---|---|
+| **forward** — strictly past the cursor | new rows | the row limit splitting a group that shares one `logging_time`; the `request_id` tiebreak resumes mid-group instead of skipping the remainder |
+| **sweep** — the `lookback_minutes` window *behind* the cursor | rows that became visible after the cursor passed their event time | `logging_time` is event time, so a row can land in BigQuery below an already-advanced cursor |
+
+The two ranges are limited separately on purpose. Sharing one limit lets the sweep's
+already-delivered rows sort first, consume the whole budget, and starve forward progress —
+which would reintroduce the skip the sweep exists to prevent.
+
+Rows the sweep returns that were already delivered are suppressed by the request-ID cache. That
+cache is an **optimization, not a ledger**: it only avoids re-sending. Losing an entry costs a
+duplicate that downstream dedupes, never a lost row, which is why it can be pruned below the
+sweep floor and capped at 50,000 entries without ceremony.
+
+The cursor advances only across the unbroken **leading run** of delivered rows from the forward
+range. A failure partway through a batch leaves it at the last confirmed row. Rows found by the
+sweep never move it — they are behind it by definition. A poll that delivers nothing while rows
+exist returns `500` so Cloud Scheduler retries and the failure is visible; a poll that delivers
+only sweep catch-up commits nothing and is still a success.
+
+State writes use a GCS generation precondition, so overlapping invocations cannot silently
+clobber each other's progress.
+
+### Sizing `lookback_minutes`
+
+Each poll logs `vertex_ingestion_lag_seconds` as structured JSON — `min`/`p50`/`p95`/`max` age of
+the rows it delivered. The `min` approximates current ingestion lag; the spread across polls is
+what the window has to cover. Set `lookback_minutes` to roughly **2x the observed p99**.
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND jsonPayload.metric="vertex_ingestion_lag_seconds"' \
+  --project=my-gcp-project --limit=50 --format='value(jsonPayload)'
+```
+
+Too small and late rows are still missed; too large and each poll re-reads more rows than it
+needs to. `lookback_minutes = 0` disables the sweep entirely, leaving only the composite cursor.
+
+### Upgrading from a pre-lookback deployment
+
+The old bare-text watermark blob is read once, migrated into the new state object, and then left
+alone. The first poll after upgrading starts with an empty ID cache, so it replays one lookback
+window — expected, one-off, and deduped downstream on `request_id`.
+
+## Tests
+
+`tests/test_collector.py` drives the collector through real poll sequences against stubbed GCP
+services. The fake BigQuery models event time and visibility time separately, so late arrival is
+reproduced rather than mocked. No dependencies, no cloud access:
+
+```bash
+python modules/vertex-ai-logging/tests/test_collector.py
+```
+
+Covers late-arrival recovery (and a control proving `lookback_minutes = 0` still drops the row),
+tie-group splitting at the row limit, partial-batch failure, total failure, legacy-state
+migration, concurrent-write rejection, cache pruning, and rows with no `request_id`.
+
+## Testing
+
+### 1. Send a Test Prompt
+
+Send a prompt to generate a log entry in BigQuery.
+
+**Python SDK:**
+
+```python
+import vertexai
+from vertexai.preview.generative_models import GenerativeModel
+
+vertexai.init(project="my-gcp-project", location="us-central1")
+
+model = GenerativeModel("gemini-2.5-flash")
+response = model.generate_content("What is 2+2? Reply in one word.")
+print(f"Response: {response.text}")
+```
+
+**REST API (from a GCE instance or Cloud Shell):**
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://us-central1-aiplatform.googleapis.com/v1/projects/my-gcp-project/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent" \
+  -d '{
+    "contents": [{
+      "role": "user",
+      "parts": [{"text": "Say hello in exactly 5 words"}]
+    }]
+  }'
+```
+
+### 2. Verify Logs Appear in BigQuery
+
+Logs typically appear 2–3 minutes after the prompt is sent.
+
+```bash
+bq query --project_id=my-gcp-project --use_legacy_sql=false --format=pretty \
+  'SELECT logging_time, model, api_method
+   FROM `my-gcp-project.streamsec_vertex_ai_logs.request_response_logging*`
+   ORDER BY logging_time DESC
+   LIMIT 5'
+```
+
+### 3. Trigger the Cloud Function Manually
+
+After verifying logs exist in BigQuery, trigger the collector function to confirm
+end-to-end delivery to Stream Security.
+
+```bash
+FUNCTION_URL=$(terraform output -raw function_url)
+
+curl -s -X POST "$FUNCTION_URL" \
+  -H "Authorization: bearer $(gcloud auth print-identity-token)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+### 4. Verify Cloud Scheduler Runs
+
+Check that the scheduled trigger is firing correctly. Resource names are prefixed with
+`name_prefix` (e.g. `streamsec-vertex-ai-poll`), so prefer the module outputs:
+
+```bash
+gcloud scheduler jobs describe "$(terraform output -raw scheduler_job_name)" \
+  --project=my-gcp-project \
+  --location=us-central1
+
+# Check recent execution logs
+gcloud functions logs read "$(terraform output -raw function_name)" \
+  --project=my-gcp-project \
+  --region=us-central1 \
+  --limit=20
+```
+
+## Inputs
+
+| Name | Description | Type | Default |
+|------|-------------|------|---------|
+| `project_id` | GCP project ID | `string` | — |
+| `region` | GCP region | `string` | `us-central1` |
+| `api_url` | **Required.** Full Stream Security collection URL, `https://` only (`http://localhost` allowed for dev), e.g. `https://app.streamsec.io` | `string` | — |
+| `manage_apis` | Whether this deployment enables the required project APIs (false when already owned elsewhere in the project) | `bool` | `true` |
+| `use_secret_manager` | Token is stored in Secret Manager (must be `true`) | `bool` | `true` |
+| `secret_name` | Secret ID of the shared API-token secret (match `real-time-events`) | `string` | `stream-security-collection-token` |
+| `secret_project` | Project owning the shared secret, when it isn't `project_id` (needed when `real-time-events` created it in `project_for_resources` only) | `string` | `""` |
+| `regional_secret` | Whether the shared secret is regional (`true`) or global (`false`); match `real-time-events` | `bool` | `true` |
+| `secret_version_name` | Optional explicit full secret VERSION resource name; overrides the derived path | `string` | `""` |
+| `bigquery_grant_scope` | Where BigQuery access is granted: `dataset` (least privilege, needs `bigquery.datasets.update`), `project` (fallback), or `none` | `string` | `dataset` |
+| `create_bigquery_dataset` | Create the BigQuery dataset | `bool` | `true` |
+| `bigquery_dataset` | BigQuery dataset ID base; effective dataset is `<name_prefix>_<bigquery_dataset>` | `string` | `vertex_ai_logs` |
+| `bigquery_table` | BigQuery table the publisher model logs to (no trailing underscore) | `string` | `request_response_logging` |
+| `bigquery_location` | BigQuery dataset location | `string` | `US` |
+| `bigquery_log_retention_days` | Log retention in days | `number` | `30` |
+| `schedule_cron` | Cloud Scheduler cron expression | `string` | `*/5 * * * *` |
+| `function_memory_mb` | Cloud Function memory (MB) | `number` | `512` |
+| `function_timeout_seconds` | Cloud Function timeout | `number` | `300` |
+| `batch_size` | Concurrent HTTP requests to Stream Security (positive integer) | `number` | `20` |
+| `lookback_minutes` | How far below the cursor each poll re-reads, to catch rows that land in BigQuery late; `0` disables the sweep | `number` | `15` |
+| `name_prefix` | Resource name prefix | `string` | `streamsec` |
+| `enable_request_response_logging` | Manage publisher-model logging via `restapi_object` (requires a configured `restapi` provider) | `bool` | `true` |
+| `vertex_ai_models` | Publisher model names to enable logging on (one logging config per model, shared dataset) | `list(string)` | `["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]` |
+| `logging_sampling_rate` | Fraction of requests to log (0.0–1.0) | `number` | `1.0` |
+| `labels` | Labels applied to all resources | `map(string)` | `managed-by=terraform, component=streamsec-vertex-ai-collection` |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| `collection_url` | Collection base URL the function posts to (`api_url`) |
+| `function_name` | Deployed Cloud Function name |
+| `function_url` | Cloud Function URL (for manual trigger) |
+| `service_account_email` | Service account used by the function |
+| `scheduler_job_name` | Cloud Scheduler job name |
+| `watermark_bucket` | GCS bucket for watermark state |
+| `bigquery_dataset_id` | Effective (prefixed) BigQuery dataset ID, `<name_prefix>_<bigquery_dataset>` |
+| `bigquery_table_prefix` | BigQuery table prefix |

@@ -141,3 +141,30 @@ module "gke" {
   secret_name     = var.gke_secret_name
   streamsec_token = var.gke_streamsec_token
 }
+
+module "vertex_ai_logging" {
+  count       = var.enable_vertex_ai_logging ? 1 : 0
+  source      = "./modules/vertex-ai-logging"
+  project_id  = var.vertex_ai_project_id != "" ? var.vertex_ai_project_id : var.project_for_resources
+  region      = var.vertex_ai_region
+  api_url     = var.vertex_ai_api_url
+  manage_apis = var.vertex_ai_manage_apis
+  # Read the token secret created by the real-time-events module (Case B). The collector
+  # derives the secret path from these shared inputs; override with vertex_ai_secret_version_name.
+  use_secret_manager = var.use_secret_manager
+  secret_name        = var.secret_name
+  regional_secret    = var.regional_secret
+  # With org_level_sink = true, real-time-events creates the shared secret ONLY in
+  # project_for_resources. Tell the module where it lives so a deployment whose Vertex resources
+  # sit in a different project still resolves the right secret. With org_level_sink = false the
+  # secret is created in every project, so the module's own project is correct and this is empty.
+  secret_project          = var.org_level_sink ? var.project_for_resources : ""
+  secret_version_name     = var.vertex_ai_secret_version_name
+  create_bigquery_dataset = var.vertex_ai_create_bigquery_dataset
+  bigquery_dataset        = var.vertex_ai_bigquery_dataset
+  bigquery_location       = var.vertex_ai_bigquery_location
+  schedule_cron           = var.vertex_ai_schedule_cron
+
+  # Ensure the shared secret exists before the collector function references it.
+  depends_on = [module.real_time_events]
+}
