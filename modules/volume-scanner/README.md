@@ -48,6 +48,19 @@ If you manage Stream as code, call this module from your own root instead and
 pin `version` — then the scanner updates when you bump the pin, like every
 other submodule here.
 
+### The install acknowledgement runs on your Terraform runner
+
+The module posts an install acknowledgement to Stream through a `local-exec`
+provisioner, so it runs wherever `terraform apply` runs — **not** inside GCP.
+It needs `curl` and outbound access to your Stream API host. On a runner that
+has neither (some CI images, or a network without egress to it), the call fails
+and is swallowed deliberately: it must never fail your apply.
+
+Nothing is lost when that happens. The orchestrator carries the same
+credentials and acknowledges on its first run, so the deployment shows as
+*pending* in the console until the first scheduled scan rather than never
+registering at all.
+
 ### Versions and updates
 
 `stream_template_version` is echoed back in the install acknowledgement so the

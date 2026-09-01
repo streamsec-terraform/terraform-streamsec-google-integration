@@ -1,4 +1,4 @@
-# Stream Security — GCP agentless volume scanner (Infrastructure Manager blueprint inputs).
+# Stream Security — GCP agentless volume scanner: module inputs.
 
 variable "project_id" {
   type        = string
