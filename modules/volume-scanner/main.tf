@@ -62,7 +62,6 @@ resource "google_project_iam_custom_role" "scanner" {
     "batch.jobs.create",
     "batch.jobs.get",
     "batch.jobs.delete",
-    "iam.serviceAccounts.actAs",
     "logging.logEntries.create",
   ]
 }
@@ -71,6 +70,26 @@ resource "google_project_iam_member" "scanner" {
   project = var.project_id
   role    = google_project_iam_custom_role.scanner.id
   member  = "serviceAccount:${google_service_account.scanner.email}"
+}
+
+# actAs scoped to the scanner's OWN service account, not granted project-wide
+# through the custom role. Project-wide, this plus batch.jobs.create lets a
+# compromised scanner launch a Batch job as any service account in the project.
+resource "google_service_account_iam_member" "scanner_act_as_self" {
+  service_account_id = google_service_account.scanner.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.scanner.email}"
+}
+
+# Cloud Scheduler POSTs to the Cloud Run admin API as this service account, so
+# it needs run.invoker ON THE JOB. Without it every scheduled trigger is
+# rejected 403 and the scanner only ever runs if something else invokes it.
+resource "google_cloud_run_v2_job_iam_member" "scanner_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.orchestrator.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scanner.email}"
 }
 
 resource "google_project_iam_member" "scanner_agent_reporter" {
@@ -277,7 +296,10 @@ resource "google_cloud_scheduler_job" "cron" {
     }
   }
 
-  depends_on = [google_cloud_run_v2_job.orchestrator]
+  depends_on = [
+    google_cloud_run_v2_job.orchestrator,
+    google_cloud_run_v2_job_iam_member.scanner_invoker,
+  ]
 }
 
 # Acknowledge the install back to Stream Security (best-effort).
@@ -302,7 +324,14 @@ locals {
 }
 
 resource "terraform_data" "acknowledge" {
-  triggers_replace = [google_cloud_run_v2_job.orchestrator.uid]
+  # The version too, not just the job uid: bumping the module release changes
+  # stream_template_version but nothing about the job, so without this the ack
+  # never re-fires and Stream keeps recording the old version - defeating the
+  # staleness detection this variable exists for.
+  triggers_replace = [
+    google_cloud_run_v2_job.orchestrator.uid,
+    var.stream_template_version,
+  ]
 
   provisioner "local-exec" {
     interpreter = ["/bin/sh", "-c"]
