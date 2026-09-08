@@ -310,7 +310,11 @@ resource "google_cloud_scheduler_job" "cron" {
 # template_version is omitted when unset so the wire format matches what the
 # variable documents — absent reads as unknown, never as a wrong version.
 locals {
-  stream_ack_url = "${var.stream_api_url}/api/accounts/${var.project_id}/gcp-scanner-acknowledge"
+  # Served by ms_api, not the /api gateway. It rejected the GCP scanner's call
+  # on this path: it answered 500 "No authorized" and no GCP project ever
+  # recorded a status or template version; the gateway is also being retired,
+  # so the route was added to ms_api instead.
+  stream_ack_url = "${var.stream_api_url}/scanner-callback/gcp/${var.project_id}/acknowledge"
 
   stream_ack_payload = jsonencode(merge(
     {
