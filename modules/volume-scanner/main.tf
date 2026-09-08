@@ -314,6 +314,12 @@ locals {
   # on this path: it answered 500 "No authorized" and no GCP project ever
   # recorded a status or template version; the gateway is also being retired,
   # so the route was added to ms_api instead.
+  #
+  # RELEASE ORDER: this route ships with a Stream API change. Do not cut a tag
+  # carrying this URL until that is deployed to the target environment. The ack
+  # below is intentionally non-fatal, so pointing at a route that does not exist
+  # yet does not fail the apply - it just silently goes back to recording
+  # nothing, which is the exact failure this change exists to fix.
   stream_ack_url = "${var.stream_api_url}/scanner-callback/gcp/${var.project_id}/acknowledge"
 
   stream_ack_payload = jsonencode(merge(
