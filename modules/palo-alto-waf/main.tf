@@ -236,6 +236,8 @@ resource "google_vpc_access_connector" "collector" {
   region        = var.region
   network       = data.google_compute_network.selected.name
   ip_cidr_range = var.connector_cidr
+  min_instances = 2
+  max_instances = 3
 
   depends_on = [
     terraform_data.network_contract,
