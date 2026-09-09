@@ -3,15 +3,23 @@ data "google_project" "this" {
 }
 
 locals {
-  function_name            = "streamsec-palo-waf"
-  service_account_id       = "streamsec-palo-waf"
-  build_account_id         = "streamsec-palo-waf-build"
-  build_repository         = "streamsec-palo-waf-builds"
-  scheduler_name           = "streamsec-palo-waf-poll"
-  connector_name           = "streamsec-palo-waf"
-  source_bucket_name       = "streamsec-palo-waf-src-${data.google_project.this.number}"
-  integration_secret       = "streamsec-palo-waf-token"
-  deployment_id            = "streamsec-palo-alto-waf"
+  integration_id_canonical = trimspace(var.integration_id)
+  integration_slug_full    = trim(replace(lower(local.integration_id_canonical), "/[^a-z0-9]+/", "-"), "-")
+  integration_slug_source  = local.integration_slug_full == "" ? "integr" : local.integration_slug_full
+  integration_slug         = trim(substr(local.integration_slug_source, 0, min(6, length(local.integration_slug_source))), "-")
+  integration_hash         = substr(sha256(local.integration_id_canonical), 0, 8)
+  resource_suffix          = "${local.integration_slug}-${local.integration_hash}"
+
+  function_name            = "streamsec-palo-waf-${local.resource_suffix}"
+  service_account_id       = "ss-palo-${local.resource_suffix}"
+  build_account_id         = "ss-palo-bld-${local.resource_suffix}"
+  build_repository         = "streamsec-palo-waf-builds-${local.resource_suffix}"
+  scheduler_name           = "streamsec-palo-waf-poll-${local.resource_suffix}"
+  connector_name           = "ss-palo-${local.resource_suffix}"
+  source_bucket_name       = "streamsec-palo-waf-src-${data.google_project.this.number}-${local.resource_suffix}"
+  integration_secret       = "streamsec-palo-waf-token-${local.resource_suffix}"
+  deployment_id            = "streamsec-palo-alto-waf-${local.resource_suffix}"
+  deployer_role_id         = "streamsecPaloWafDeployer_${replace(local.resource_suffix, "-", "_")}"
   stream_ack_url           = "${trimsuffix(var.stream_api_url, "/")}/api/accounts/waf/waf-acknowledge"
   stream_ack_authorization = "Bearer ${var.stream_integration_token}"
   stream_ack_payload = jsonencode({
@@ -33,8 +41,9 @@ locals {
   subnet_region   = can(regex("regions/([^/]+)", var.subnet)) ? regex("regions/([^/]+)", var.subnet)[0] : var.region
 
   labels = merge({
-    managed-by = "terraform"
-    component  = "streamsec-palo-waf"
+    managed-by  = "terraform"
+    component   = "streamsec-palo-waf"
+    integration = local.resource_suffix
   }, var.labels)
 }
 
@@ -145,6 +154,8 @@ resource "google_artifact_registry_repository_iam_member" "build_artifact_writer
   repository = google_artifact_registry_repository.build.repository_id
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${google_service_account.build.email}"
+
+  depends_on = [time_sleep.deployer_iam_propagation]
 }
 
 resource "google_project_iam_member" "build_storage_object_user" {
@@ -174,16 +185,19 @@ resource "time_sleep" "build_iam_propagation" {
 }
 
 # The #22440 runner has Editor (including serviceAccounts.actAs) plus project
-# IAM administration, but not resource-level Cloud Run or Secret Manager
-# setIamPolicy. Bootstrap only the four policy permissions this module needs.
+# IAM administration, but not resource-level Artifact Registry, Cloud Run, or
+# Secret Manager setIamPolicy. Bootstrap only the six policy permissions this
+# module needs.
 resource "google_project_iam_custom_role" "deployer" {
   count = var.deployment_service_account_email == "" ? 0 : 1
 
   project     = var.project_id
-  role_id     = "streamsecPaloWafDeployer"
-  title       = "Stream Security Palo WAF Deployer"
-  description = "Manages IAM policies on the Palo WAF Cloud Run service and secrets."
+  role_id     = local.deployer_role_id
+  title       = "Stream Security Palo WAF Deployer ${local.resource_suffix}"
+  description = "Manages IAM policies on the integration's Artifact Registry repository, Cloud Run service, and secrets."
   permissions = [
+    "artifactregistry.repositories.getIamPolicy",
+    "artifactregistry.repositories.setIamPolicy",
     "run.services.getIamPolicy",
     "run.services.setIamPolicy",
     "secretmanager.secrets.getIamPolicy",

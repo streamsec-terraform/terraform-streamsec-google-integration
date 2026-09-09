@@ -8,6 +8,16 @@ variable "project_id" {
   }
 }
 
+variable "integration_id" {
+  description = "Stable, non-secret integration identifier supplied by the Lightlytics wizard/backend. It is sanitized and hashed to make module-owned resource names unique within a project."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.integration_id)) > 0 && length(trimspace(var.integration_id)) <= 256
+    error_message = "integration_id must contain between 1 and 256 non-whitespace characters."
+  }
+}
+
 variable "region" {
   description = "GCP region for the function, VPC connector, source bucket, and Scheduler job."
   type        = string
@@ -129,7 +139,7 @@ variable "manage_apis" {
 }
 
 variable "deployment_service_account_email" {
-  description = "Optional Terraform deployment service account. When set, the module grants it a custom role containing only Cloud Run and Secret Manager get/set IAM policy so it can install the private function and secret bindings. Infrastructure Manager supplies its runner account."
+  description = "Optional Terraform deployment service account. When set, the module grants it a custom role containing only Artifact Registry repository, Cloud Run, and Secret Manager get/set IAM policy so it can install resource-level bindings. Infrastructure Manager supplies its runner account."
   type        = string
   default     = ""
 
