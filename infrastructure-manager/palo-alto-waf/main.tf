@@ -7,6 +7,7 @@ module "palo_alto_waf" {
   source = "../../modules/palo-alto-waf"
 
   project_id               = var.project_id
+  integration_id           = var.integration_id
   region                   = var.region
   stream_api_url           = var.stream_api_url
   stream_integration_token = var.stream_integration_token

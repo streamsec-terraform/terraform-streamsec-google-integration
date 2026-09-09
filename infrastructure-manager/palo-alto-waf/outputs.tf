@@ -3,6 +3,16 @@ output "deployment_id" {
   value       = module.palo_alto_waf.deployment_id
 }
 
+output "integration_id" {
+  description = "Stable integration identifier supplied by the Lightlytics wizard/backend."
+  value       = module.palo_alto_waf.integration_id
+}
+
+output "resource_suffix" {
+  description = "Sanitized readable prefix and stable hash appended to module-owned resource names."
+  value       = module.palo_alto_waf.resource_suffix
+}
+
 output "project_id" {
   description = "GCP project hosting the deployment."
   value       = module.palo_alto_waf.project_id
@@ -36,6 +46,26 @@ output "service_account_email" {
 output "build_service_account_email" {
   description = "Dedicated service account used to build the Cloud Function image."
   value       = module.palo_alto_waf.build_service_account_email
+}
+
+output "build_repository_id" {
+  description = "Dedicated Artifact Registry repository used for Cloud Function builds."
+  value       = module.palo_alto_waf.build_repository_id
+}
+
+output "source_bucket_name" {
+  description = "Bucket containing the packaged Cloud Function source."
+  value       = module.palo_alto_waf.source_bucket_name
+}
+
+output "integration_secret_id" {
+  description = "Secret Manager secret containing the Stream integration token."
+  value       = module.palo_alto_waf.integration_secret_id
+}
+
+output "deployer_role_id" {
+  description = "Per-integration custom role granted to the Infrastructure Manager runner."
+  value       = module.palo_alto_waf.deployer_role_id
 }
 
 output "scheduler_name" {
