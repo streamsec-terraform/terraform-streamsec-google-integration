@@ -3,6 +3,16 @@ output "deployment_id" {
   value       = local.deployment_id
 }
 
+output "integration_id" {
+  description = "Stable integration identifier supplied by the Lightlytics wizard/backend."
+  value       = var.integration_id
+}
+
+output "resource_suffix" {
+  description = "Sanitized readable prefix and stable hash appended to module-owned resource names."
+  value       = local.resource_suffix
+}
+
 output "project_id" {
   description = "GCP project hosting the deployment."
   value       = var.project_id
@@ -36,6 +46,26 @@ output "service_account_email" {
 output "build_service_account_email" {
   description = "Dedicated service account used to build the Cloud Function image."
   value       = google_service_account.build.email
+}
+
+output "build_repository_id" {
+  description = "Dedicated Artifact Registry repository used for Cloud Function builds."
+  value       = google_artifact_registry_repository.build.repository_id
+}
+
+output "source_bucket_name" {
+  description = "Bucket containing the packaged Cloud Function source."
+  value       = google_storage_bucket.source.name
+}
+
+output "integration_secret_id" {
+  description = "Secret Manager secret containing the Stream integration token."
+  value       = google_secret_manager_secret.integration_token.secret_id
+}
+
+output "deployer_role_id" {
+  description = "Per-integration custom role granted to the deployment service account, or null when bootstrapping is disabled."
+  value       = var.deployment_service_account_email == "" ? null : google_project_iam_custom_role.deployer[0].id
 }
 
 output "scheduler_name" {
