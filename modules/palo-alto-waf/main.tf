@@ -6,6 +6,7 @@ locals {
   function_name      = "streamsec-palo-waf"
   service_account_id = "streamsec-palo-waf"
   build_account_id   = "streamsec-palo-waf-build"
+  build_repository   = "streamsec-palo-waf-builds"
   scheduler_name     = "streamsec-palo-waf-poll"
   connector_name     = "streamsec-palo-waf"
   source_bucket_name = "streamsec-palo-waf-src-${data.google_project.this.number}"
@@ -122,35 +123,43 @@ resource "google_project_iam_member" "build_log_writer" {
   member  = "serviceAccount:${google_service_account.build.email}"
 }
 
-resource "google_project_iam_member" "build_artifact_writer" {
-  project = var.project_id
-  role    = "roles/artifactregistry.writer"
-  member  = "serviceAccount:${google_service_account.build.email}"
+resource "google_artifact_registry_repository" "build" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = local.build_repository
+  description   = "Build images for the Stream Security Palo Alto collector."
+  format        = "DOCKER"
+  labels        = local.labels
 
-  condition {
-    title       = "PaloWafFunctionRepositories"
-    description = "Restrict the builder to Google-managed Cloud Functions repositories."
-    expression  = "resource.name.endsWith('/repositories/gcf-artifacts') || resource.name.endsWith('/repositories/cloud-run-source-deploy')"
-  }
+  depends_on = [time_sleep.api_propagation]
 }
 
-resource "google_project_iam_member" "build_source_reader" {
+resource "google_artifact_registry_repository_iam_member" "build_artifact_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.build.location
+  repository = google_artifact_registry_repository.build.repository_id
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.build.email}"
+}
+
+resource "google_project_iam_member" "build_storage_object_user" {
   project = var.project_id
-  role    = "roles/storage.objectViewer"
+  role    = "roles/storage.objectUser"
   member  = "serviceAccount:${google_service_account.build.email}"
 
   condition {
-    title       = "PaloWafFunctionSources"
-    description = "Restrict the builder to this module's source and Google-managed function source buckets."
-    expression  = "resource.type == 'storage.googleapis.com/Object' && (resource.name.startsWith('projects/_/buckets/${local.source_bucket_name}/') || resource.name.startsWith('projects/_/buckets/gcf-v2-sources-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/run-sources-${var.project_id}-'))"
+    title       = "PaloWafFunctionBuildObjects"
+    description = "Restrict buildpack object access to Google-managed function build buckets."
+    expression  = "resource.type == 'storage.googleapis.com/Object' && (resource.name.startsWith('projects/_/buckets/gcf-v2-sources-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/run-sources-${var.project_id}-'))"
   }
 }
 
 resource "time_sleep" "build_iam_propagation" {
   depends_on = [
-    google_project_iam_member.build_artifact_writer,
+    google_artifact_registry_repository_iam_member.build_artifact_writer,
     google_project_iam_member.build_log_writer,
-    google_project_iam_member.build_source_reader,
+    google_project_iam_member.build_storage_object_user,
+    google_storage_bucket_iam_member.build_source_reader,
   ]
 
   create_duration = "30s"
@@ -265,6 +274,12 @@ resource "google_storage_bucket" "source" {
   depends_on = [time_sleep.api_propagation]
 }
 
+resource "google_storage_bucket_iam_member" "build_source_reader" {
+  bucket = google_storage_bucket.source.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.build.email}"
+}
+
 data "archive_file" "function_source" {
   type        = "zip"
   source_dir  = "${path.module}/function_source"
@@ -284,9 +299,10 @@ resource "google_cloudfunctions2_function" "collector" {
   labels   = local.labels
 
   build_config {
-    runtime         = "python312"
-    entry_point     = "poll"
-    service_account = google_service_account.build.id
+    runtime           = "python312"
+    entry_point       = "poll"
+    service_account   = google_service_account.build.id
+    docker_repository = google_artifact_registry_repository.build.id
 
     source {
       storage_source {

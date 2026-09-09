@@ -81,13 +81,21 @@ service account receives `roles/run.invoker` on its backing Cloud Run service,
 and Scheduler uses that identity to mint the OIDC token.
 
 Cloud Build uses a separate service account instead of a legacy or default
-Compute service account. It receives only `roles/logging.logWriter`,
-`roles/artifactregistry.writer`, and `roles/storage.objectViewer`, the roles
-Google documents for custom Cloud Run functions build identities. The latter
-two grants are conditioned to Cloud Functions repositories and source buckets,
-so the builder cannot read unrelated bucket objects or modify unrelated
-Artifact Registry repositories. This keeps deployment working in projects where
-automatic default-service-account grants are disabled.
+Compute service account. Google documents `roles/logging.logWriter`,
+`roles/artifactregistry.writer`, and `roles/storage.objectViewer` for custom
+Cloud Run functions build identities. The module grants Artifact Registry
+Writer only on a dedicated Docker repository and Storage Object Viewer only on
+the module's source bucket. Cloud Native Buildpacks also write intermediate
+objects, so the builder receives `roles/storage.objectUser` through a
+project-level condition limited to objects in the Google-managed
+`gcf-v2-sources-*`, `gcf-v2-uploads-*`, and `run-sources-*` buckets for this
+project. The Artifact Registry grant is repository-scoped instead of using an
+inherited resource-name condition, which Artifact Registry does not support.
+Storage Object User supplies the required object reads and writes without
+Object Admin's object-IAM and retention permissions. The builder therefore
+cannot modify unrelated repositories or bucket objects. This keeps deployment
+working in projects where automatic default-service-account grants are
+disabled.
 
 The #22440 setup gives the Infra Manager runner `roles/editor`,
 `roles/iam.roleAdmin`, `roles/resourcemanager.projectIamAdmin`, and
