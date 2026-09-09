@@ -33,6 +33,11 @@ output "service_account_email" {
   value       = google_service_account.collector.email
 }
 
+output "build_service_account_email" {
+  description = "Dedicated service account used to build the Cloud Function image."
+  value       = google_service_account.build.email
+}
+
 output "scheduler_name" {
   description = "Name of the Cloud Scheduler polling job."
   value       = google_cloud_scheduler_job.poll.name

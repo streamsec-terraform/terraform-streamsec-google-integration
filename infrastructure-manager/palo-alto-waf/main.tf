@@ -16,4 +16,7 @@ module "palo_alto_waf" {
   connector_cidr           = var.connector_cidr
   firewall_secret_names    = var.firewall_secret_names
   poll_schedule            = var.poll_schedule
+
+  # #22440 always executes Terraform as this Infra Manager runner.
+  deployment_service_account_email = "infra-manager@${var.project_id}.iam.gserviceaccount.com"
 }
