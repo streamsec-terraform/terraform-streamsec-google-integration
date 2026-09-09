@@ -41,7 +41,7 @@ variable "stream_integration_token" {
 }
 
 variable "stream_template_version" {
-  description = "Release ref used by Infrastructure Manager. Exposed for deployment diagnostics; it is never sent by the function."
+  description = "Release ref used by Infrastructure Manager and recorded by the deployment acknowledgement."
   type        = string
   default     = ""
 
