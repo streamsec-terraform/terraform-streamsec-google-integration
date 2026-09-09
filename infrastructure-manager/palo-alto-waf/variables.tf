@@ -8,6 +8,16 @@ variable "project_id" {
   }
 }
 
+variable "integration_id" {
+  description = "Stable, non-secret integration identifier supplied by the Lightlytics wizard/backend."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.integration_id)) > 0 && length(trimspace(var.integration_id)) <= 256
+    error_message = "integration_id must contain between 1 and 256 non-whitespace characters."
+  }
+}
+
 variable "region" {
   description = "GCP region for the collector resources."
   type        = string
