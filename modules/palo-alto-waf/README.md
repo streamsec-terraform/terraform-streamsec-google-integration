@@ -88,6 +88,83 @@ The wizard currently defaults `stream_template_version` and
 point to a real tag or commit containing this module before a deployment can
 succeed; this module does not create or publish release tags.
 
+### Recovering a failed revision
+
+Infrastructure Manager cannot import/adopt a
+`google_vpc_access_connector` or a failed `google_cloudfunctions2_function`
+left by a failed run. A retry with `--import-existing-resources` can therefore
+fail with `no importable resource found`. Do not broadly delete resources to
+clear this error: preserve resources in state, healthy resources, and anything
+not proven to belong to the failed revision. In particular, the active lab
+connector `dev22491-bridge-mgmt-conn` must never be deleted.
+
+1. List the deployment revisions and inspect the failed revision. Keep the
+   Infrastructure Manager location distinct from the workload resource region.
+
+   ```bash
+   gcloud infra-manager revisions list \
+     --deployment=<DEPLOYMENT_ID> \
+     --location=<INFRA_MANAGER_LOCATION> \
+     --project=<PROJECT_ID> \
+     --sort-by=~createTime
+
+   gcloud infra-manager revisions describe <FAILED_REVISION_ID> \
+     --deployment=<DEPLOYMENT_ID> \
+     --location=<INFRA_MANAGER_LOCATION> \
+     --project=<PROJECT_ID>
+   ```
+
+   Confirm that the error identifies
+   `google_vpc_access_connector.collector` or
+   `google_cloudfunctions2_function.collector` and that an existing resource
+   is preventing reconciliation. Fix permission, quota, source, or other errors
+   instead of deleting resources.
+
+2. Verify each candidate independently before deletion. The current module
+   uses the likely fixed name `streamsec-palo-waf` for both resources, but
+   operators must verify the exact name from the failed revision and confirm
+   its project, workload region, network/configuration, and failed or incomplete
+   state.
+
+   ```bash
+   gcloud compute networks vpc-access connectors describe streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+
+   gcloud functions describe streamsec-palo-waf \
+     --v2 \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+   ```
+
+3. Only when the revision error and inspection prove that one or both of these
+   exact module-owned resources are failed residue blocking reconciliation,
+   delete the affected resource or resources. Do not delete a healthy resource,
+   a resource already tracked by a successful revision, or any differently
+   named connector.
+
+   ```bash
+   gcloud compute networks vpc-access connectors delete streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+
+   gcloud functions delete streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+   ```
+
+4. If a connector CIDR collision caused the failure, select an unused,
+   network-aligned `/28` in the target VPC. Verify that its network address is
+   on a `/28` boundary and that it does not overlap subnets, routes, or other
+   Serverless VPC Access connectors, then replace `connector_cidr` in the
+   original deployment inputs.
+
+5. Rerun the same `gcloud infra-manager deployments apply` command with the
+   same deployment ID, source, service account, and inputs (apart from a
+   corrected `connector_cidr`, if required), adding
+   `--import-existing-resources`. This creates a new revision and imports only
+   resources that Infrastructure Manager can adopt.
+
 ## Polling objective
 
 The default schedule is `*/3 * * * *`. A three-minute trigger cadence leaves
