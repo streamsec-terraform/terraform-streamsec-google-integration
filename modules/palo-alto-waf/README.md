@@ -89,6 +89,12 @@ so the builder cannot read unrelated bucket objects or modify unrelated
 Artifact Registry repositories. This keeps deployment working in projects where
 automatic default-service-account grants are disabled.
 
+On first deployment, the module waits two minutes after writing those three
+project IAM bindings before creating the function. Google documents two minutes
+as the typical propagation time for allow-policy changes, and the Cloud
+Functions provider does not retry a build that starts before the permissions
+become effective.
+
 The #22440 setup gives the Infra Manager runner `roles/editor`,
 `roles/iam.roleAdmin`, `roles/resourcemanager.projectIamAdmin`, and
 `roles/config.agent`. Editor includes `iam.serviceAccounts.actAs`, but those

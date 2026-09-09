@@ -153,7 +153,10 @@ resource "time_sleep" "build_iam_propagation" {
     google_project_iam_member.build_source_reader,
   ]
 
-  create_duration = "30s"
+  # IAM allow-policy changes typically take two minutes to propagate. Waiting
+  # that full window avoids first-deployment builds starting before these grants
+  # are effective; the Cloud Functions provider does not retry a failed build.
+  create_duration = "2m"
 }
 
 # The #22440 runner has Editor (including serviceAccounts.actAs) plus project
