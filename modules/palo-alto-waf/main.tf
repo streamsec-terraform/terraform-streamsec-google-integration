@@ -3,16 +3,17 @@ data "google_project" "this" {
 }
 
 locals {
-  function_name      = "streamsec-palo-waf"
-  service_account_id = "streamsec-palo-waf"
-  build_account_id   = "streamsec-palo-waf-build"
-  build_repository   = "streamsec-palo-waf-builds"
-  scheduler_name     = "streamsec-palo-waf-poll"
-  connector_name     = "streamsec-palo-waf"
-  source_bucket_name = "streamsec-palo-waf-src-${data.google_project.this.number}"
-  integration_secret = "streamsec-palo-waf-token"
-  deployment_id      = "streamsec-palo-alto-waf"
-  stream_ack_url     = "${trimsuffix(var.stream_api_url, "/")}/api/accounts/waf/waf-acknowledge"
+  function_name            = "streamsec-palo-waf"
+  service_account_id       = "streamsec-palo-waf"
+  build_account_id         = "streamsec-palo-waf-build"
+  build_repository         = "streamsec-palo-waf-builds"
+  scheduler_name           = "streamsec-palo-waf-poll"
+  connector_name           = "streamsec-palo-waf"
+  source_bucket_name       = "streamsec-palo-waf-src-${data.google_project.this.number}"
+  integration_secret       = "streamsec-palo-waf-token"
+  deployment_id            = "streamsec-palo-alto-waf"
+  stream_ack_url           = "${trimsuffix(var.stream_api_url, "/")}/api/accounts/waf/waf-acknowledge"
+  stream_ack_authorization = "Bearer ${var.stream_integration_token}"
   stream_ack_payload = jsonencode({
     template_version = var.stream_template_version
   })
@@ -402,9 +403,9 @@ resource "terraform_data" "acknowledge" {
     interpreter = ["/bin/sh", "-c"]
 
     environment = {
-      STREAM_ACK_PAYLOAD = local.stream_ack_payload
-      STREAM_ACK_TOKEN   = var.stream_integration_token
-      STREAM_ACK_URL     = local.stream_ack_url
+      STREAM_ACK_AUTHORIZATION = local.stream_ack_authorization
+      STREAM_ACK_PAYLOAD       = local.stream_ack_payload
+      STREAM_ACK_URL           = local.stream_ack_url
     }
 
     # Supply the sensitive header through curl's stdin configuration so the
@@ -412,7 +413,7 @@ resource "terraform_data" "acknowledge" {
     command = <<-EOT
       printf '%s\n' \
         'header = "Content-Type: application/json"' \
-        "header = \"Authorization: $STREAM_ACK_TOKEN\"" |
+        "header = \"Authorization: $STREAM_ACK_AUTHORIZATION\"" |
         curl --fail --silent --show-error \
           --connect-timeout 10 --max-time 120 \
           --config - --request POST \

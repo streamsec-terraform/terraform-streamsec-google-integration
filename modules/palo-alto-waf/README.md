@@ -59,7 +59,7 @@ the Cloud Scheduler job, the module sends:
 
 ```text
 POST <stream_api_url>/api/accounts/waf/waf-acknowledge
-Authorization: <redacted stream_integration_token>
+Authorization: Bearer <redacted stream_integration_token>
 Content-Type: application/json
 
 {"template_version":"<stream_template_version>"}
@@ -169,7 +169,8 @@ connector `dev22491-bridge-mgmt-conn` must never be deleted.
 
 The default schedule is `*/3 * * * *`. A three-minute trigger cadence leaves
 roughly two minutes for collection and downstream processing toward the
-five-minute UI reflection objective. Cron controls only trigger timing, so it
+five-minute UI reflection objective, rather than matching the five-minute
+polling cadence used by AWS and Azure. Cron controls only trigger timing, so it
 cannot by itself guarantee an end-to-end SLA; firewall response time, function
 execution, retries, and downstream processing also contribute.
 
@@ -342,7 +343,7 @@ No modules.
 | <a name="input_function_timeout_seconds"></a> [function\_timeout\_seconds](#input\_function\_timeout\_seconds) | Cloud Function timeout. Scheduler allows 30 additional seconds so function failures surface directly. | `number` | `300` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | Additional labels to apply to supported resources. | `map(string)` | `{}` | no |
 | <a name="input_manage_apis"></a> [manage\_apis](#input\_manage\_apis) | Whether to enable the Google APIs required by this deployment. | `bool` | `true` | no |
-| <a name="input_poll_schedule"></a> [poll\_schedule](#input\_poll\_schedule) | Cloud Scheduler cron expression. One-, two-, or three-minute polling is allowed so downstream processing retains headroom within the five-minute product objective. | `string` | `"*/3 * * * *"` | no |
+| <a name="input_poll_schedule"></a> [poll\_schedule](#input\_poll\_schedule) | Cloud Scheduler cron expression. The deliberate three-minute default leaves processing headroom within the five-minute UI objective; AWS and Azure poll every five minutes. | `string` | `"*/3 * * * *"` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project in which to deploy the collector. | `string` | n/a | yes |
 | <a name="input_region"></a> [region](#input\_region) | GCP region for the function, VPC connector, source bucket, and Scheduler job. | `string` | `"us-central1"` | no |
 | <a name="input_stream_api_url"></a> [stream\_api\_url](#input\_stream\_api\_url) | Stream Security tenant base URL. The integration token is sent only over HTTPS. | `string` | n/a | yes |
