@@ -33,6 +33,11 @@ output "service_account_email" {
   value       = module.palo_alto_waf.service_account_email
 }
 
+output "build_service_account_email" {
+  description = "Dedicated service account used to build the Cloud Function image."
+  value       = module.palo_alto_waf.build_service_account_email
+}
+
 output "scheduler_name" {
   description = "Name of the Cloud Scheduler polling job."
   value       = module.palo_alto_waf.scheduler_name

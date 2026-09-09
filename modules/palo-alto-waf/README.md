@@ -9,7 +9,9 @@ platform's normal internet egress path.
 ## Resources
 
 - Required Google APIs
-- Dedicated function and Scheduler service account
+- Dedicated runtime/Scheduler and build service accounts
+- Four-permission custom role allowing the Infrastructure Manager runner to
+  install Cloud Run and Secret Manager IAM policies
 - Secret Manager secret for the Stream integration token
 - Secret-scoped `roles/secretmanager.secretAccessor` grants for the selected
   firewall API-key versions
@@ -78,6 +80,37 @@ The function has no application-level authentication. Only the dedicated
 service account receives `roles/run.invoker` on its backing Cloud Run service,
 and Scheduler uses that identity to mint the OIDC token.
 
+Cloud Build uses a separate service account instead of a legacy or default
+Compute service account. It receives only `roles/logging.logWriter`,
+`roles/artifactregistry.writer`, and `roles/storage.objectViewer`, the roles
+Google documents for custom Cloud Run functions build identities. The latter
+two grants are conditioned to Cloud Functions repositories and source buckets,
+so the builder cannot read unrelated bucket objects or modify unrelated
+Artifact Registry repositories. This keeps deployment working in projects where
+automatic default-service-account grants are disabled.
+
+The #22440 setup gives the Infra Manager runner `roles/editor`,
+`roles/iam.roleAdmin`, `roles/resourcemanager.projectIamAdmin`, and
+`roles/config.agent`. Editor includes `iam.serviceAccounts.actAs`, but those
+roles do not include `run.services.setIamPolicy` or
+`secretmanager.secrets.setIamPolicy`. The Infrastructure Manager root therefore
+supplies the runner email to this module, which grants a custom role containing
+only the get/set IAM policy permissions for Cloud Run services and Secret
+Manager secrets. This avoids requiring project-wide `roles/run.admin` or
+`roles/secretmanager.admin`.
+
+Google grants `roles/cloudscheduler.serviceAgent` to the Scheduler service agent
+when the API is enabled. The module deliberately does not own that shared,
+project-wide grant: removing this deployment must not break other Scheduler
+jobs. Projects that enabled Scheduler before March 19, 2019, or manually removed
+the grant, must restore it as a project prerequisite or authenticated Scheduler
+requests return `403`.
+
+Firewall secrets must belong to `project_id` (the project ID or numeric project
+number is accepted in each version name). The #22440 runner receives IAM
+authority only in that project, so accepting cross-project secrets would make
+the generated deployment fail while installing `secretAccessor`.
+
 ## Function-source synchronization
 
 `function_source/` is copied without behavioral or dependency changes from:
@@ -143,6 +176,7 @@ module "palo_alto_waf" {
 | `poll_schedule` | One-, two-, or three-minute Scheduler cron expression. | `string` | `"*/3 * * * *"` | no |
 | `function_timeout_seconds` | Function timeout; Scheduler adds 30 seconds. | `number` | `300` | no |
 | `manage_apis` | Enable APIs required by the deployment. | `bool` | `true` | no |
+| `deployment_service_account_email` | Optional deployer granted only Cloud Run and Secret Manager get/set IAM policy; set by the Infrastructure Manager root. | `string` | `""` | no |
 | `labels` | Additional labels for supported resources. | `map(string)` | `{}` | no |
 
 ## Outputs
@@ -156,6 +190,7 @@ module "palo_alto_waf" {
 | `function_name` | Deployed Cloud Function name. |
 | `function_uri` | IAM-protected function URI. |
 | `service_account_email` | Runtime and Scheduler OIDC service account. |
+| `build_service_account_email` | Dedicated Cloud Function build service account. |
 | `scheduler_name` | Cloud Scheduler polling job name. |
 | `scheduler_schedule` | Effective polling cron expression. |
 | `vpc_connector_id` | Serverless VPC Access connector ID. |

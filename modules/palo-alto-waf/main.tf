@@ -5,6 +5,7 @@ data "google_project" "this" {
 locals {
   function_name      = "streamsec-palo-waf"
   service_account_id = "streamsec-palo-waf"
+  build_account_id   = "streamsec-palo-waf-build"
   scheduler_name     = "streamsec-palo-waf-poll"
   connector_name     = "streamsec-palo-waf"
   source_bucket_name = "streamsec-palo-waf-src-${data.google_project.this.number}"
@@ -31,15 +32,45 @@ locals {
   }, var.labels)
 }
 
+resource "terraform_data" "network_scope_contract" {
+  input = {
+    network_project = local.network_project
+    subnet_project  = local.subnet_project
+    subnet_region   = local.subnet_region
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.network_project == var.project_id && local.subnet_project == var.project_id
+      error_message = "vpc_network and subnet must belong to project_id. Shared VPC service projects require a dedicated host-project connector subnet and are not supported by this deployment contract."
+    }
+
+    precondition {
+      condition     = local.subnet_region == var.region
+      error_message = "subnet must be in region because Serverless VPC Access connectors are regional."
+    }
+  }
+}
+
 data "google_compute_network" "selected" {
   project = local.network_project
   name    = local.network_name
+
+  depends_on = [
+    terraform_data.network_scope_contract,
+    time_sleep.api_propagation,
+  ]
 }
 
 data "google_compute_subnetwork" "selected" {
   project = local.subnet_project
   region  = local.subnet_region
   name    = local.subnet_name
+
+  depends_on = [
+    terraform_data.network_scope_contract,
+    time_sleep.api_propagation,
+  ]
 }
 
 resource "terraform_data" "network_contract" {
@@ -54,14 +85,19 @@ resource "terraform_data" "network_contract" {
       error_message = "subnet must belong to vpc_network so the function can route to the selected firewall."
     }
 
-    precondition {
-      condition     = local.network_project == var.project_id && local.subnet_project == var.project_id
-      error_message = "vpc_network and subnet must belong to project_id. Shared VPC service projects require a dedicated host-project connector subnet and are not supported by this deployment contract."
-    }
+  }
+}
 
+resource "terraform_data" "secret_contract" {
+  input = local.firewall_versions
+
+  lifecycle {
     precondition {
-      condition     = local.subnet_region == var.region
-      error_message = "subnet must be in region because Serverless VPC Access connectors are regional."
+      condition = alltrue([
+        for version_name in local.firewall_versions :
+        contains([var.project_id, tostring(data.google_project.this.number)], split("/", version_name)[1])
+      ])
+      error_message = "firewall_secret_names must reference secrets in project_id. The #22440 Infrastructure Manager runner has no IAM authority in other projects."
     }
   }
 }
@@ -71,6 +107,86 @@ resource "google_service_account" "collector" {
   account_id   = local.service_account_id
   display_name = "Stream Security Palo Alto collector"
   description  = "Polls private NGFW management APIs and sends configuration to Stream Security."
+}
+
+resource "google_service_account" "build" {
+  project      = var.project_id
+  account_id   = local.build_account_id
+  display_name = "Stream Security Palo Alto function builder"
+  description  = "Builds the Palo Alto collector image without relying on a default service account."
+}
+
+resource "google_project_iam_member" "build_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.build.email}"
+}
+
+resource "google_project_iam_member" "build_artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.build.email}"
+
+  condition {
+    title       = "PaloWafFunctionRepositories"
+    description = "Restrict the builder to Google-managed Cloud Functions repositories."
+    expression  = "resource.name.endsWith('/repositories/gcf-artifacts') || resource.name.endsWith('/repositories/cloud-run-source-deploy')"
+  }
+}
+
+resource "google_project_iam_member" "build_source_reader" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:${google_service_account.build.email}"
+
+  condition {
+    title       = "PaloWafFunctionSources"
+    description = "Restrict the builder to this module's source and Google-managed function source buckets."
+    expression  = "resource.type == 'storage.googleapis.com/Object' && (resource.name.startsWith('projects/_/buckets/${local.source_bucket_name}/') || resource.name.startsWith('projects/_/buckets/gcf-v2-sources-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/run-sources-${var.project_id}-'))"
+  }
+}
+
+resource "time_sleep" "build_iam_propagation" {
+  depends_on = [
+    google_project_iam_member.build_artifact_writer,
+    google_project_iam_member.build_log_writer,
+    google_project_iam_member.build_source_reader,
+  ]
+
+  create_duration = "30s"
+}
+
+# The #22440 runner has Editor (including serviceAccounts.actAs) plus project
+# IAM administration, but not resource-level Cloud Run or Secret Manager
+# setIamPolicy. Bootstrap only the four policy permissions this module needs.
+resource "google_project_iam_custom_role" "deployer" {
+  count = var.deployment_service_account_email == "" ? 0 : 1
+
+  project     = var.project_id
+  role_id     = "streamsecPaloWafDeployer"
+  title       = "Stream Security Palo WAF Deployer"
+  description = "Manages IAM policies on the Palo WAF Cloud Run service and secrets."
+  permissions = [
+    "run.services.getIamPolicy",
+    "run.services.setIamPolicy",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+  ]
+}
+
+resource "google_project_iam_member" "deployer" {
+  count = var.deployment_service_account_email == "" ? 0 : 1
+
+  project = var.project_id
+  role    = google_project_iam_custom_role.deployer[0].id
+  member  = "serviceAccount:${var.deployment_service_account_email}"
+}
+
+resource "time_sleep" "deployer_iam_propagation" {
+  count = var.deployment_service_account_email == "" ? 0 : 1
+
+  depends_on      = [google_project_iam_member.deployer]
+  create_duration = "30s"
 }
 
 resource "google_secret_manager_secret" "integration_token" {
@@ -95,6 +211,8 @@ resource "google_secret_manager_secret_iam_member" "integration_token" {
   secret_id = google_secret_manager_secret.integration_token.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.deployer_iam_propagation]
 }
 
 resource "google_secret_manager_secret_iam_member" "firewall_credentials" {
@@ -105,7 +223,11 @@ resource "google_secret_manager_secret_iam_member" "firewall_credentials" {
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.collector.email}"
 
-  depends_on = [time_sleep.api_propagation]
+  depends_on = [
+    terraform_data.secret_contract,
+    time_sleep.api_propagation,
+    time_sleep.deployer_iam_propagation,
+  ]
 }
 
 resource "google_vpc_access_connector" "collector" {
@@ -160,8 +282,9 @@ resource "google_cloudfunctions2_function" "collector" {
   labels   = local.labels
 
   build_config {
-    runtime     = "python312"
-    entry_point = "poll"
+    runtime         = "python312"
+    entry_point     = "poll"
+    service_account = google_service_account.build.id
 
     source {
       storage_source {
@@ -197,6 +320,7 @@ resource "google_cloudfunctions2_function" "collector" {
   depends_on = [
     google_secret_manager_secret_iam_member.firewall_credentials,
     google_secret_manager_secret_iam_member.integration_token,
+    time_sleep.build_iam_propagation,
     time_sleep.api_propagation,
   ]
 }
@@ -207,6 +331,8 @@ resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
   name     = google_cloudfunctions2_function.collector.service_config[0].service
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.collector.email}"
+
+  depends_on = [time_sleep.deployer_iam_propagation]
 }
 
 resource "google_cloud_scheduler_job" "poll" {

@@ -128,6 +128,17 @@ variable "manage_apis" {
   default     = true
 }
 
+variable "deployment_service_account_email" {
+  description = "Optional Terraform deployment service account. When set, the module grants it a custom role containing only Cloud Run and Secret Manager get/set IAM policy so it can install the private function and secret bindings. Infrastructure Manager supplies its runner account."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.deployment_service_account_email == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*\\.iam\\.gserviceaccount\\.com$", var.deployment_service_account_email))
+    error_message = "deployment_service_account_email must be empty or a valid Google service account email."
+  }
+}
+
 variable "labels" {
   description = "Additional labels to apply to supported resources."
   type        = map(string)
