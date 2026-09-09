@@ -11,7 +11,11 @@ locals {
   source_bucket_name = "streamsec-palo-waf-src-${data.google_project.this.number}"
   integration_secret = "streamsec-palo-waf-token"
   deployment_id      = "streamsec-palo-alto-waf"
-  firewall_versions  = toset(compact([for name in split(",", var.firewall_secret_names) : trimspace(name)]))
+  stream_ack_url     = "${trimsuffix(var.stream_api_url, "/")}/api/accounts/waf/waf-acknowledge"
+  stream_ack_payload = jsonencode({
+    template_version = var.stream_template_version
+  })
+  firewall_versions = toset(compact([for name in split(",", var.firewall_secret_names) : trimspace(name)]))
   firewall_secret_groups = {
     for version_name in local.firewall_versions :
     "${split("/", version_name)[1]}/${split("/", version_name)[3]}" => {
@@ -362,4 +366,39 @@ resource "google_cloud_scheduler_job" "poll" {
   }
 
   depends_on = [google_cloud_run_v2_service_iam_member.scheduler_invoker]
+}
+
+# Stream marks the integration READY only after this deployment acknowledgement.
+# The Scheduler ID makes the callback wait for the function, its invoker binding,
+# and the polling schedule to be usable.
+resource "terraform_data" "acknowledge" {
+  triggers_replace = [
+    google_cloud_scheduler_job.poll.id,
+    google_secret_manager_secret_version.integration_token.version,
+    trimsuffix(var.stream_api_url, "/"),
+    var.stream_template_version,
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/sh", "-c"]
+
+    environment = {
+      STREAM_ACK_PAYLOAD = local.stream_ack_payload
+      STREAM_ACK_TOKEN   = var.stream_integration_token
+      STREAM_ACK_URL     = local.stream_ack_url
+    }
+
+    # Supply the sensitive header through curl's stdin configuration so the
+    # token is absent from both Terraform's command text and process arguments.
+    command = <<-EOT
+      printf '%s\n' \
+        'header = "Content-Type: application/json"' \
+        "header = \"Authorization: $STREAM_ACK_TOKEN\"" |
+        curl --fail --silent --show-error \
+          --connect-timeout 10 --max-time 120 \
+          --config - --request POST \
+          --data-binary "$STREAM_ACK_PAYLOAD" \
+          "$STREAM_ACK_URL"
+    EOT
+  }
 }
