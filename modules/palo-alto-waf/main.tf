@@ -3,15 +3,21 @@ data "google_project" "this" {
 }
 
 locals {
-  function_name      = "streamsec-palo-waf"
-  service_account_id = "streamsec-palo-waf"
-  build_account_id   = "streamsec-palo-waf-build"
-  scheduler_name     = "streamsec-palo-waf-poll"
-  connector_name     = "streamsec-palo-waf"
-  source_bucket_name = "streamsec-palo-waf-src-${data.google_project.this.number}"
-  integration_secret = "streamsec-palo-waf-token"
-  deployment_id      = "streamsec-palo-alto-waf"
-  firewall_versions  = toset(compact([for name in split(",", var.firewall_secret_names) : trimspace(name)]))
+  function_name            = "streamsec-palo-waf"
+  service_account_id       = "streamsec-palo-waf"
+  build_account_id         = "streamsec-palo-waf-build"
+  build_repository         = "streamsec-palo-waf-builds"
+  scheduler_name           = "streamsec-palo-waf-poll"
+  connector_name           = "streamsec-palo-waf"
+  source_bucket_name       = "streamsec-palo-waf-src-${data.google_project.this.number}"
+  integration_secret       = "streamsec-palo-waf-token"
+  deployment_id            = "streamsec-palo-alto-waf"
+  stream_ack_url           = "${trimsuffix(var.stream_api_url, "/")}/api/accounts/waf/waf-acknowledge"
+  stream_ack_authorization = "Bearer ${var.stream_integration_token}"
+  stream_ack_payload = jsonencode({
+    template_version = var.stream_template_version
+  })
+  firewall_versions = toset(compact([for name in split(",", var.firewall_secret_names) : trimspace(name)]))
   firewall_secret_groups = {
     for version_name in local.firewall_versions :
     "${split("/", version_name)[1]}/${split("/", version_name)[3]}" => {
@@ -122,38 +128,49 @@ resource "google_project_iam_member" "build_log_writer" {
   member  = "serviceAccount:${google_service_account.build.email}"
 }
 
-resource "google_project_iam_member" "build_artifact_writer" {
-  project = var.project_id
-  role    = "roles/artifactregistry.writer"
-  member  = "serviceAccount:${google_service_account.build.email}"
+resource "google_artifact_registry_repository" "build" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = local.build_repository
+  description   = "Build images for the Stream Security Palo Alto collector."
+  format        = "DOCKER"
+  labels        = local.labels
 
-  condition {
-    title       = "PaloWafFunctionRepositories"
-    description = "Restrict the builder to Google-managed Cloud Functions repositories."
-    expression  = "resource.name.endsWith('/repositories/gcf-artifacts') || resource.name.endsWith('/repositories/cloud-run-source-deploy')"
-  }
+  depends_on = [time_sleep.api_propagation]
 }
 
-resource "google_project_iam_member" "build_source_reader" {
+resource "google_artifact_registry_repository_iam_member" "build_artifact_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.build.location
+  repository = google_artifact_registry_repository.build.repository_id
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.build.email}"
+}
+
+resource "google_project_iam_member" "build_storage_object_user" {
   project = var.project_id
-  role    = "roles/storage.objectViewer"
+  role    = "roles/storage.objectUser"
   member  = "serviceAccount:${google_service_account.build.email}"
 
   condition {
-    title       = "PaloWafFunctionSources"
-    description = "Restrict the builder to this module's source and Google-managed function source buckets."
-    expression  = "resource.type == 'storage.googleapis.com/Object' && (resource.name.startsWith('projects/_/buckets/${local.source_bucket_name}/') || resource.name.startsWith('projects/_/buckets/gcf-v2-sources-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/run-sources-${var.project_id}-'))"
+    title       = "PaloWafFunctionBuildObjects"
+    description = "Restrict buildpack object access to Google-managed function build buckets."
+    expression  = "resource.type == 'storage.googleapis.com/Object' && (resource.name.startsWith('projects/_/buckets/gcf-v2-sources-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-${data.google_project.this.number}-') || resource.name.startsWith('projects/_/buckets/run-sources-${var.project_id}-'))"
   }
 }
 
 resource "time_sleep" "build_iam_propagation" {
   depends_on = [
-    google_project_iam_member.build_artifact_writer,
+    google_artifact_registry_repository_iam_member.build_artifact_writer,
     google_project_iam_member.build_log_writer,
-    google_project_iam_member.build_source_reader,
+    google_project_iam_member.build_storage_object_user,
+    google_storage_bucket_iam_member.build_source_reader,
   ]
 
-  create_duration = "30s"
+  # IAM allow-policy changes typically take two minutes to propagate. Waiting
+  # that full window avoids first-deployment builds starting before these grants
+  # are effective; the Cloud Functions provider does not retry a failed build.
+  create_duration = "2m"
 }
 
 # The #22440 runner has Editor (including serviceAccounts.actAs) plus project
@@ -265,6 +282,12 @@ resource "google_storage_bucket" "source" {
   depends_on = [time_sleep.api_propagation]
 }
 
+resource "google_storage_bucket_iam_member" "build_source_reader" {
+  bucket = google_storage_bucket.source.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.build.email}"
+}
+
 data "archive_file" "function_source" {
   type        = "zip"
   source_dir  = "${path.module}/function_source"
@@ -284,9 +307,10 @@ resource "google_cloudfunctions2_function" "collector" {
   labels   = local.labels
 
   build_config {
-    runtime         = "python312"
-    entry_point     = "poll"
-    service_account = google_service_account.build.id
+    runtime           = "python312"
+    entry_point       = "poll"
+    service_account   = google_service_account.build.id
+    docker_repository = google_artifact_registry_repository.build.id
 
     source {
       storage_source {
@@ -362,4 +386,39 @@ resource "google_cloud_scheduler_job" "poll" {
   }
 
   depends_on = [google_cloud_run_v2_service_iam_member.scheduler_invoker]
+}
+
+# Stream marks the integration READY only after this deployment acknowledgement.
+# The Scheduler ID makes the callback wait for the function, its invoker binding,
+# and the polling schedule to be usable.
+resource "terraform_data" "acknowledge" {
+  triggers_replace = [
+    google_cloud_scheduler_job.poll.id,
+    google_secret_manager_secret_version.integration_token.version,
+    trimsuffix(var.stream_api_url, "/"),
+    var.stream_template_version,
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/sh", "-c"]
+
+    environment = {
+      STREAM_ACK_AUTHORIZATION = local.stream_ack_authorization
+      STREAM_ACK_PAYLOAD       = local.stream_ack_payload
+      STREAM_ACK_URL           = local.stream_ack_url
+    }
+
+    # Supply the sensitive header through curl's stdin configuration so the
+    # token is absent from both Terraform's command text and process arguments.
+    command = <<-EOT
+      printf '%s\n' \
+        'header = "Content-Type: application/json"' \
+        "header = \"Authorization: $STREAM_ACK_AUTHORIZATION\"" |
+        curl --fail --silent --show-error \
+          --connect-timeout 10 --max-time 120 \
+          --config - --request POST \
+          --data-binary "$STREAM_ACK_PAYLOAD" \
+          "$STREAM_ACK_URL"
+    EOT
+  }
 }

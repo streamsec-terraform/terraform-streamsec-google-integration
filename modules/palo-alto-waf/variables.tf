@@ -41,7 +41,7 @@ variable "stream_integration_token" {
 }
 
 variable "stream_template_version" {
-  description = "Release ref used by Infrastructure Manager. Exposed for deployment diagnostics; it is never sent by the function."
+  description = "Release ref used by Infrastructure Manager and recorded by the deployment acknowledgement."
   type        = string
   default     = ""
 
@@ -101,7 +101,7 @@ variable "firewall_secret_names" {
 }
 
 variable "poll_schedule" {
-  description = "Cloud Scheduler cron expression. One-, two-, or three-minute polling is allowed so downstream processing retains headroom within the five-minute product objective."
+  description = "Cloud Scheduler cron expression. The deliberate three-minute default leaves processing headroom within the five-minute UI objective; AWS and Azure poll every five minutes."
   type        = string
   default     = "*/3 * * * *"
 

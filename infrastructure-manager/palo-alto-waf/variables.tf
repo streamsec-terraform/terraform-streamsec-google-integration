@@ -101,7 +101,7 @@ variable "firewall_secret_names" {
 }
 
 variable "poll_schedule" {
-  description = "Polling cron expression. The wizard omits it, so deployments default to every three minutes."
+  description = "Polling cron expression. The wizard deliberately defaults to every three minutes for processing headroom within the five-minute UI objective; AWS and Azure poll every five minutes."
   type        = string
   default     = "*/3 * * * *"
 

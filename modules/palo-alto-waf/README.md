@@ -19,6 +19,7 @@ platform's normal internet egress path.
 - Private Python 3.12 Cloud Function (`poll`)
 - Source archive bucket with seven-day object retention
 - Cloud Scheduler HTTP job with OIDC and one bounded retry
+- Post-deployment acknowledgement to Stream Security
 
 The function uses `PRIVATE_RANGES_ONLY` connector egress: RFC 1918/private
 firewall management traffic traverses the selected VPC, while the public Stream
@@ -51,16 +52,125 @@ root around this module. Its generated command supplies these scalar values:
 boundary because the wizard passes it as one comma-delimited scalar inside
 `--input-values`.
 
+## Deployment acknowledgement
+
+After Terraform has created the function, its Cloud Run invoker binding, and
+the Cloud Scheduler job, the module sends:
+
+```text
+POST <stream_api_url>/api/accounts/waf/waf-acknowledge
+Authorization: Bearer <redacted stream_integration_token>
+Content-Type: application/json
+
+{"template_version":"<stream_template_version>"}
+```
+
+This uses the same endpoint, authentication header, and template-version field
+as the AWS and Azure WAF templates. The backend idempotently sets the integration
+status to `READY` and records the deployed template version. Terraform re-sends
+the acknowledgement when the Scheduler, integration-token secret version,
+Stream API URL, or template version changes.
+
+The callback runs once on the Terraform/Infrastructure Manager runner with the
+same two-minute bound as the Azure deployment script. As in AWS and Azure, it
+fails the deployment if Stream does not return a successful HTTP response. A
+failed callback therefore cannot report a successful deployment or leave a
+newly deployed integration falsely marked ready; rerunning `terraform apply`
+retries it.
+
+The sensitive token is passed through the provisioner environment and curl
+configuration on standard input. It is not included in Terraform outputs,
+Terraform's command text, or process arguments; its existing sensitive input
+and Secret Manager state contract is unchanged.
+
 The wizard currently defaults `stream_template_version` and
 `--git-source-ref` to `v2.10.0`. That ref does not exist yet. The consumer must
 point to a real tag or commit containing this module before a deployment can
 succeed; this module does not create or publish release tags.
 
+### Recovering a failed revision
+
+Infrastructure Manager cannot import/adopt a
+`google_vpc_access_connector` or a failed `google_cloudfunctions2_function`
+left by a failed run. A retry with `--import-existing-resources` can therefore
+fail with `no importable resource found`. Do not broadly delete resources to
+clear this error: preserve resources in state, healthy resources, and anything
+not proven to belong to the failed revision. In particular, the active lab
+connector `dev22491-bridge-mgmt-conn` must never be deleted.
+
+1. List the deployment revisions and inspect the failed revision. Keep the
+   Infrastructure Manager location distinct from the workload resource region.
+
+   ```bash
+   gcloud infra-manager revisions list \
+     --deployment=<DEPLOYMENT_ID> \
+     --location=<INFRA_MANAGER_LOCATION> \
+     --project=<PROJECT_ID> \
+     --sort-by=~createTime
+
+   gcloud infra-manager revisions describe <FAILED_REVISION_ID> \
+     --deployment=<DEPLOYMENT_ID> \
+     --location=<INFRA_MANAGER_LOCATION> \
+     --project=<PROJECT_ID>
+   ```
+
+   Confirm that the error identifies
+   `google_vpc_access_connector.collector` or
+   `google_cloudfunctions2_function.collector` and that an existing resource
+   is preventing reconciliation. Fix permission, quota, source, or other errors
+   instead of deleting resources.
+
+2. Verify each candidate independently before deletion. The current module
+   uses the likely fixed name `streamsec-palo-waf` for both resources, but
+   operators must verify the exact name from the failed revision and confirm
+   its project, workload region, network/configuration, and failed or incomplete
+   state.
+
+   ```bash
+   gcloud compute networks vpc-access connectors describe streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+
+   gcloud functions describe streamsec-palo-waf \
+     --v2 \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+   ```
+
+3. Only when the revision error and inspection prove that one or both of these
+   exact module-owned resources are failed residue blocking reconciliation,
+   delete the affected resource or resources. Do not delete a healthy resource,
+   a resource already tracked by a successful revision, or any differently
+   named connector.
+
+   ```bash
+   gcloud compute networks vpc-access connectors delete streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+
+   gcloud functions delete streamsec-palo-waf \
+     --project=<PROJECT_ID> \
+     --region=<WORKLOAD_REGION>
+   ```
+
+4. If a connector CIDR collision caused the failure, select an unused,
+   network-aligned `/28` in the target VPC. Verify that its network address is
+   on a `/28` boundary and that it does not overlap subnets, routes, or other
+   Serverless VPC Access connectors, then replace `connector_cidr` in the
+   original deployment inputs.
+
+5. Rerun the same `gcloud infra-manager deployments apply` command with the
+   same deployment ID, source, service account, and inputs (apart from a
+   corrected `connector_cidr`, if required), adding
+   `--import-existing-resources`. This creates a new revision and imports only
+   resources that Infrastructure Manager can adopt.
+
 ## Polling objective
 
 The default schedule is `*/3 * * * *`. A three-minute trigger cadence leaves
 roughly two minutes for collection and downstream processing toward the
-five-minute UI reflection objective. Cron controls only trigger timing, so it
+five-minute UI reflection objective, rather than matching the five-minute
+polling cadence used by AWS and Azure. Cron controls only trigger timing, so it
 cannot by itself guarantee an end-to-end SLA; firewall response time, function
 execution, retries, and downstream processing also contribute.
 
@@ -81,13 +191,27 @@ service account receives `roles/run.invoker` on its backing Cloud Run service,
 and Scheduler uses that identity to mint the OIDC token.
 
 Cloud Build uses a separate service account instead of a legacy or default
-Compute service account. It receives only `roles/logging.logWriter`,
-`roles/artifactregistry.writer`, and `roles/storage.objectViewer`, the roles
-Google documents for custom Cloud Run functions build identities. The latter
-two grants are conditioned to Cloud Functions repositories and source buckets,
-so the builder cannot read unrelated bucket objects or modify unrelated
-Artifact Registry repositories. This keeps deployment working in projects where
-automatic default-service-account grants are disabled.
+Compute service account. Google documents `roles/logging.logWriter`,
+`roles/artifactregistry.writer`, and `roles/storage.objectViewer` for custom
+Cloud Run functions build identities. The module grants Artifact Registry
+Writer only on a dedicated Docker repository and Storage Object Viewer only on
+the module's source bucket. Cloud Native Buildpacks also write intermediate
+objects, so the builder receives `roles/storage.objectUser` through a
+project-level condition limited to objects in the Google-managed
+`gcf-v2-sources-*`, `gcf-v2-uploads-*`, and `run-sources-*` buckets for this
+project. The Artifact Registry grant is repository-scoped instead of using an
+inherited resource-name condition, which Artifact Registry does not support.
+Storage Object User supplies the required object reads and writes without
+Object Admin's object-IAM and retention permissions. The builder therefore
+cannot modify unrelated repositories or bucket objects. This keeps deployment
+working in projects where automatic default-service-account grants are
+disabled.
+
+On first deployment, the module waits two minutes after writing those three
+project IAM bindings before creating the function. Google documents two minutes
+as the typical propagation time for allow-policy changes, and the Cloud
+Functions provider does not retry a build that starts before the permissions
+become effective.
 
 The #22440 setup gives the Infra Manager runner `roles/editor`,
 `roles/iam.roleAdmin`, `roles/resourcemanager.projectIamAdmin`, and
@@ -154,44 +278,93 @@ module "palo_alto_waf" {
 ## Requirements
 
 | Name | Version |
-|---|---|
-| Terraform | >= 1.5 |
-| archive | >= 2.0 |
-| google | >= 6.0 |
-| time | >= 0.10 |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
+| <a name="requirement_archive"></a> [archive](#requirement\_archive) | >= 2.0 |
+| <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_archive"></a> [archive](#provider\_archive) | >= 2.0 |
+| <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
+
+## Modules
+
+No modules.
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [google_artifact_registry_repository.build](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/artifact_registry_repository) | resource |
+| [google_artifact_registry_repository_iam_member.build_artifact_writer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/artifact_registry_repository_iam_member) | resource |
+| [google_cloud_run_v2_service_iam_member.scheduler_invoker](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_run_v2_service_iam_member) | resource |
+| [google_cloud_scheduler_job.poll](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_scheduler_job) | resource |
+| [google_cloudfunctions2_function.collector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions2_function) | resource |
+| [google_project_iam_custom_role.deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_custom_role) | resource |
+| [google_project_iam_member.build_log_writer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.build_storage_object_user](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_service.required](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
+| [google_secret_manager_secret.integration_token](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret) | resource |
+| [google_secret_manager_secret_iam_member.firewall_credentials](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
+| [google_secret_manager_secret_iam_member.integration_token](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
+| [google_secret_manager_secret_version.integration_token](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_version) | resource |
+| [google_service_account.build](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
+| [google_service_account.collector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
+| [google_storage_bucket.source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket) | resource |
+| [google_storage_bucket_iam_member.build_source_reader](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_iam_member) | resource |
+| [google_storage_bucket_object.function_source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_object) | resource |
+| [google_vpc_access_connector.collector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/vpc_access_connector) | resource |
+| [terraform_data.acknowledge](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.network_contract](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.network_scope_contract](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.secret_contract](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [time_sleep.api_propagation](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [time_sleep.build_iam_propagation](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [time_sleep.deployer_iam_propagation](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [archive_file.function_source](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
+| [google_compute_network.selected](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/compute_network) | data source |
+| [google_compute_subnetwork.selected](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/compute_subnetwork) | data source |
+| [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|---|---|---|---|:---:|
-| `project_id` | GCP project in which to deploy the collector. | `string` | n/a | yes |
-| `region` | Region for the function, connector, source bucket, and Scheduler job. | `string` | `"us-central1"` | no |
-| `stream_api_url` | HTTPS Stream Security tenant base URL. | `string` | n/a | yes |
-| `stream_integration_token` | Sensitive Stream Security Palo Alto integration token. | `string` | n/a | yes |
-| `stream_template_version` | Release ref used by Infrastructure Manager. | `string` | `""` | no |
-| `vpc_network` | VPC network name or self-link that routes to the firewall. | `string` | n/a | yes |
-| `subnet` | Wizard-selected subnet name or self-link; must belong to the VPC. | `string` | n/a | yes |
-| `connector_cidr` | Unused IPv4 `/28` for Serverless VPC Access. | `string` | `"10.10.9.0/28"` | no |
-| `firewall_secret_names` | Comma-delimited Secret Manager version resource names. | `string` | `""` | no |
-| `poll_schedule` | One-, two-, or three-minute Scheduler cron expression. | `string` | `"*/3 * * * *"` | no |
-| `function_timeout_seconds` | Function timeout; Scheduler adds 30 seconds. | `number` | `300` | no |
-| `manage_apis` | Enable APIs required by the deployment. | `bool` | `true` | no |
-| `deployment_service_account_email` | Optional deployer granted only Cloud Run and Secret Manager get/set IAM policy; set by the Infrastructure Manager root. | `string` | `""` | no |
-| `labels` | Additional labels for supported resources. | `map(string)` | `{}` | no |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_connector_cidr"></a> [connector\_cidr](#input\_connector\_cidr) | Unused /28 IPv4 range allocated to the Serverless VPC Access connector. | `string` | `"10.10.9.0/28"` | no |
+| <a name="input_deployment_service_account_email"></a> [deployment\_service\_account\_email](#input\_deployment\_service\_account\_email) | Optional Terraform deployment service account. When set, the module grants it a custom role containing only Cloud Run and Secret Manager get/set IAM policy so it can install the private function and secret bindings. Infrastructure Manager supplies its runner account. | `string` | `""` | no |
+| <a name="input_firewall_secret_names"></a> [firewall\_secret\_names](#input\_firewall\_secret\_names) | Comma-delimited Secret Manager version resource names for firewall API keys, as emitted by the Lightlytics wizard. | `string` | `""` | no |
+| <a name="input_function_timeout_seconds"></a> [function\_timeout\_seconds](#input\_function\_timeout\_seconds) | Cloud Function timeout. Scheduler allows 30 additional seconds so function failures surface directly. | `number` | `300` | no |
+| <a name="input_labels"></a> [labels](#input\_labels) | Additional labels to apply to supported resources. | `map(string)` | `{}` | no |
+| <a name="input_manage_apis"></a> [manage\_apis](#input\_manage\_apis) | Whether to enable the Google APIs required by this deployment. | `bool` | `true` | no |
+| <a name="input_poll_schedule"></a> [poll\_schedule](#input\_poll\_schedule) | Cloud Scheduler cron expression. The deliberate three-minute default leaves processing headroom within the five-minute UI objective; AWS and Azure poll every five minutes. | `string` | `"*/3 * * * *"` | no |
+| <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project in which to deploy the collector. | `string` | n/a | yes |
+| <a name="input_region"></a> [region](#input\_region) | GCP region for the function, VPC connector, source bucket, and Scheduler job. | `string` | `"us-central1"` | no |
+| <a name="input_stream_api_url"></a> [stream\_api\_url](#input\_stream\_api\_url) | Stream Security tenant base URL. The integration token is sent only over HTTPS. | `string` | n/a | yes |
+| <a name="input_stream_integration_token"></a> [stream\_integration\_token](#input\_stream\_integration\_token) | Stream Security Palo Alto integration token. Stored in Secret Manager and mounted into the function. | `string` | n/a | yes |
+| <a name="input_stream_template_version"></a> [stream\_template\_version](#input\_stream\_template\_version) | Release ref used by Infrastructure Manager and recorded by the deployment acknowledgement. | `string` | `""` | no |
+| <a name="input_subnet"></a> [subnet](#input\_subnet) | Subnet name or self-link selected by the wizard. It must belong to vpc\_network. | `string` | n/a | yes |
+| <a name="input_vpc_network"></a> [vpc\_network](#input\_vpc\_network) | VPC network name or self-link that can route to the Palo Alto management interface. | `string` | n/a | yes |
 
 ## Outputs
 
 | Name | Description |
-|---|---|
-| `deployment_id` | Infrastructure Manager deployment identifier. |
-| `project_id` | GCP project hosting the deployment. |
-| `region` | GCP region hosting the deployment. |
-| `stream_template_version` | Release ref supplied by the deployment command. |
-| `function_name` | Deployed Cloud Function name. |
-| `function_uri` | IAM-protected function URI. |
-| `service_account_email` | Runtime and Scheduler OIDC service account. |
-| `build_service_account_email` | Dedicated Cloud Function build service account. |
-| `scheduler_name` | Cloud Scheduler polling job name. |
-| `scheduler_schedule` | Effective polling cron expression. |
-| `vpc_connector_id` | Serverless VPC Access connector ID. |
+| ---- | ----------- |
+| <a name="output_build_service_account_email"></a> [build\_service\_account\_email](#output\_build\_service\_account\_email) | Dedicated service account used to build the Cloud Function image. |
+| <a name="output_deployment_id"></a> [deployment\_id](#output\_deployment\_id) | Infrastructure Manager deployment identifier used by the Lightlytics wizard. |
+| <a name="output_function_name"></a> [function\_name](#output\_function\_name) | Name of the deployed Cloud Function. |
+| <a name="output_function_uri"></a> [function\_uri](#output\_function\_uri) | IAM-protected URI invoked by Cloud Scheduler. |
+| <a name="output_project_id"></a> [project\_id](#output\_project\_id) | GCP project hosting the deployment. |
+| <a name="output_region"></a> [region](#output\_region) | GCP region hosting the deployment. |
+| <a name="output_scheduler_name"></a> [scheduler\_name](#output\_scheduler\_name) | Name of the Cloud Scheduler polling job. |
+| <a name="output_scheduler_schedule"></a> [scheduler\_schedule](#output\_scheduler\_schedule) | Effective Cloud Scheduler cron expression. |
+| <a name="output_service_account_email"></a> [service\_account\_email](#output\_service\_account\_email) | Runtime and Scheduler OIDC service account. |
+| <a name="output_stream_template_version"></a> [stream\_template\_version](#output\_stream\_template\_version) | Release ref supplied by the deployment command. |
+| <a name="output_vpc_connector_id"></a> [vpc\_connector\_id](#output\_vpc\_connector\_id) | Serverless VPC Access connector used for private firewall management traffic. |
 <!-- END_TF_DOCS -->
