@@ -33,6 +33,7 @@ module "streamsec_google_projects" {
   include_projects            = var.include_projects
   org_id                     = var.org_id # also used for response module and real time events module
   create_sa                  = var.create_sa
+  sa_project_level_permissions = var.sa_project_level_permissions
   existing_sa_json_file_path = var.existing_sa_json_file_path
   sa_display_name            = var.sa_display_name
   sa_description             = var.sa_description

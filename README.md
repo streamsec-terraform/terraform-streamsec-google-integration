@@ -116,6 +116,8 @@ module "streamsec_google_projects" {
 | ---- | ---- |
 | [google_organization_iam_member.security_reviewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
+| [google_project_iam_member.project_security_reviewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.project_viewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_service_account.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_key.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_key) | resource |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
@@ -149,7 +151,7 @@ module "streamsec_google_projects" {
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
-| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID to create the Service Account in (REQUIRED if create\_sa is true). | `string` | `null` | no |
+| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Required unless sa\_project\_level\_permissions is true, include\_projects is set, and org\_level\_sink is false. | `string` | `null` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_project_for_sa"></a> [project\_for\_sa](#input\_project\_for\_sa) | The project to create the Service Account in (if not set and create\_sa is true, will take provider project id). | `string` | `null` | no |
@@ -158,6 +160,7 @@ module "streamsec_google_projects" {
 | <a name="input_response_enabled_projects"></a> [response\_enabled\_projects](#input\_response\_enabled\_projects) | A list of project IDs to create response resources for. | `list(string)` | `[]` | no |
 | <a name="input_response_org_level_permissions"></a> [response\_org\_level\_permissions](#input\_response\_org\_level\_permissions) | If true, create response service accounts and custom roles at organization level. If false, create them at project level. | `bool` | `true` | no |
 | <a name="input_sa_account_id"></a> [sa\_account\_id](#input\_sa\_account\_id) | The account ID for the Service Account to be created for Stream Security. | `string` | `"stream-security"` | no |
+| <a name="input_sa_project_level_permissions"></a> [sa\_project\_level\_permissions](#input\_sa\_project\_level\_permissions) | When true (with create\_sa = true), grant roles/viewer and roles/iam.securityReviewer to the Stream Security service account on each integrated project instead of on the organization. Requires include\_projects. Use when no organization-level permissions are available; org- and folder-level IAM will not be collected. | `bool` | `false` | no |
 | <a name="input_sa_description"></a> [sa\_description](#input\_sa\_description) | The description for the Service Account to be created for Stream Security. | `string` | `"Stream Security Service Account"` | no |
 | <a name="input_sa_display_name"></a> [sa\_display\_name](#input\_sa\_display\_name) | The display name for the Service Account to be created for Stream Security. | `string` | `"Stream Security"` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the Secret Manager secret to store the API token. | `string` | `"stream-security-collection-token"` | no |

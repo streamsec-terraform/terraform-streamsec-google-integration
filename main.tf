@@ -41,6 +41,13 @@ resource "google_service_account" "org" {
   display_name = var.sa_display_name
   description  = var.sa_description
   project      = var.project_for_sa
+
+  lifecycle {
+    precondition {
+      condition     = !var.sa_project_level_permissions || length(var.include_projects) > 0
+      error_message = "`include_projects` is required when `sa_project_level_permissions` is true (organization-wide project discovery needs organization-level access)."
+    }
+  }
 }
 
 data "google_service_account" "existing" {
@@ -56,17 +63,33 @@ resource "google_service_account_key" "org" {
 }
 
 resource "google_organization_iam_member" "this" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/viewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
 }
 
 resource "google_organization_iam_member" "security_reviewer" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/iam.securityReviewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
+}
+
+# Project-level alternative to the organization bindings above: used when the
+# deployer has no organization-level permissions (sa_project_level_permissions = true).
+resource "google_project_iam_member" "project_viewer" {
+  for_each = var.create_sa && var.sa_project_level_permissions ? local.projects : {}
+  project  = each.value.project_id
+  role     = "roles/viewer"
+  member   = "serviceAccount:${google_service_account.org[0].email}"
+}
+
+resource "google_project_iam_member" "project_security_reviewer" {
+  for_each = var.create_sa && var.sa_project_level_permissions ? local.projects : {}
+  project  = each.value.project_id
+  role     = "roles/iam.securityReviewer"
+  member   = "serviceAccount:${google_service_account.org[0].email}"
 }
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
@@ -81,7 +104,13 @@ resource "streamsec_gcp_project_ack" "this" {
   client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   private_key  = var.create_sa ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
-  depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, time_sleep.this]
+  depends_on = [
+    google_organization_iam_member.this,
+    google_organization_iam_member.security_reviewer,
+    google_project_iam_member.project_viewer,
+    google_project_iam_member.project_security_reviewer,
+    time_sleep.this,
+  ]
 }
 
 

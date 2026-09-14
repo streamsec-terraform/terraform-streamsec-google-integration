@@ -76,6 +76,12 @@ variable "existing_sa_json_file_path" {
   default     = null
 }
 
+variable "sa_project_level_permissions" {
+  description = "When true (with create_sa = true), grant roles/viewer and roles/iam.securityReviewer on each project in include_projects instead of on the organization. Requires include_projects."
+  type        = bool
+  default     = false
+}
+
 variable "sa_account_id" {
   description = "The account ID for the Service Account to be created for Stream Security."
   type        = string
