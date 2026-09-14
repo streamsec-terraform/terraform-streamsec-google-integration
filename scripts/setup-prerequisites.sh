@@ -189,6 +189,7 @@ SECRET_NAME="${SECRET_NAME:-streamsec-credentials}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-streamsec-integration}"
 GIT_REPO="https://github.com/streamsec-terraform/terraform-streamsec-google-integration"
 GIT_DIRECTORY="infrastructure-manager"
+GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (tag/branch); default = latest release
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
@@ -225,6 +226,8 @@ Optional overrides:
 
 Infrastructure Manager options:
   --deployment-name NAME  Deployment name         (default: $DEPLOYMENT_NAME)
+  --git-ref         REF   Module git ref (tag or branch) for the preview
+                          (default: latest GitHub release)
   --single-project        Integrate only the specified project (not all org projects)
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
@@ -256,6 +259,7 @@ while [[ $# -gt 0 ]]; do
     --sa-name)              SA_NAME="$2";               shift 2 ;;
     --secret-name)          SECRET_NAME="$2";           shift 2 ;;
     --deployment-name)      DEPLOYMENT_NAME="$2";       shift 2 ;;
+    --git-ref)              GIT_REF="$2";               shift 2 ;;
     --start-from-step)      START_FROM_STEP="$2";       shift 2 ;;
     --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
     --project-only)         ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; PROJECT_ONLY=true; shift ;;
@@ -611,7 +615,7 @@ if [[ "$ORG_LEVEL_SINK" == true ]]; then
 else
   echo "  Log Sink Mode    : Project-level (per-project sinks)"
 fi
-echo "  Git Ref          : (auto-detect latest release tag)"
+echo "  Git Ref          : ${GIT_REF:-(auto-detect latest release tag)}"
 echo ""
 
 if [[ "$AUTO_CONFIRM" != true ]]; then
@@ -1069,17 +1073,21 @@ fi
 if [[ $START_FROM_STEP -le 6 ]]; then
   log_step "Step 6/$TOTAL_STEPS: Creating Infrastructure Manager preview deployment..."
 
-  # Determine Git ref (latest release tag)
-  log_info "Determining latest release tag from GitHub..."
-  GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
-    | grep '"tag_name":' \
-    | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-
-  if [[ -z "$GIT_REF" ]]; then
-    log_warn "Could not determine latest release tag. Falling back to 'main' branch."
-    GIT_REF="main"
+  # Determine Git ref: explicit --git-ref wins, otherwise the latest release tag
+  if [[ -n "$GIT_REF" ]]; then
+    log_ok "Using git ref from --git-ref: $GIT_REF"
   else
-    log_ok "Using latest release tag: $GIT_REF"
+    log_info "Determining latest release tag from GitHub..."
+    GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
+      | grep '"tag_name":' \
+      | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+
+    if [[ -z "$GIT_REF" ]]; then
+      log_warn "Could not determine latest release tag. Falling back to 'main' branch."
+      GIT_REF="main"
+    else
+      log_ok "Using latest release tag: $GIT_REF"
+    fi
   fi
 
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"

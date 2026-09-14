@@ -102,6 +102,7 @@ at any time.
 | `--sa-name` | `SA_NAME` | `StreamSecurityInfraManagerSa` | Service account name |
 | `--secret-name` | `SECRET_NAME` | `streamsec-credentials` | Secret Manager secret name |
 | `--deployment-name` | `DEPLOYMENT_NAME` | `streamsec-integration` | IM deployment name |
+| `--git-ref` | `GIT_REF` | latest release | Module git ref (tag or branch) used for the preview |
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
