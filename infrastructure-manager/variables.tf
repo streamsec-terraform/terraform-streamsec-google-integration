@@ -49,7 +49,7 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID to create the Service Account in (REQUIRED if create_sa is true)."
+  description = "The Organization ID. Required unless sa_project_level_permissions is true, include_projects is set, and org_level_sink is false."
   type        = string
   default     = null
 }
