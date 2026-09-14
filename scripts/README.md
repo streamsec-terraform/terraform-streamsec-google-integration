@@ -46,6 +46,7 @@ at any time.
 - `--org-id` is optional. Project `roles/owner` is sufficient.
 - Use this mode when the person running the script cannot get organization-level access.
   To cover more projects, run the script once per project.
+- When resuming with `--start-from-step`, pass `--project-only` again.
 
 ### Prerequisites
 
