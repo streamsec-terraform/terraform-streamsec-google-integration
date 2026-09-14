@@ -10,5 +10,11 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 6.0"
     }
+    # Declared by the root module for the optional vertex-ai-logging module;
+    # must be named here so the provider block below resolves to Mastercard/restapi.
+    restapi = {
+      source  = "Mastercard/restapi"
+      version = ">= 3.0"
+    }
   }
 }

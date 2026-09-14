@@ -12,6 +12,13 @@ provider "streamsec" {
 }
 
 
+# Required even when enable_vertex_ai_logging is false: the module declares the
+# Mastercard `restapi` provider and it needs a `uri` to load. See
+# modules/vertex-ai-logging/README.md for the full configuration when enabling it.
+provider "restapi" {
+  uri = "https://us-central1-aiplatform.googleapis.com"
+}
+
 module "streamsec_google_projects" {
   source = "../../"
   # exclude_projects            = ["xxxxx", "xxxxx"] # will exclude these projects from the integration
