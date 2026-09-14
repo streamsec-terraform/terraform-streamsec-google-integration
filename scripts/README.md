@@ -36,17 +36,32 @@ at any time.
 - Requires `--org-id` and organization-level permissions (same as org mode).
 - Use this mode to minimize scope of log collection and asset discovery, not to avoid org-level permissions.
 
+**Project-only mode (`--project-only`):**
+- Same scope as single-project mode (one project, project-level logging sink).
+- **No organization-level permissions required.** Ops role, runner SA bindings and
+  `roles/config.agent` are all created at the project level.
+- The Stream Security service account gets `roles/viewer` + `roles/iam.securityReviewer`
+  on the project only (`sa_project_level_permissions=true`), so organization- and
+  folder-level IAM is not collected.
+- `--org-id` is optional. Project `roles/owner` is sufficient.
+- Use this mode when the person running the script cannot get organization-level access.
+  To cover more projects, run the script once per project.
+
 ### Prerequisites
 
 - **gcloud CLI** installed and authenticated (`gcloud auth login`)
-- **Organization-level permissions** (choose one):
+- **Organization-level permissions** (org and single-project modes; not needed with `--project-only`), choose one:
   - `roles/owner` (simplest)
   - `roles/iam.organizationRoleAdmin` **+** `roles/resourcemanager.organizationAdmin` (both required)
 - **Project-level permissions** (choose one):
   - `roles/owner` or `roles/editor` (recommended)
   - Minimal: `roles/serviceusage.serviceUsageAdmin` + `roles/iam.serviceAccountAdmin` + `roles/secretmanager.admin` + `roles/config.admin`
 - The script will auto-grant `roles/orgpolicy.policyAdmin` if needed to disable the
-  `iam.disableServiceAccountKeyCreation` constraint at the project level.
+  `iam.disableServiceAccountKeyCreation` constraint at the project level
+  (granted at the project level in `--project-only` mode). If that constraint is
+  enforced and the grant fails, an organization admin must lift it on the project.
+- `--project-only` mode: `roles/owner` on the project (creates custom roles and sets
+  IAM policy; `roles/editor` is not enough).
 
 > **Note:** In org mode, `roles/resourcemanager.organizationAdmin` alone is **not**
 > sufficient — it allows setting IAM policies but cannot create custom roles. You need
@@ -87,6 +102,7 @@ at any time.
 | `--secret-name` | `SECRET_NAME` | `streamsec-credentials` | Secret Manager secret name |
 | `--deployment-name` | `DEPLOYMENT_NAME` | `streamsec-integration` | IM deployment name |
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
+| `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
 | `--skip-permission-check` | `SKIP_PERMISSION_CHECK=true` | — | Skip upfront permission validation |
 | `-y`, `--yes` | `AUTO_CONFIRM=true` | — | Skip all confirmation prompts |
@@ -118,11 +134,23 @@ at any time.
     --single-project
 ```
 
+**Project-only mode (no organization-level permissions):**
+
+```bash
+./setup-prerequisites.sh \
+    --project-id my-gcp-project \
+    --region us-central1 \
+    --streamsec-host app.streamsec.io \
+    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
+    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td \
+    --project-only
+```
+
 ### After the script completes
 
-If the preview succeeded, the script prints a ready-to-use `gcloud infra-manager deployments apply` command.
-You can also create the deployment from the
-[GCP Console](https://console.cloud.google.com/infra-manager/deployments).
+If the preview succeeded, create the deployment from the preview in the
+[GCP Console](https://console.cloud.google.com/infra-manager/deployments)
+(Infrastructure Manager → Previews → select the preview → Create Deployment).
 
 ---
 
