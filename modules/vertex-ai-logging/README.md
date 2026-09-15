@@ -22,7 +22,7 @@ Cloud Scheduler ──► Cloud Function (2nd Gen)
 
 ## Prerequisites
 
-- A **configured `restapi` provider** passed in by the caller, when `enable_request_response_logging` is `true` (see [How Logging Is Enabled](#how-logging-is-enabled)). No Python, and nothing needs to be installed on the machine running Terraform.
+- A **configured `restapi` provider** passed in by the caller. Terraform requires a `uri` for this provider whenever the module is declared, even with `enable_request_response_logging = false` or the module at `count = 0`; the headers and OAuth token are only needed when logging is enabled (see [Supplying the provider](#supplying-the-provider)). No Python, and nothing needs to be installed on the machine running Terraform.
 - **Stream Security API token already stored in Secret Manager** in the same project. This module *reads* the token — it does **not** create the secret. It derives the secret's full version path from the shared `secret_name` / `regional_secret` inputs (the same ones the `real-time-events` module uses to create it), so set them to match. Global and regional secrets are both supported. `use_secret_manager` must be `true`.
 - Required GCP APIs are enabled automatically by the module (toggle with `manage_apis`)
 - Only the Google provider is required (ADC). This module does **not** use the `streamsec` provider — the collection URL is supplied directly via `api_url`, so it can be applied standalone without Stream Security API credentials.
@@ -171,8 +171,11 @@ provider "restapi" {
 The token is short-lived (~1h) and read at plan time; a plan left sitting for hours before apply
 can fail with `401`, in which case re-run the plan.
 
-Set `enable_request_response_logging = false` to skip all of this — no `restapi_object` resources
-are created and the provider does not need to be configured at all.
+Set `enable_request_response_logging = false` to skip the logging setup — no `restapi_object`
+resources are created. The provider block itself is still required: Terraform validates the
+`restapi` provider configuration even when no resource uses it, and it refuses to load without a
+`uri`. A minimal `provider "restapi" { uri = "https://<region>-aiplatform.googleapis.com" }` is
+enough in that case; no request is made.
 
 > **Note:** this config is singular per model + location for the entire project. Enabling it here
 > overwrites the BigQuery destination any other deployment set on the same model in the same
