@@ -1,10 +1,10 @@
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.5"
 
   required_providers {
     streamsec = {
       source  = "streamsec-terraform/streamsec"
-      version = ">= 1.10"
+      version = ">= 1.13"
     }
     google = {
       source  = "hashicorp/google"

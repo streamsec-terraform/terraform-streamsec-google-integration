@@ -320,27 +320,44 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
 
   if [[ "$PROJECT_ONLY" == true ]]; then
     log_info "Project-only mode: skipping organization-level permission checks."
-    log_info "Checking project-level role-creation / IAM permissions..."
-    CURRENT_USER=$(_timeout 5 gcloud config get-value account 2>/dev/null || echo "unknown")
-    if [[ "$CURRENT_USER" != "unknown" ]]; then
-      USER_PROJECT_ROLES=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud projects get-iam-policy "$PROJECT_ID" \
-        --flatten="bindings[].members" \
-        --filter="bindings.members:user:$CURRENT_USER OR bindings.members:serviceAccount:$CURRENT_USER" \
-        --format="value(bindings.role)" 2>/dev/null || echo "")
-      if echo "$USER_PROJECT_ROLES" | grep -qx "roles/owner"; then
-        log_ok "✓ Have Owner role on project '$PROJECT_ID'"
-      elif echo "$USER_PROJECT_ROLES" | grep -qx "roles/editor" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/iam.roleAdmin" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/resourcemanager.projectIamAdmin"; then
-        log_ok "✓ Have Editor + Role Administrator + Project IAM Admin roles on project '$PROJECT_ID'"
-      elif _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --project="$PROJECT_ID" &>/dev/null; then
-        log_ok "✓ Ops role already exists in project '$PROJECT_ID' (previous run); skipping role-permission check"
+    log_info "Checking effective project permissions (includes roles inherited via groups and folders)..."
+    # projects.testIamPermissions reports effective permissions, so no role-name
+    # matching is needed and inherited Owner is handled. Fail here, before Step 1
+    # mutates anything, if a required permission is missing.
+    REQUIRED_PROJECT_PERMISSIONS=(
+      serviceusage.services.enable          # Step 1: enable APIs
+      resourcemanager.projects.setIamPolicy # Step 1/4: IAM bindings
+      iam.roles.create                      # Step 2: custom roles
+      iam.roles.update
+      iam.roles.undelete
+      iam.serviceAccounts.create            # Step 3: runner SA
+      iam.serviceAccounts.actAs             # Step 6: preview runs as the runner SA
+      secretmanager.secrets.create          # Step 5: credentials secret
+      config.previews.create                # Step 6: Infrastructure Manager preview
+    )
+    PERMS_JSON=$(printf '"%s",' "${REQUIRED_PROJECT_PERMISSIONS[@]}"); PERMS_JSON="[${PERMS_JSON%,}]"
+    TEST_ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
+    TEST_HTTP_CODE=""
+    if [[ -n "$TEST_ACCESS_TOKEN" ]]; then
+      TEST_HTTP_CODE=$(curl -s -o /tmp/ss-test-iam.json -w "%{http_code}" \
+        -X POST "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions" \
+        -H "Authorization: Bearer $TEST_ACCESS_TOKEN" -H "Content-Type: application/json" \
+        -d "{\"permissions\": $PERMS_JSON}" 2>/dev/null || echo "000")
+    fi
+    if [[ "$TEST_HTTP_CODE" == "200" ]]; then
+      MISSING_PERMS=()
+      for perm in "${REQUIRED_PROJECT_PERMISSIONS[@]}"; do
+        grep -q "\"$perm\"" /tmp/ss-test-iam.json || MISSING_PERMS+=("$perm")
+      done
+      if [[ ${#MISSING_PERMS[@]} -eq 0 ]]; then
+        log_ok "✓ Have all required permissions on project '$PROJECT_ID'"
       else
-        # Only direct bindings are visible here; Owner inherited via a group or a
-        # folder is not. Warn rather than fail, and let Step 2/4 report if it is missing.
-        PERMISSION_WARNINGS+=("⚠️  Could not confirm roles/owner (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin) on project '$PROJECT_ID' from direct bindings. If your access is inherited via a group or folder this is expected; otherwise Step 2 (custom roles) or Step 4 (IAM bindings) will fail.")
+        PERMISSION_ERRORS+=("❌ Missing permissions on project '$PROJECT_ID': ${MISSING_PERMS[*]}. roles/owner covers all of them (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin).")
       fi
     else
-      PERMISSION_WARNINGS+=("⚠️  Could not determine current user for project permission check")
+      PERMISSION_WARNINGS+=("⚠️  Could not verify project permissions (testIamPermissions returned HTTP ${TEST_HTTP_CODE:-none}); continuing. If permissions are missing, Step 2 or Step 4 will fail.")
     fi
+    rm -f /tmp/ss-test-iam.json
   else
   # Test organization-level permissions (required unless --project-only)
   log_info "Checking organization-level permissions..."
@@ -677,6 +694,7 @@ done
     log_warn "Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $POLICY_RC) — continuing. If it is enforced, service account key creation will fail during apply."
   elif [[ "$POLICY_ENFORCED" == "True" ]]; then
     log_warn "Organization policy 'iam.disableServiceAccountKeyCreation' is enforced — disabling at project level..."
+    log_warn "This overrides an organization-wide control for project '$PROJECT_ID' only, so that a key can be created for the Stream Security service account."
     if ! gcloud resource-manager org-policies disable-enforce \
       constraints/iam.disableServiceAccountKeyCreation \
       --project="$PROJECT_ID" \
