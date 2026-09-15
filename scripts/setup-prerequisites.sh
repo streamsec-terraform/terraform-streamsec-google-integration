@@ -195,7 +195,7 @@ SECRET_NAME="${SECRET_NAME:-streamsec-credentials}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-streamsec-integration}"
 GIT_REPO="https://github.com/streamsec-terraform/terraform-streamsec-google-integration"
 GIT_DIRECTORY="infrastructure-manager"
-GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (tag/branch); default = latest release
+GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (a tag, or a slash-free ref); default = latest release
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
@@ -233,8 +233,9 @@ Optional overrides:
 
 Infrastructure Manager options:
   --deployment-name NAME  Deployment name         (default: $DEPLOYMENT_NAME)
-  --git-ref         REF   Module git ref (tag or branch) for the preview
-                          (default: latest GitHub release)
+  --git-ref         REF   Module git ref for the preview: a tag or a slash-free
+                          ref (default: latest GitHub release). Infrastructure
+                          Manager cannot fetch refs containing '/'.
   --single-project        Integrate only the specified project (not all org projects)
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
