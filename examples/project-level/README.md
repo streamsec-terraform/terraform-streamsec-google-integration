@@ -23,11 +23,12 @@ discovery to fall back on.
 
 ## What gets deployed
 
-Per project in `include_projects`, all within the project:
-
-- Stream Security service account and key, with Viewer + Security Reviewer
-- Pub/Sub topic, project-level log sink, and a Gen2 Cloud Function for real-time events
-- Secret Manager secret holding the collection token
+- One Stream Security service account and key, in `project_for_sa` (or the
+  provider project), with Viewer + Security Reviewer bound on every project in
+  `include_projects`
+- Per project in `include_projects`: a Pub/Sub topic, a project-level log sink, a
+  Gen2 Cloud Function for real-time events, and a Secret Manager secret holding
+  the collection token
 
 ## Trade-offs
 
@@ -39,8 +40,8 @@ are not collected:
 - Organization policies and other resources that live at the organization or
   folder level.
 
-Scans and account acknowledgement still succeed. The affected resource types
-come back empty rather than failing the scan.
+Account acknowledgement and scanning still succeed; organization-scoped
+resource types are simply not collected.
 
 To cover more projects, add them to `include_projects` and grant the deployer
 `roles/owner` on each, or run this configuration once per project.

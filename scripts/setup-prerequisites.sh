@@ -57,8 +57,9 @@
 #   - The script checks whether the authenticated user has
 #     'roles/orgpolicy.policyAdmin' and, if missing, automatically grants it
 #     at the organization level (requires sufficient privileges, e.g. roles/owner).
-#     With --project-only it is granted at the project level instead, and only
-#     if the constraint is actually enforced on the project.
+#     With --project-only the script never grants it: if the constraint is
+#     enforced on the project and the user lacks the role, the script stops and
+#     prints the command an organization admin needs to run.
 #
 # Required Permissions:
 #   Organization level (choose one):
@@ -330,8 +331,12 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         log_ok "✓ Have Owner role on project '$PROJECT_ID'"
       elif echo "$USER_PROJECT_ROLES" | grep -qx "roles/editor" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/iam.roleAdmin" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/resourcemanager.projectIamAdmin"; then
         log_ok "✓ Have Editor + Role Administrator + Project IAM Admin roles on project '$PROJECT_ID'"
+      elif _timeout "$PERMISSION_CHECK_TIMEOUT" gcloud iam roles describe "$CUSTOM_ROLE_ID" --project="$PROJECT_ID" &>/dev/null; then
+        log_ok "✓ Ops role already exists in project '$PROJECT_ID' (previous run); skipping role-permission check"
       else
-        PERMISSION_ERRORS+=("❌ Project-only mode needs roles/owner on project '$PROJECT_ID' (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin). If your role is inherited via a group or folder, re-run with --skip-permission-check.")
+        # Only direct bindings are visible here; Owner inherited via a group or a
+        # folder is not. Warn rather than fail, and let Step 2/4 report if it is missing.
+        PERMISSION_WARNINGS+=("⚠️  Could not confirm roles/owner (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin) on project '$PROJECT_ID' from direct bindings. If your access is inherited via a group or folder this is expected; otherwise Step 2 (custom roles) or Step 4 (IAM bindings) will fail.")
       fi
     else
       PERMISSION_WARNINGS+=("⚠️  Could not determine current user for project permission check")
@@ -473,22 +478,16 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         constraints/iam.disableServiceAccountKeyCreation --effective --project="$PROJECT_ID" \
         --format="value(booleanPolicy.enforced)" 2>/dev/null) || KEY_POLICY_RC=$?
       if [[ $KEY_POLICY_RC -ne 0 ]]; then
-        PERMISSION_WARNINGS+=("⚠️  Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $KEY_POLICY_RC). If it is enforced on '$PROJECT_ID', service account key creation will fail during apply unless an org admin lifts it.")
+        PERMISSION_WARNINGS+=("⚠️  Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $KEY_POLICY_RC). If it is enforced on '$PROJECT_ID', service account key creation will fail during the Infrastructure Manager apply unless an org admin lifts it.")
       elif [[ "$KEY_POLICY_ENFORCED" != "True" ]]; then
         log_ok "✓ 'iam.disableServiceAccountKeyCreation' is not enforced on '$PROJECT_ID'; 'roles/orgpolicy.policyAdmin' not needed."
       else
-        log_warn "Org policy 'iam.disableServiceAccountKeyCreation' is enforced on '$PROJECT_ID'."
-        log_warn "Step 1 will override it at the PROJECT level (this relaxes an organization-wide control for this project only)."
-        log_info "Attempting to grant 'roles/orgpolicy.policyAdmin' to '$CURRENT_USER_FOR_POLICY' on project '$PROJECT_ID'..."
-        if gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-          --member="user:$CURRENT_USER_FOR_POLICY" \
-          --role="roles/orgpolicy.policyAdmin" \
-          --condition=None \
-          --quiet >/dev/null; then
-          log_ok "✓ Granted 'roles/orgpolicy.policyAdmin' on project '$PROJECT_ID'."
-        else
-          PERMISSION_WARNINGS+=("⚠️  Could not grant 'roles/orgpolicy.policyAdmin' — Step 1 will fail unless an org admin lifts 'iam.disableServiceAccountKeyCreation' on '$PROJECT_ID'.")
-        fi
+        # Deliberately no self-grant here: overriding an organization policy is an
+        # org-admin decision, and a project Owner should not be able to make it alone.
+        PERMISSION_ERRORS+=("❌ Org policy 'iam.disableServiceAccountKeyCreation' is enforced on '$PROJECT_ID' and you do not have 'roles/orgpolicy.policyAdmin'. The integration creates a service account key, so an organization admin must either lift the constraint on this project or grant you 'roles/orgpolicy.policyAdmin' on it:
+    gcloud resource-manager org-policies disable-enforce constraints/iam.disableServiceAccountKeyCreation --project=$PROJECT_ID
+    # or
+    gcloud projects add-iam-policy-binding $PROJECT_ID --member='user:$CURRENT_USER_FOR_POLICY' --role='roles/orgpolicy.policyAdmin'")
       fi
     else
       log_warn "User '$CURRENT_USER_FOR_POLICY' is missing 'roles/orgpolicy.policyAdmin'."
@@ -520,16 +519,16 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     echo "Required permissions:"
     echo ""
     if [[ "$PROJECT_ONLY" == true ]]; then
-    echo "Project-only mode — project level (choose one):"
-    echo "  • roles/owner on project $PROJECT_ID (simplest)"
-    echo "  • roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin"
-    echo ""
-    echo "To grant it, run:"
-    echo "  gcloud projects add-iam-policy-binding $PROJECT_ID \\"
-    echo "    --member='user:YOUR_EMAIL' \\"
-    echo "    --role='roles/owner'"
-    echo ""
-    exit 1
+      echo "Project-only mode — project level (choose one):"
+      echo "  • roles/owner on project $PROJECT_ID (simplest)"
+      echo "  • roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin"
+      echo ""
+      echo "To grant it, run:"
+      echo "  gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+      echo "    --member='user:YOUR_EMAIL' \\"
+      echo "    --role='roles/owner'"
+      echo ""
+      exit 1
     fi
     echo "No organization-level access? Re-run with --project-only (project Owner is enough;"
     echo "Stream Security will be scoped to this project only)."
@@ -1083,7 +1082,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   if [[ -n "$GIT_REF" ]]; then
     log_ok "Using git ref from --git-ref: $GIT_REF"
     if [[ "$GIT_REF" == */* ]]; then
-      log_warn "Git ref '$GIT_REF' contains '/'. Infrastructure Manager splits refs on '/' (it will look for directory '${GIT_REF#*/}' at ref '${GIT_REF%%/*}'). Use a tag without slashes."
+      log_warn "Git ref '$GIT_REF' contains '/'. In testing, Infrastructure Manager failed to fetch such refs (the part after the slash was treated as a subdirectory). Use a tag without slashes."
     fi
   else
     log_info "Determining latest release tag from GitHub..."

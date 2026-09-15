@@ -63,14 +63,4 @@ module "streamsec_google_projects" {
   org_level_sink          = false
   use_secret_manager      = true
   regional_secret         = true
-
-  #############################################################################
-  # Response (optional)
-  #
-  # Works without org permissions only with project-level permissions set.
-  #############################################################################
-
-  # response_enabled_projects      = ["my-gcp-project"]
-  # response_org_level_permissions = false
-  # region                         = "us-central1"
 }

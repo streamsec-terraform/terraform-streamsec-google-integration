@@ -91,6 +91,7 @@ resource "google_project_iam_member" "project_security_reviewer" {
   role     = "roles/iam.securityReviewer"
   member   = "serviceAccount:${google_service_account.org[0].email}"
 }
+
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
   for_each        = { for k, v in local.projects : k => v }
@@ -156,11 +157,10 @@ module "response" {
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
 }
 
-# Fail clearly if response is enabled but no region was provided (region is
-# required by modules/response for Cloud Workflows deployment).
 # sa_project_level_permissions only has an effect with create_sa = true, and it
 # needs an explicit project list because org-wide discovery is not possible
-# without organization-level access.
+# without organization-level access. (check blocks warn; the hard stop for the
+# create_sa = true case is the precondition on google_service_account.org.)
 check "project_level_permissions" {
   assert {
     condition     = !var.sa_project_level_permissions || (var.create_sa && length(var.include_projects) > 0)
@@ -168,14 +168,23 @@ check "project_level_permissions" {
   }
 }
 
-# org_id is optional only in the fully project-scoped configuration.
+# org_id is needed by every organization-scoped operation. Warn when one of
+# them is enabled without it.
 check "org_id_required" {
   assert {
-    condition     = try(var.org_id != null && var.org_id != "", false) || (var.sa_project_level_permissions && length(var.include_projects) > 0 && !var.org_level_sink)
-    error_message = "`org_id` is required unless `sa_project_level_permissions = true`, `include_projects` is set, and `org_level_sink = false`."
+    condition = try(var.org_id != null && var.org_id != "", false) || !(
+      (var.create_sa && !var.sa_project_level_permissions)
+      || length(var.include_projects) == 0
+      || (var.enable_real_time_events && var.org_level_sink)
+      || var.enable_gke_logs
+      || (length(var.response_enabled_projects) > 0 && var.response_org_level_permissions)
+    )
+    error_message = "`org_id` is required for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
   }
 }
 
+# Fail clearly if response is enabled but no region was provided (region is
+# required by modules/response for Cloud Workflows deployment).
 check "response_region" {
   assert {
     condition     = length(var.response_enabled_projects) == 0 || try(var.region != null && var.region != "", false)
