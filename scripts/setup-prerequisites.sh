@@ -326,12 +326,12 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         --flatten="bindings[].members" \
         --filter="bindings.members:user:$CURRENT_USER OR bindings.members:serviceAccount:$CURRENT_USER" \
         --format="value(bindings.role)" 2>/dev/null || echo "")
-      if echo "$USER_PROJECT_ROLES" | grep -q "roles/owner"; then
+      if echo "$USER_PROJECT_ROLES" | grep -qx "roles/owner"; then
         log_ok "✓ Have Owner role on project '$PROJECT_ID'"
-      elif echo "$USER_PROJECT_ROLES" | grep -q "roles/iam.roleAdmin" && echo "$USER_PROJECT_ROLES" | grep -q "roles/resourcemanager.projectIamAdmin"; then
-        log_ok "✓ Have Role Administrator + Project IAM Admin roles on project '$PROJECT_ID'"
+      elif echo "$USER_PROJECT_ROLES" | grep -qx "roles/editor" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/iam.roleAdmin" && echo "$USER_PROJECT_ROLES" | grep -qx "roles/resourcemanager.projectIamAdmin"; then
+        log_ok "✓ Have Editor + Role Administrator + Project IAM Admin roles on project '$PROJECT_ID'"
       else
-        PERMISSION_ERRORS+=("❌ Project-only mode needs roles/owner on project '$PROJECT_ID' (or roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin); roles/editor is not enough. If your role is inherited via a group or folder, re-run with --skip-permission-check.")
+        PERMISSION_ERRORS+=("❌ Project-only mode needs roles/owner on project '$PROJECT_ID' (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin). If your role is inherited via a group or folder, re-run with --skip-permission-check.")
       fi
     else
       PERMISSION_WARNINGS+=("⚠️  Could not determine current user for project permission check")
@@ -468,10 +468,13 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       log_ok "✓ User '$CURRENT_USER_FOR_POLICY' already has 'roles/orgpolicy.policyAdmin'."
     elif [[ "$PROJECT_ONLY" == true ]]; then
       # Only take on org-policy rights if the constraint is actually enforced here.
+      KEY_POLICY_RC=0
       KEY_POLICY_ENFORCED=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud resource-manager org-policies describe \
         constraints/iam.disableServiceAccountKeyCreation --effective --project="$PROJECT_ID" \
-        --format="value(booleanPolicy.enforced)" 2>/dev/null || echo "")
-      if [[ "$KEY_POLICY_ENFORCED" != "True" ]]; then
+        --format="value(booleanPolicy.enforced)" 2>/dev/null) || KEY_POLICY_RC=$?
+      if [[ $KEY_POLICY_RC -ne 0 ]]; then
+        PERMISSION_WARNINGS+=("⚠️  Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $KEY_POLICY_RC). If it is enforced on '$PROJECT_ID', service account key creation will fail during apply unless an org admin lifts it.")
+      elif [[ "$KEY_POLICY_ENFORCED" != "True" ]]; then
         log_ok "✓ 'iam.disableServiceAccountKeyCreation' is not enforced on '$PROJECT_ID'; 'roles/orgpolicy.policyAdmin' not needed."
       else
         log_warn "Org policy 'iam.disableServiceAccountKeyCreation' is enforced on '$PROJECT_ID'."
@@ -519,7 +522,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     if [[ "$PROJECT_ONLY" == true ]]; then
     echo "Project-only mode — project level (choose one):"
     echo "  • roles/owner on project $PROJECT_ID (simplest)"
-    echo "  • roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin + roles/editor"
+    echo "  • roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin"
     echo ""
     echo "To grant it, run:"
     echo "  gcloud projects add-iam-policy-binding $PROJECT_ID \\"
@@ -664,13 +667,16 @@ done
   # Disable service account key creation constraint at project level (if enforced)
   log_info "Checking organization policy 'constraints/iam.disableServiceAccountKeyCreation'..."
 
+  POLICY_RC=0
   POLICY_ENFORCED=$(gcloud resource-manager org-policies describe \
     constraints/iam.disableServiceAccountKeyCreation \
     --effective \
     --project="$PROJECT_ID" \
-    --format="value(booleanPolicy.enforced)" 2>/dev/null || echo "")
+    --format="value(booleanPolicy.enforced)" 2>/dev/null) || POLICY_RC=$?
 
-  if [[ "$POLICY_ENFORCED" == "True" ]]; then
+  if [[ $POLICY_RC -ne 0 ]]; then
+    log_warn "Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $POLICY_RC) — continuing. If it is enforced, service account key creation will fail during apply."
+  elif [[ "$POLICY_ENFORCED" == "True" ]]; then
     log_warn "Organization policy 'iam.disableServiceAccountKeyCreation' is enforced — disabling at project level..."
     if ! gcloud resource-manager org-policies disable-enforce \
       constraints/iam.disableServiceAccountKeyCreation \
@@ -1076,6 +1082,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   # Determine Git ref: explicit --git-ref wins, otherwise the latest release tag
   if [[ -n "$GIT_REF" ]]; then
     log_ok "Using git ref from --git-ref: $GIT_REF"
+    if [[ "$GIT_REF" == */* ]]; then
+      log_warn "Git ref '$GIT_REF' contains '/'. Infrastructure Manager splits refs on '/' (it will look for directory '${GIT_REF#*/}' at ref '${GIT_REF%%/*}'). Use a tag without slashes."
+    fi
   else
     log_info "Determining latest release tag from GitHub..."
     GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \

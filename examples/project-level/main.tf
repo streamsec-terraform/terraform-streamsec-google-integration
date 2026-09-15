@@ -6,10 +6,9 @@
 #
 # Trade-offs vs. the org-level integration:
 #   - Only the listed project is integrated. Run this per project to cover more.
-#   - Organization- and folder-level IAM, org policies, hierarchical firewall
-#     policies and VPC Service Controls perimeters are not collected, so
-#     permissions a principal inherits from above the project are not visible.
-#   - Security Command Center findings are not collected.
+#   - Organization- and folder-level IAM bindings and org policies are not
+#     collected, so permissions a principal inherits from above the project
+#     are not visible.
 ###############################################################################
 
 provider "google" {
@@ -21,6 +20,13 @@ provider "streamsec" {
   host         = "xxxxx.streamsec.io" # required
   workspace_id = "xxxxxxxxxxxx"       # required
   api_token    = "xxxxxxxxxxxx"       # required unless username and password are set
+}
+
+# Required even when enable_vertex_ai_logging is false: the module declares the
+# Mastercard `restapi` provider and it needs a `uri` to load. See
+# modules/vertex-ai-logging/README.md for the full configuration when enabling it.
+provider "restapi" {
+  uri = "https://us-central1-aiplatform.googleapis.com"
 }
 
 module "streamsec_google_projects" {
