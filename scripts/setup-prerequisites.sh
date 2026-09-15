@@ -112,6 +112,11 @@
 #
 set -euo pipefail
 
+# Temp files for API responses; removed on any exit.
+TMP_TEST_IAM=$(mktemp)
+TMP_PREVIEW_RESP=$(mktemp)
+trap 'rm -f "$TMP_TEST_IAM" "$TMP_PREVIEW_RESP"' EXIT
+
 ###############################################################################
 # Colours / helpers
 ###############################################################################
@@ -339,7 +344,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     TEST_ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
     TEST_HTTP_CODE=""
     if [[ -n "$TEST_ACCESS_TOKEN" ]]; then
-      TEST_HTTP_CODE=$(curl -s -o /tmp/ss-test-iam.json -w "%{http_code}" \
+      TEST_HTTP_CODE=$(curl -s -o "$TMP_TEST_IAM" -w "%{http_code}" \
         -X POST "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions" \
         -H "Authorization: Bearer $TEST_ACCESS_TOKEN" -H "Content-Type: application/json" \
         -d "{\"permissions\": $PERMS_JSON}" 2>/dev/null || echo "000")
@@ -347,7 +352,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     if [[ "$TEST_HTTP_CODE" == "200" ]]; then
       MISSING_PERMS=()
       for perm in "${REQUIRED_PROJECT_PERMISSIONS[@]}"; do
-        grep -q "\"$perm\"" /tmp/ss-test-iam.json || MISSING_PERMS+=("$perm")
+        grep -qF "\"$perm\"" "$TMP_TEST_IAM" || MISSING_PERMS+=("$perm")
       done
       if [[ ${#MISSING_PERMS[@]} -eq 0 ]]; then
         log_ok "✓ Have all required permissions on project '$PROJECT_ID'"
@@ -357,7 +362,6 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     else
       PERMISSION_WARNINGS+=("⚠️  Could not verify project permissions (testIamPermissions returned HTTP ${TEST_HTTP_CODE:-none}); continuing. If permissions are missing, Step 2 or Step 4 will fail.")
     fi
-    rm -f /tmp/ss-test-iam.json
   else
   # Test organization-level permissions (required unless --project-only)
   log_info "Checking organization-level permissions..."
@@ -1163,7 +1167,7 @@ JSONEOF
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
 
-    HTTP_CODE=$(curl -s -o /tmp/im-preview-response.json -w "%{http_code}" \
+    HTTP_CODE=$(curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
       -X POST "$API_URL" \
       -H "Authorization: Bearer $ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
@@ -1184,11 +1188,10 @@ JSONEOF
       PREVIEW_CREATE_EXIT_CODE=0
     else
       log_error "REST API returned HTTP $HTTP_CODE"
-      cat /tmp/im-preview-response.json 2>/dev/null
+      cat "$TMP_PREVIEW_RESP" 2>/dev/null
       echo ""
       PREVIEW_CREATE_EXIT_CODE=1
     fi
-    rm -f /tmp/im-preview-response.json
   else
     gcloud infra-manager previews create "$PREVIEW_NAME" \
       --project="$PROJECT_ID" \
