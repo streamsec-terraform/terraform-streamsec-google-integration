@@ -34,11 +34,10 @@ Per project in `include_projects`, all within the project:
 The service account can only see what lives at or below the project, so these
 are not collected:
 
-- Organization- and folder-level IAM policies. Permissions a principal inherits
+- Organization- and folder-level IAM bindings. Permissions a principal inherits
   from above the project will not appear as effective permissions.
-- Organization policies, hierarchical firewall policies, VPC Service Controls
-  perimeters, and org-level custom roles and deny policies.
-- Security Command Center findings, which are queried at organization scope.
+- Organization policies and other resources that live at the organization or
+  folder level.
 
 Scans and account acknowledgement still succeed. The affected resource types
 come back empty rather than failing the scan.

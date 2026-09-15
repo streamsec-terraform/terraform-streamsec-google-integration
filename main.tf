@@ -95,7 +95,13 @@ resource "google_project_iam_member" "project_security_reviewer" {
 resource "time_sleep" "this" {
   for_each        = { for k, v in local.projects : k => v }
   create_duration = "10s"
-  depends_on      = [streamsec_gcp_project.this]
+  depends_on = [
+    streamsec_gcp_project.this,
+    google_organization_iam_member.this,
+    google_organization_iam_member.security_reviewer,
+    google_project_iam_member.project_viewer,
+    google_project_iam_member.project_security_reviewer,
+  ]
 }
 
 resource "streamsec_gcp_project_ack" "this" {
@@ -152,6 +158,24 @@ module "response" {
 
 # Fail clearly if response is enabled but no region was provided (region is
 # required by modules/response for Cloud Workflows deployment).
+# sa_project_level_permissions only has an effect with create_sa = true, and it
+# needs an explicit project list because org-wide discovery is not possible
+# without organization-level access.
+check "project_level_permissions" {
+  assert {
+    condition     = !var.sa_project_level_permissions || (var.create_sa && length(var.include_projects) > 0)
+    error_message = "`sa_project_level_permissions = true` requires `create_sa = true` and a non-empty `include_projects`."
+  }
+}
+
+# org_id is optional only in the fully project-scoped configuration.
+check "org_id_required" {
+  assert {
+    condition     = try(var.org_id != null && var.org_id != "", false) || (var.sa_project_level_permissions && length(var.include_projects) > 0 && !var.org_level_sink)
+    error_message = "`org_id` is required unless `sa_project_level_permissions = true`, `include_projects` is set, and `org_level_sink = false`."
+  }
+}
+
 check "response_region" {
   assert {
     condition     = length(var.response_enabled_projects) == 0 || try(var.region != null && var.region != "", false)

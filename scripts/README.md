@@ -43,7 +43,8 @@ at any time.
 - The Stream Security service account gets `roles/viewer` + `roles/iam.securityReviewer`
   on the project only (`sa_project_level_permissions=true`), so organization- and
   folder-level IAM is not collected.
-- `--org-id` is optional. Project `roles/owner` is sufficient.
+- `--org-id` is optional. Project `roles/owner` is sufficient (see Prerequisites for the
+  Editor-based alternative).
 - Use this mode when the person running the script cannot get organization-level access.
   To cover more projects, run the script once per project.
 - When resuming with `--start-from-step`, pass `--project-only` again.
@@ -61,8 +62,9 @@ at any time.
   `iam.disableServiceAccountKeyCreation` constraint at the project level
   (granted at the project level in `--project-only` mode). If that constraint is
   enforced and the grant fails, an organization admin must lift it on the project.
-- `--project-only` mode: `roles/owner` on the project (creates custom roles and sets
-  IAM policy; `roles/editor` is not enough).
+- `--project-only` mode: `roles/owner` on the project, or `roles/editor` +
+  `roles/iam.roleAdmin` + `roles/resourcemanager.projectIamAdmin` (custom roles and
+  project IAM policy are needed; `roles/editor` alone is not enough).
 
 > **Note:** In org mode, `roles/resourcemanager.organizationAdmin` alone is **not**
 > sufficient — it allows setting IAM policies but cannot create custom roles. You need
