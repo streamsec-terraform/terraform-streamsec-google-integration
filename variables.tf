@@ -60,7 +60,7 @@ variable "create_sa" {
 }
 
 variable "sa_project_level_permissions" {
-  description = "When true (with create_sa = true), grant roles/viewer and roles/iam.securityReviewer to the Stream Security service account on each integrated project instead of on the organization. Requires include_projects. Use when no organization-level permissions are available; org- and folder-level IAM will not be collected."
+  description = "When true (and create_sa = true; otherwise ignored), grant roles/viewer and roles/iam.securityReviewer to the Stream Security service account on each integrated project instead of on the organization. Requires include_projects. Use when no organization-level permissions are available; org- and folder-level IAM will not be collected."
   type        = bool
   default     = false
 }

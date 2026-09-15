@@ -23,16 +23,17 @@ discovery to fall back on.
 
 ## Prerequisites
 
-- `roles/owner` on the project (or `roles/editor` + `roles/iam.roleAdmin` +
-  `roles/resourcemanager.projectIamAdmin`).
+- `roles/owner` on the project. (Terraform sets IAM policy on the project, the
+  Pub/Sub topic and the secret; `roles/editor` lacks those `setIamPolicy`
+  permissions.)
 - The module creates a JSON key for the Stream Security service account. If the
   organization policy `iam.disableServiceAccountKeyCreation` is enforced on the
   project, either have an organization admin lift it for this project (or grant
   you `roles/orgpolicy.policyAdmin` on the project), or skip key creation by
   setting `create_sa = false` and `existing_sa_json_file_path` to a key an admin
-  created for you. In that case the service account must already hold
-  `roles/viewer` and `roles/iam.securityReviewer` on each project in
-  `include_projects`.
+  created for you. In that case `sa_project_level_permissions` is ignored and
+  the service account must already hold `roles/viewer` and
+  `roles/iam.securityReviewer` on each project in `include_projects`.
 
 ## What gets deployed
 
