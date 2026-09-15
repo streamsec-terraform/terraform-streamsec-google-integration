@@ -49,7 +49,7 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID. Required unless sa_project_level_permissions is true, include_projects is set, and org_level_sink is false."
+  description = "The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
   type        = string
   default     = null
 }

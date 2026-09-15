@@ -29,7 +29,7 @@ provider "streamsec" {
 # Infrastructure Manager preview since v2.9.0. A placeholder URI keeps init and
 # plan working; no request is made unless Vertex AI logging is enabled.
 provider "restapi" {
-  uri = "https://${var.google_region}-aiplatform.googleapis.com"
+  uri = "https://${coalesce(var.google_region, "us-central1")}-aiplatform.googleapis.com"
 }
 
 module "streamsec_google_projects" {

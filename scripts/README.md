@@ -14,11 +14,11 @@ at any time.
 | Step | Description |
 |------|-------------|
 | 1 | Enables required GCP APIs and configures the project (org-policy override, Cloud Build SA permissions) |
-| 2 | Creates two custom IAM roles: an **ops role** (IAM, logging, resource management) always created at organization level, and a **project resources role** (pubsub, secrets, functions) always created at project level. |
+| 2 | Creates two custom IAM roles: an **ops role** (IAM, logging, resource management) at organization level (project level with `--project-only`), and a **project resources role** (pubsub, secrets, functions) at project level. |
 | 3 | Creates a service account for Infrastructure Manager in the target project |
-| 4 | Grants both custom roles and `roles/config.agent` to the service account at organization level |
+| 4 | Grants both custom roles and `roles/config.agent` to the service account (organization level, or project level with `--project-only`) |
 | 5 | Creates the StreamSecurity credentials secret in Secret Manager |
-| 6 | Auto-detects the latest release tag, creates an Infrastructure Manager preview deployment, and monitors it until completion |
+| 6 | Uses the latest release tag (or `--git-ref`), creates an Infrastructure Manager preview deployment, and monitors it until completion |
 
 ### Modes
 
@@ -59,9 +59,9 @@ at any time.
   - `roles/owner` or `roles/editor` (recommended)
   - Minimal: `roles/serviceusage.serviceUsageAdmin` + `roles/iam.serviceAccountAdmin` + `roles/secretmanager.admin` + `roles/config.admin`
 - The script will auto-grant `roles/orgpolicy.policyAdmin` if needed to disable the
-  `iam.disableServiceAccountKeyCreation` constraint at the project level
-  (granted at the project level in `--project-only` mode). If that constraint is
-  enforced and the grant fails, an organization admin must lift it on the project.
+  `iam.disableServiceAccountKeyCreation` constraint at the project level. In
+  `--project-only` mode it does **not** self-grant: if the constraint is enforced on
+  the project, the script stops and prints the command an organization admin must run.
 - `--project-only` mode: `roles/owner` on the project, or `roles/editor` +
   `roles/iam.roleAdmin` + `roles/resourcemanager.projectIamAdmin` (custom roles and
   project IAM policy are needed; `roles/editor` alone is not enough).
@@ -88,7 +88,7 @@ at any time.
 | Flag | Env var | Description |
 |------|---------|-------------|
 | `--project-id` | `PROJECT_ID` | GCP project for the Infrastructure Manager deployment |
-| `--org-id` | `ORGANIZATION_ID` | GCP organization ID (always required) |
+| `--org-id` | `ORGANIZATION_ID` | GCP organization ID (required unless `--project-only`) |
 | `--region` | `REGION` | GCP region (e.g. `us-central1`) |
 | `--streamsec-host` | `STREAMSEC_HOST` | StreamSecurity host (e.g. `your-org.streamsec.io`) |
 | `--workspace-id` | `WORKSPACE_ID` | StreamSecurity workspace ID |
