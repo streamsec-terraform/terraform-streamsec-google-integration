@@ -1,8 +1,10 @@
 # if var.org_integration is true, find all of the projects in the organization and add them to the var.projects map
 data "google_cloud_asset_search_all_resources" "this" {
   # Org-wide discovery is skipped when projects are listed explicitly, and also when
-  # project-level permissions are requested (no organization access to search with).
-  count       = length(var.include_projects) > 0 || var.sa_project_level_permissions ? 0 : 1
+  # project-level permissions are in effect (create_sa with sa_project_level_permissions:
+  # no organization access to search with). With create_sa = false the flag is a no-op
+  # and discovery behaves as before.
+  count       = length(var.include_projects) > 0 || (var.create_sa && var.sa_project_level_permissions) ? 0 : 1
   scope       = "organizations/${var.org_id}"
   asset_types = ["cloudresourcemanager.googleapis.com/Project"]
 }
@@ -16,7 +18,7 @@ locals {
   _all_projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
     project_id = p.project_id
     name       = p.name
-    } if !contains(var.exclude_projects, p.project_id) } : var.sa_project_level_permissions ? {} : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
+    } if !contains(var.exclude_projects, p.project_id) } : (var.create_sa && var.sa_project_level_permissions) ? {} : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
     project_id = split("projects/", p.name)[1]
     name       = p.display_name
   } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
@@ -159,14 +161,15 @@ module "response" {
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
 }
 
-# sa_project_level_permissions only has an effect with create_sa = true, and it
-# needs an explicit project list because org-wide discovery is not possible
-# without organization-level access. (check blocks warn; the hard stop for the
-# create_sa = true case is the precondition on google_service_account.org.)
+# sa_project_level_permissions needs an explicit project list because org-wide
+# discovery is not possible without organization-level access. With create_sa = false
+# the flag is a no-op (the existing service account's bindings are the caller's job).
+# (check blocks warn; the hard stop for the create_sa = true case is the
+# precondition on google_service_account.org.)
 check "project_level_permissions" {
   assert {
-    condition     = !var.sa_project_level_permissions || (var.create_sa && length(var.include_projects) > 0)
-    error_message = "`sa_project_level_permissions = true` requires `create_sa = true` and a non-empty `include_projects`."
+    condition     = !var.sa_project_level_permissions || length(var.include_projects) > 0
+    error_message = "`sa_project_level_permissions = true` requires a non-empty `include_projects`."
   }
 }
 

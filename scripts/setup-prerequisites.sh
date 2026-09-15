@@ -37,8 +37,9 @@
 #       project only (sa_project_level_permissions=true); org/folder IAM not collected
 #     - --org-id is optional; project Owner is sufficient
 #
-# If the preview succeeds, the script provides instructions to create the
-# actual deployment via the GCP Console or gcloud CLI.
+# If the preview succeeds, the script prints the input values to keep and
+# instructions to create the actual deployment from the preview in the GCP
+# Console.
 #
 # Idempotency and Safety:
 #   - The script checks for existing resources before creating them
@@ -359,7 +360,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       TEST_HTTP_CODE=$(curl -s -o "$TMP_TEST_IAM" -w "%{http_code}" \
         -X POST "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions" \
         -H "Authorization: Bearer $TEST_ACCESS_TOKEN" -H "Content-Type: application/json" \
-        -d "{\"permissions\": $PERMS_JSON}" 2>/dev/null || echo "000")
+        -d "{\"permissions\": $PERMS_JSON}" 2>/dev/null || true)
     fi
     if [[ "$TEST_HTTP_CODE" == "200" ]]; then
       MISSING_PERMS=()
@@ -1122,7 +1123,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     log_info "Determining latest release tag from GitHub..."
     GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
       | grep '"tag_name":' \
-      | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+      | sed -E 's/.*"tag_name": "([^"]+)".*/\1/' || true)
 
     if [[ -z "$GIT_REF" ]]; then
       log_warn "Could not determine latest release tag. Falling back to 'main' branch."

@@ -61,7 +61,8 @@ at any time.
 - The script will auto-grant `roles/orgpolicy.policyAdmin` if needed to disable the
   `iam.disableServiceAccountKeyCreation` constraint at the project level. In
   `--project-only` mode it does **not** self-grant: if the constraint is enforced on
-  the project, the script stops and prints the command an organization admin must run.
+  the project and you cannot set org policy there, the script stops before making
+  changes and prints the command an organization admin must run.
 - `--project-only` mode: `roles/owner` on the project, or `roles/editor` +
   `roles/iam.roleAdmin` + `roles/resourcemanager.projectIamAdmin` (custom roles and
   project IAM policy are needed; `roles/editor` alone is not enough).
