@@ -121,8 +121,8 @@ at any time.
     --project-id my-gcp-project \
     --region us-central1 \
     --streamsec-host app.streamsec.io \
-    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
-    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN>
 ```
 
 **Single-project mode (project-level sink + scoped asset discovery):**
@@ -133,8 +133,8 @@ at any time.
     --project-id my-gcp-project \
     --region us-central1 \
     --streamsec-host app.streamsec.io \
-    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
-    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td \
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN> \
     --single-project
 ```
 
@@ -145,8 +145,8 @@ at any time.
     --project-id my-gcp-project \
     --region us-central1 \
     --streamsec-host app.streamsec.io \
-    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
-    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td \
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN> \
     --project-only
 ```
 
