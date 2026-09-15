@@ -83,6 +83,12 @@ module "streamsec_google_projects" {
 }
 ```
 
+> **Note:** the module declares the `Mastercard/restapi` provider for the optional
+> Vertex AI logging module. Terraform requires that provider to be configured even
+> when `enable_vertex_ai_logging` is `false`, so every root that calls this module
+> needs a `provider "restapi" { uri = "https://<region>-aiplatform.googleapis.com" }`
+> block (see `examples/basic`). No request is made unless Vertex AI logging is enabled.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 

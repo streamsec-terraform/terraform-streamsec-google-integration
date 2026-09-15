@@ -199,6 +199,7 @@ GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (tag/branch); defaul
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
+HAS_POLICY_SET=false
 SKIP_PERMISSION_CHECK="${SKIP_PERMISSION_CHECK:-false}"
 
 # Timeout for permission check commands (in seconds)
@@ -302,6 +303,13 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   usage
 fi
 
+# Infrastructure Manager cannot fetch git refs containing '/' (observed: the part
+# after the slash is treated as a subdirectory). Fail early, before any mutation.
+if [[ -n "$GIT_REF" && "$GIT_REF" == */* ]]; then
+  log_error "--git-ref '$GIT_REF' contains '/'. Infrastructure Manager cannot fetch such refs; use a tag without slashes."
+  exit 1
+fi
+
 # Validate START_FROM_STEP
 if [[ ! "$START_FROM_STEP" =~ ^[1-6]$ ]]; then
   log_error "Invalid --start-from-step value: $START_FROM_STEP (must be 1-6)"
@@ -340,7 +348,10 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       secretmanager.secrets.create          # Step 5: credentials secret
       config.previews.create                # Step 6: Infrastructure Manager preview
     )
-    PERMS_JSON=$(printf '"%s",' "${REQUIRED_PROJECT_PERMISSIONS[@]}"); PERMS_JSON="[${PERMS_JSON%,}]"
+    # orgpolicy.policy.set is tested alongside (not required): it tells us whether
+    # the user can lift iam.disableServiceAccountKeyCreation on this project.
+    HAS_POLICY_SET=false
+    PERMS_JSON=$(printf '"%s",' "${REQUIRED_PROJECT_PERMISSIONS[@]}" orgpolicy.policy.set); PERMS_JSON="[${PERMS_JSON%,}]"
     TEST_ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
     TEST_HTTP_CODE=""
     if [[ -n "$TEST_ACCESS_TOKEN" ]]; then
@@ -354,13 +365,16 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       for perm in "${REQUIRED_PROJECT_PERMISSIONS[@]}"; do
         grep -qF "\"$perm\"" "$TMP_TEST_IAM" || MISSING_PERMS+=("$perm")
       done
+      grep -qF '"orgpolicy.policy.set"' "$TMP_TEST_IAM" && HAS_POLICY_SET=true
       if [[ ${#MISSING_PERMS[@]} -eq 0 ]]; then
         log_ok "✓ Have all required permissions on project '$PROJECT_ID'"
       else
         PERMISSION_ERRORS+=("❌ Missing permissions on project '$PROJECT_ID': ${MISSING_PERMS[*]}. roles/owner covers all of them (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin).")
       fi
     else
-      PERMISSION_WARNINGS+=("⚠️  Could not verify project permissions (testIamPermissions returned HTTP ${TEST_HTTP_CODE:-none}); continuing. If permissions are missing, Step 2 or Step 4 will fail.")
+      # The permission check is the only thing standing between the user and
+      # Step 1's mutations, so an unverifiable check is an error, not a warning.
+      PERMISSION_ERRORS+=("❌ Could not verify project permissions (testIamPermissions returned HTTP ${TEST_HTTP_CODE:-none}). Fix gcloud authentication and re-run, or bypass explicitly with --skip-permission-check.")
     fi
   else
   # Test organization-level permissions (required unless --project-only)
@@ -490,8 +504,8 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         --format="value(bindings.role)" 2>/dev/null || echo "")
     fi
 
-    if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" ]]; then
-      log_ok "✓ User '$CURRENT_USER_FOR_POLICY' already has 'roles/orgpolicy.policyAdmin'."
+    if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" || "${HAS_POLICY_SET:-false}" == true ]]; then
+      log_ok "✓ User '$CURRENT_USER_FOR_POLICY' can manage org policy on the project (roles/orgpolicy.policyAdmin or equivalent)."
     elif [[ "$PROJECT_ONLY" == true ]]; then
       # Only take on org-policy rights if the constraint is actually enforced here.
       KEY_POLICY_RC=0
@@ -1103,9 +1117,6 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   # Determine Git ref: explicit --git-ref wins, otherwise the latest release tag
   if [[ -n "$GIT_REF" ]]; then
     log_ok "Using git ref from --git-ref: $GIT_REF"
-    if [[ "$GIT_REF" == */* ]]; then
-      log_warn "Git ref '$GIT_REF' contains '/'. In testing, Infrastructure Manager failed to fetch such refs (the part after the slash was treated as a subdirectory). Use a tag without slashes."
-    fi
   else
     log_info "Determining latest release tag from GitHub..."
     GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
