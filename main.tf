@@ -1,6 +1,8 @@
 # if var.org_integration is true, find all of the projects in the organization and add them to the var.projects map
 data "google_cloud_asset_search_all_resources" "this" {
-  count       = length(var.include_projects) > 0 ? 0 : 1
+  # Org-wide discovery is skipped when projects are listed explicitly, and also when
+  # project-level permissions are requested (no organization access to search with).
+  count       = length(var.include_projects) > 0 || var.sa_project_level_permissions ? 0 : 1
   scope       = "organizations/${var.org_id}"
   asset_types = ["cloudresourcemanager.googleapis.com/Project"]
 }
@@ -14,7 +16,7 @@ locals {
   _all_projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
     project_id = p.project_id
     name       = p.name
-    } if !contains(var.exclude_projects, p.project_id) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
+    } if !contains(var.exclude_projects, p.project_id) } : var.sa_project_level_permissions ? {} : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
     project_id = split("projects/", p.name)[1]
     name       = p.display_name
   } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
