@@ -83,6 +83,12 @@ module "streamsec_google_projects" {
 }
 ```
 
+> **Note:** the module declares the `Mastercard/restapi` provider for the optional
+> Vertex AI logging module. Terraform requires that provider to be configured even
+> when `enable_vertex_ai_logging` is `false`, so every root that calls this module
+> needs a `provider "restapi" { uri = "https://<region>-aiplatform.googleapis.com" }`
+> block (see `examples/basic`). No request is made unless Vertex AI logging is enabled.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -90,6 +96,7 @@ module "streamsec_google_projects" {
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
+| <a name="requirement_restapi"></a> [restapi](#requirement\_restapi) | >= 3.0 |
 | <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.13 |
 | <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
 
@@ -109,6 +116,7 @@ module "streamsec_google_projects" {
 | <a name="module_gke"></a> [gke](#module\_gke) | ./modules/gke | n/a |
 | <a name="module_real_time_events"></a> [real\_time\_events](#module\_real\_time\_events) | ./modules/real-time-events | n/a |
 | <a name="module_response"></a> [response](#module\_response) | ./modules/response | n/a |
+| <a name="module_vertex_ai_logging"></a> [vertex\_ai\_logging](#module\_vertex\_ai\_logging) | ./modules/vertex-ai-logging | n/a |
 
 ## Resources
 
@@ -116,6 +124,8 @@ module "streamsec_google_projects" {
 | ---- | ---- |
 | [google_organization_iam_member.security_reviewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
+| [google_project_iam_member.project_security_reviewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.project_viewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_service_account.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_key.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_key) | resource |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
@@ -133,6 +143,7 @@ module "streamsec_google_projects" {
 | <a name="input_create_sa"></a> [create\_sa](#input\_create\_sa) | Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions. | `bool` | `true` | no |
 | <a name="input_enable_gke_logs"></a> [enable\_gke\_logs](#input\_enable\_gke\_logs) | Boolean to determine if GKE Logs collection should be enabled. | `bool` | `false` | no |
 | <a name="input_enable_real_time_events"></a> [enable\_real\_time\_events](#input\_enable\_real\_time\_events) | Boolean to determine if Real Time Events should be enabled. | `bool` | `true` | no |
+| <a name="input_enable_vertex_ai_logging"></a> [enable\_vertex\_ai\_logging](#input\_enable\_vertex\_ai\_logging) | Boolean to determine if Vertex AI request-response logging should be enabled. | `bool` | `false` | no |
 | <a name="input_exclude_projects"></a> [exclude\_projects](#input\_exclude\_projects) | A list of projects to exclude from the Organization Integration. | `list(string)` | `[]` | no |
 | <a name="input_exclude_runbooks"></a> [exclude\_runbooks](#input\_exclude\_runbooks) | List of response runbook names to exclude from deployment. Useful for disabling specific remediations. | `list(string)` | `[]` | no |
 | <a name="input_excluded_project_id_prefixes"></a> [excluded\_project\_id\_prefixes](#input\_excluded\_project\_id\_prefixes) | A list of project ID prefixes to exclude. Any project whose project ID starts with one of these prefixes will be excluded. | `list(string)` | `[]` | no |
@@ -149,7 +160,7 @@ module "streamsec_google_projects" {
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
-| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID to create the Service Account in (REQUIRED if create\_sa is true). | `string` | `null` | no |
+| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create\_sa without sa\_project\_level\_permissions), org-wide project discovery (empty include\_projects), an org-level log sink, GKE logs, or org-level response permissions. | `string` | `null` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_project_for_sa"></a> [project\_for\_sa](#input\_project\_for\_sa) | The project to create the Service Account in (if not set and create\_sa is true, will take provider project id). | `string` | `null` | no |
@@ -160,9 +171,19 @@ module "streamsec_google_projects" {
 | <a name="input_sa_account_id"></a> [sa\_account\_id](#input\_sa\_account\_id) | The account ID for the Service Account to be created for Stream Security. | `string` | `"stream-security"` | no |
 | <a name="input_sa_description"></a> [sa\_description](#input\_sa\_description) | The description for the Service Account to be created for Stream Security. | `string` | `"Stream Security Service Account"` | no |
 | <a name="input_sa_display_name"></a> [sa\_display\_name](#input\_sa\_display\_name) | The display name for the Service Account to be created for Stream Security. | `string` | `"Stream Security"` | no |
+| <a name="input_sa_project_level_permissions"></a> [sa\_project\_level\_permissions](#input\_sa\_project\_level\_permissions) | When true (and create\_sa = true; otherwise ignored), grant roles/viewer and roles/iam.securityReviewer to the Stream Security service account on each integrated project instead of on the organization. Requires include\_projects. Use when no organization-level permissions are available; org- and folder-level IAM will not be collected. | `bool` | `false` | no |
 | <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | The name of the Secret Manager secret to store the API token. | `string` | `"stream-security-collection-token"` | no |
 | <a name="input_use_existing_function_sa"></a> [use\_existing\_function\_sa](#input\_use\_existing\_function\_sa) | Boolean to determine if the existing Function Service Account should be used. | `bool` | `false` | no |
 | <a name="input_use_secret_manager"></a> [use\_secret\_manager](#input\_use\_secret\_manager) | Boolean to determine if the Secret Manager should be used to store the API token. | `bool` | `true` | no |
+| <a name="input_vertex_ai_api_url"></a> [vertex\_ai\_api\_url](#input\_vertex\_ai\_api\_url) | Full Stream Security collection URL for Vertex AI logging (scheme included; must be https). Defaults to the production endpoint — override for non-prod tenants, e.g. https://tenant1.staging.streamsec.io. Unlike the other modules this is passed explicitly rather than derived from the streamsec provider, so vertex-ai-logging can be applied standalone without Stream Security API credentials. | `string` | `"https://app.streamsec.io"` | no |
+| <a name="input_vertex_ai_bigquery_dataset"></a> [vertex\_ai\_bigquery\_dataset](#input\_vertex\_ai\_bigquery\_dataset) | BigQuery dataset ID for Vertex AI request-response logs. | `string` | `"vertex_ai_logs"` | no |
+| <a name="input_vertex_ai_bigquery_location"></a> [vertex\_ai\_bigquery\_location](#input\_vertex\_ai\_bigquery\_location) | BigQuery dataset location for Vertex AI logs (must match the region where endpoints run). | `string` | `"US"` | no |
+| <a name="input_vertex_ai_create_bigquery_dataset"></a> [vertex\_ai\_create\_bigquery\_dataset](#input\_vertex\_ai\_create\_bigquery\_dataset) | Whether to create the BigQuery dataset for Vertex AI logs. Set to false if it already exists. | `bool` | `true` | no |
+| <a name="input_vertex_ai_manage_apis"></a> [vertex\_ai\_manage\_apis](#input\_vertex\_ai\_manage\_apis) | Whether the Vertex AI logging deployment enables the required project APIs. Set to false when the APIs are already enabled/owned elsewhere in the same project. | `bool` | `true` | no |
+| <a name="input_vertex_ai_project_id"></a> [vertex\_ai\_project\_id](#input\_vertex\_ai\_project\_id) | GCP project ID for Vertex AI logging resources. Defaults to project\_for\_resources if empty. | `string` | `""` | no |
+| <a name="input_vertex_ai_region"></a> [vertex\_ai\_region](#input\_vertex\_ai\_region) | GCP region for the Vertex AI logging Cloud Function and Scheduler. | `string` | `"us-central1"` | no |
+| <a name="input_vertex_ai_schedule_cron"></a> [vertex\_ai\_schedule\_cron](#input\_vertex\_ai\_schedule\_cron) | Cloud Scheduler cron expression for Vertex AI log polling interval. | `string` | `"*/5 * * * *"` | no |
+| <a name="input_vertex_ai_secret_version_name"></a> [vertex\_ai\_secret\_version\_name](#input\_vertex\_ai\_secret\_version\_name) | Optional override for the full Secret Manager version resource name the Vertex AI collector reads (e.g. projects/<p>/secrets/<s>/versions/latest). When empty, the shared secret created by the real-time-events module is used. Requires enable\_real\_time\_events=true (or this override) so a token secret exists. | `string` | `""` | no |
 
 ## Outputs
 
