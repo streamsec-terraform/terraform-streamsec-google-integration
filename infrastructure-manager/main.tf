@@ -23,30 +23,40 @@ provider "streamsec" {
   api_token    = try(local.streamsec_creds.api_token, null)
 }
 
+# The root module declares the Mastercard `restapi` provider for the optional
+# vertex-ai-logging module (not exposed through this wrapper). That provider
+# refuses to load without a `uri`, even when nothing uses it, which broke every
+# Infrastructure Manager preview since v2.9.0. A placeholder URI keeps init and
+# plan working; no request is made unless Vertex AI logging is enabled.
+provider "restapi" {
+  uri = "https://${coalesce(var.google_region, "us-central1")}-aiplatform.googleapis.com"
+}
+
 module "streamsec_google_projects" {
   source = "../"
 
   # Main Module
-  exclude_projects            = var.exclude_projects
-  excluded_project_prefixes   = var.excluded_project_prefixes
-  excluded_project_strings    = var.excluded_project_strings
-  include_projects            = var.include_projects
-  org_id                     = var.org_id # also used for response module and real time events module
-  create_sa                  = var.create_sa
-  existing_sa_json_file_path = var.existing_sa_json_file_path
-  sa_display_name            = var.sa_display_name
-  sa_description             = var.sa_description
-  sa_account_id              = var.sa_account_id
-  project_for_sa             = var.project_for_sa
+  exclude_projects             = var.exclude_projects
+  excluded_project_prefixes    = var.excluded_project_prefixes
+  excluded_project_strings     = var.excluded_project_strings
+  include_projects             = var.include_projects
+  org_id                       = var.org_id # also used for response module and real time events module
+  create_sa                    = var.create_sa
+  sa_project_level_permissions = var.sa_project_level_permissions
+  existing_sa_json_file_path   = var.existing_sa_json_file_path
+  sa_display_name              = var.sa_display_name
+  sa_description               = var.sa_description
+  sa_account_id                = var.sa_account_id
+  project_for_sa               = var.project_for_sa
 
   # Real Time Events Module
-  enable_real_time_events = var.enable_real_time_events
-  use_secret_manager      = var.use_secret_manager
-  secret_name             = var.secret_name
-  org_level_sink          = var.org_level_sink
-  project_for_resources   = var.google_project_id
-  use_existing_function_sa              = var.use_existing_function_sa
-  function_service_account_id           = var.function_service_account_id
+  enable_real_time_events              = var.enable_real_time_events
+  use_secret_manager                   = var.use_secret_manager
+  secret_name                          = var.secret_name
+  org_level_sink                       = var.org_level_sink
+  project_for_resources                = var.google_project_id
+  use_existing_function_sa             = var.use_existing_function_sa
+  function_service_account_id          = var.function_service_account_id
   grant_function_service_account_roles = var.grant_function_service_account_roles
 
   # Response Module

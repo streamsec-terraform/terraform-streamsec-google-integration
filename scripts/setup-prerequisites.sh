@@ -9,12 +9,13 @@
 #   1. Enables all required GCP APIs in the target project.
 #   2. Creates two custom IAM roles:
 #      a. Ops Role — IAM, logging sinks, resource management, asset discovery.
-#         Always created at organization level.
+#         Created at organization level (project level with --project-only).
 #      b. Project Resources Role — pubsub, secrets, cloud functions.
 #         Always created at project level.
 #   3. Creates a service account in the target project for Infrastructure Manager.
 #   4. Grants both custom roles and the Cloud Infrastructure Manager Agent role
-#      to the service account at organization level.
+#      to the service account at organization level (project level with
+#      --project-only).
 #   5. Creates the StreamSecurity credentials secret in Secret Manager.
 #   6. Creates an Infrastructure Manager preview deployment and waits for
 #      it to complete.
@@ -27,9 +28,18 @@
 #   Single-project (--single-project):
 #     - org_level_sink=false (per-project logging sinks)
 #     - Only integrates the specified project (include_projects=["PROJECT_ID"])
+#     - Still requires organization-level permissions (roles bound at org level)
 #
-# If the preview succeeds, the script provides instructions to create the
-# actual deployment via the GCP Console or gcloud CLI.
+#   Project-only (--project-only):
+#     - Same scope as --single-project, but NO organization-level permissions needed
+#     - Ops role, runner SA bindings and config.agent are created at PROJECT level
+#     - Stream Security SA gets roles/viewer + roles/iam.securityReviewer on the
+#       project only (sa_project_level_permissions=true); org/folder IAM not collected
+#     - --org-id is optional; project Owner is sufficient
+#
+# If the preview succeeds, the script prints the input values to keep and
+# instructions to create the actual deployment from the preview in the GCP
+# Console.
 #
 # Idempotency and Safety:
 #   - The script checks for existing resources before creating them
@@ -48,6 +58,9 @@
 #   - The script checks whether the authenticated user has
 #     'roles/orgpolicy.policyAdmin' and, if missing, automatically grants it
 #     at the organization level (requires sufficient privileges, e.g. roles/owner).
+#     With --project-only the script never grants it: if the constraint is
+#     enforced on the project and the user lacks the role, the script stops and
+#     prints the command an organization admin needs to run.
 #
 # Required Permissions:
 #   Organization level (choose one):
@@ -61,8 +74,9 @@
 #     • roles/serviceusage.serviceUsageAdmin + roles/iam.serviceAccountAdmin +
 #       roles/secretmanager.admin + roles/config.admin (minimal set)
 #
-#   Note: Organization-level permissions are always required because the
-#   Terraform code creates organization-level IAM bindings.
+#   Note: Organization-level permissions are required in multi-project and
+#   single-project modes because the Terraform code creates organization-level
+#   IAM bindings. Use --project-only to avoid them (project roles/owner only).
 #
 #   The script will validate permissions before making changes.
 #
@@ -86,9 +100,23 @@
 #       --workspace-id <WORKSPACE_ID> \
 #       --api-token <API_TOKEN>
 #
+#   # Project-only mode (one project, no organization-level permissions):
+#   ./setup-prerequisites.sh \
+#       --project-only \
+#       --project-id <PROJECT_ID> \
+#       --region <REGION> \
+#       --streamsec-host <HOST> \
+#       --workspace-id <WORKSPACE_ID> \
+#       --api-token <API_TOKEN>
+#
 # All flags also accept environment variables (see defaults section below).
 #
 set -euo pipefail
+
+# Temp files for API responses; removed on any exit.
+TMP_TEST_IAM=$(mktemp)
+TMP_PREVIEW_RESP=$(mktemp)
+trap 'rm -f "$TMP_TEST_IAM" "$TMP_PREVIEW_RESP"' EXIT
 
 ###############################################################################
 # Colours / helpers
@@ -168,8 +196,11 @@ SECRET_NAME="${SECRET_NAME:-streamsec-credentials}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-streamsec-integration}"
 GIT_REPO="https://github.com/streamsec-terraform/terraform-streamsec-google-integration"
 GIT_DIRECTORY="infrastructure-manager"
+GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (a tag, or a slash-free ref); default = latest release
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
+PROJECT_ONLY="${PROJECT_ONLY:-false}"
+HAS_POLICY_SET=false
 SKIP_PERMISSION_CHECK="${SKIP_PERMISSION_CHECK:-false}"
 
 # Timeout for permission check commands (in seconds)
@@ -188,7 +219,7 @@ Usage: $(basename "$0") [OPTIONS]
 
 Required options:
   --project-id      ID    GCP project for the Infrastructure Manager deployment
-  --org-id          ID    GCP organization ID (always required)
+  --org-id          ID    GCP organization ID (required unless --project-only)
   --region          NAME  GCP region for resources (e.g. us-central1)
   --streamsec-host  HOST  StreamSecurity host (e.g. <your-org>.streamsec.io)
   --workspace-id    ID    StreamSecurity workspace ID
@@ -203,7 +234,13 @@ Optional overrides:
 
 Infrastructure Manager options:
   --deployment-name NAME  Deployment name         (default: $DEPLOYMENT_NAME)
+  --git-ref         REF   Module git ref for the preview: a tag or a slash-free
+                          ref (default: latest GitHub release). Infrastructure
+                          Manager cannot fetch refs containing '/'.
   --single-project        Integrate only the specified project (not all org projects)
+  --project-only          Like --single-project, but requires NO organization-level
+                          permissions (everything is created at project level;
+                          --org-id becomes optional; project Owner is sufficient)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
   -h, --help                  Show this help message and exit
@@ -231,8 +268,10 @@ while [[ $# -gt 0 ]]; do
     --sa-name)              SA_NAME="$2";               shift 2 ;;
     --secret-name)          SECRET_NAME="$2";           shift 2 ;;
     --deployment-name)      DEPLOYMENT_NAME="$2";       shift 2 ;;
+    --git-ref)              GIT_REF="$2";               shift 2 ;;
     --start-from-step)      START_FROM_STEP="$2";       shift 2 ;;
     --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
+    --project-only)         ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; PROJECT_ONLY=true; shift ;;
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
     -y|--yes)               AUTO_CONFIRM=true;          shift   ;;
     -h|--help)              usage ;;
@@ -240,12 +279,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Normalise mode flags so PROJECT_ONLY=true / SINGLE_PROJECT=true env vars
+# behave exactly like the corresponding command-line flags.
+if [[ "$PROJECT_ONLY" == true ]]; then
+  SINGLE_PROJECT=true
+fi
+if [[ "$SINGLE_PROJECT" == true ]]; then
+  ORG_LEVEL_SINK=false
+fi
+
 ###############################################################################
 # Validate required inputs
 ###############################################################################
 missing=()
 [[ -z "$PROJECT_ID" ]]      && missing+=("--project-id")
-[[ -z "$ORGANIZATION_ID" ]] && missing+=("--org-id")
+[[ -z "$ORGANIZATION_ID" && "$PROJECT_ONLY" != true ]] && missing+=("--org-id")
 [[ -z "$REGION" ]]          && missing+=("--region")
 [[ -z "$STREAMSEC_HOST" ]]  && missing+=("--streamsec-host")
 [[ -z "$WORKSPACE_ID" ]]    && missing+=("--workspace-id")
@@ -255,6 +303,13 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   log_error "Missing required parameters: ${missing[*]}"
   echo ""
   usage
+fi
+
+# Infrastructure Manager cannot fetch git refs containing '/' (observed: the part
+# after the slash is treated as a subdirectory). Fail early, before any mutation.
+if [[ -n "$GIT_REF" && "$GIT_REF" == */* ]]; then
+  log_error "--git-ref '$GIT_REF' contains '/'. Infrastructure Manager cannot fetch such refs; use a tag without slashes."
+  exit 1
 fi
 
 # Validate START_FROM_STEP
@@ -278,7 +333,53 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
   PERMISSION_ERRORS=()
   PERMISSION_WARNINGS=()
 
-  # Test organization-level permissions (always required)
+  if [[ "$PROJECT_ONLY" == true ]]; then
+    log_info "Project-only mode: skipping organization-level permission checks."
+    log_info "Checking effective project permissions (includes roles inherited via groups and folders)..."
+    # projects.testIamPermissions reports effective permissions, so no role-name
+    # matching is needed and inherited Owner is handled. Fail here, before Step 1
+    # mutates anything, if a required permission is missing.
+    REQUIRED_PROJECT_PERMISSIONS=(
+      serviceusage.services.enable          # Step 1: enable APIs
+      resourcemanager.projects.setIamPolicy # Step 1/4: IAM bindings
+      iam.roles.create                      # Step 2: custom roles
+      iam.roles.update
+      iam.roles.undelete
+      iam.serviceAccounts.create            # Step 3: runner SA
+      iam.serviceAccounts.actAs             # Step 6: preview runs as the runner SA
+      secretmanager.secrets.create          # Step 5: credentials secret
+      config.previews.create                # Step 6: Infrastructure Manager preview
+    )
+    # orgpolicy.policy.set is tested alongside (not required): it tells us whether
+    # the user can lift iam.disableServiceAccountKeyCreation on this project.
+    HAS_POLICY_SET=false
+    PERMS_JSON=$(printf '"%s",' "${REQUIRED_PROJECT_PERMISSIONS[@]}" orgpolicy.policy.set); PERMS_JSON="[${PERMS_JSON%,}]"
+    TEST_ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
+    TEST_HTTP_CODE=""
+    if [[ -n "$TEST_ACCESS_TOKEN" ]]; then
+      TEST_HTTP_CODE=$(curl -s -o "$TMP_TEST_IAM" -w "%{http_code}" \
+        -X POST "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions" \
+        -H "Authorization: Bearer $TEST_ACCESS_TOKEN" -H "Content-Type: application/json" \
+        -d "{\"permissions\": $PERMS_JSON}" 2>/dev/null || true)
+    fi
+    if [[ "$TEST_HTTP_CODE" == "200" ]]; then
+      MISSING_PERMS=()
+      for perm in "${REQUIRED_PROJECT_PERMISSIONS[@]}"; do
+        grep -qF "\"$perm\"" "$TMP_TEST_IAM" || MISSING_PERMS+=("$perm")
+      done
+      grep -qF '"orgpolicy.policy.set"' "$TMP_TEST_IAM" && HAS_POLICY_SET=true
+      if [[ ${#MISSING_PERMS[@]} -eq 0 ]]; then
+        log_ok "✓ Have all required permissions on project '$PROJECT_ID'"
+      else
+        PERMISSION_ERRORS+=("❌ Missing permissions on project '$PROJECT_ID': ${MISSING_PERMS[*]}. roles/owner covers all of them (or roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin).")
+      fi
+    else
+      # The permission check is the only thing standing between the user and
+      # Step 1's mutations, so an unverifiable check is an error, not a warning.
+      PERMISSION_ERRORS+=("❌ Could not verify project permissions (testIamPermissions returned HTTP ${TEST_HTTP_CODE:-none}). Fix gcloud authentication and re-run, or bypass explicitly with --skip-permission-check.")
+    fi
+  else
+  # Test organization-level permissions (required unless --project-only)
   log_info "Checking organization-level permissions..."
 
     # Check if we can read org IAM policy
@@ -332,6 +433,7 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
         fi
       fi
     fi
+  fi
 
   # Test project-level permissions
   log_info "Checking project-level permissions..."
@@ -395,14 +497,35 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
       --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
       --format="value(bindings.role)" 2>/dev/null || echo "")
 
-    # Check at both org and project level
-    HAS_POLICY_ADMIN_ORG=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
-      --flatten="bindings[].members" \
-      --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
-      --format="value(bindings.role)" 2>/dev/null || echo "")
+    # Check at both org and project level (org level only when an org ID is available)
+    HAS_POLICY_ADMIN_ORG=""
+    if [[ "$PROJECT_ONLY" != true ]]; then
+      HAS_POLICY_ADMIN_ORG=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
+        --flatten="bindings[].members" \
+        --filter="bindings.members:user:$CURRENT_USER_FOR_POLICY AND bindings.role:roles/orgpolicy.policyAdmin" \
+        --format="value(bindings.role)" 2>/dev/null || echo "")
+    fi
 
-    if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" ]]; then
-      log_ok "✓ User '$CURRENT_USER_FOR_POLICY' already has 'roles/orgpolicy.policyAdmin'."
+    if [[ -n "$HAS_POLICY_ADMIN_ORG" || -n "$HAS_POLICY_ADMIN_PROJECT" || "${HAS_POLICY_SET:-false}" == true ]]; then
+      log_ok "✓ User '$CURRENT_USER_FOR_POLICY' can manage org policy on the project (roles/orgpolicy.policyAdmin or equivalent)."
+    elif [[ "$PROJECT_ONLY" == true ]]; then
+      # Only take on org-policy rights if the constraint is actually enforced here.
+      KEY_POLICY_RC=0
+      KEY_POLICY_ENFORCED=$(_timeout "$PERMISSION_CHECK_TIMEOUT" gcloud resource-manager org-policies describe \
+        constraints/iam.disableServiceAccountKeyCreation --effective --project="$PROJECT_ID" \
+        --format="value(booleanPolicy.enforced)" 2>/dev/null) || KEY_POLICY_RC=$?
+      if [[ $KEY_POLICY_RC -ne 0 ]]; then
+        PERMISSION_WARNINGS+=("⚠️  Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $KEY_POLICY_RC). If it is enforced on '$PROJECT_ID', service account key creation will fail during the Infrastructure Manager apply unless an org admin lifts it.")
+      elif [[ "$KEY_POLICY_ENFORCED" != "True" ]]; then
+        log_ok "✓ 'iam.disableServiceAccountKeyCreation' is not enforced on '$PROJECT_ID'; 'roles/orgpolicy.policyAdmin' not needed."
+      else
+        # Deliberately no self-grant here: overriding an organization policy is an
+        # org-admin decision, and a project Owner should not be able to make it alone.
+        PERMISSION_ERRORS+=("❌ Org policy 'iam.disableServiceAccountKeyCreation' is enforced on '$PROJECT_ID' and you do not have 'roles/orgpolicy.policyAdmin'. The integration creates a service account key, so an organization admin must either lift the constraint on this project or grant you 'roles/orgpolicy.policyAdmin' on it:
+    gcloud resource-manager org-policies disable-enforce constraints/iam.disableServiceAccountKeyCreation --project=$PROJECT_ID
+    # or
+    gcloud projects add-iam-policy-binding $PROJECT_ID --member='user:$CURRENT_USER_FOR_POLICY' --role='roles/orgpolicy.policyAdmin'")
+      fi
     else
       log_warn "User '$CURRENT_USER_FOR_POLICY' is missing 'roles/orgpolicy.policyAdmin'."
       log_info "Attempting to grant 'roles/orgpolicy.policyAdmin' at organization level..."
@@ -431,6 +554,21 @@ if [[ "$SKIP_PERMISSION_CHECK" != true ]]; then
     done
     echo ""
     echo "Required permissions:"
+    echo ""
+    if [[ "$PROJECT_ONLY" == true ]]; then
+      echo "Project-only mode — project level (choose one):"
+      echo "  • roles/owner on project $PROJECT_ID (simplest)"
+      echo "  • roles/editor + roles/iam.roleAdmin + roles/resourcemanager.projectIamAdmin"
+      echo ""
+      echo "To grant it, run:"
+      echo "  gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+      echo "    --member='user:YOUR_EMAIL' \\"
+      echo "    --role='roles/owner'"
+      echo ""
+      exit 1
+    fi
+    echo "No organization-level access? Re-run with --project-only (project Owner is enough;"
+    echo "Stream Security will be scoped to this project only)."
     echo ""
     echo "Organization level (choose one):"
     echo "  • roles/owner (simplest - full access)"
@@ -491,13 +629,15 @@ fi
 echo ""
 log_info "StreamSecurity GCP Integration — Prerequisites Setup"
 echo ""
-if [[ "$SINGLE_PROJECT" == true ]]; then
+if [[ "$PROJECT_ONLY" == true ]]; then
+  echo "  Mode             : Project-only (one project, no organization-level permissions)"
+elif [[ "$SINGLE_PROJECT" == true ]]; then
   echo "  Mode             : Single-project (integrate one project only)"
 else
   echo "  Mode             : Multi-project (integrate all org projects)"
 fi
 echo "  Project ID       : $PROJECT_ID"
-echo "  Organization ID  : $ORGANIZATION_ID"
+echo "  Organization ID  : ${ORGANIZATION_ID:-(not provided)}"
 echo "  Region           : $REGION"
 echo "  StreamSec Host   : $STREAMSEC_HOST"
 echo "  Workspace ID     : $WORKSPACE_ID"
@@ -514,7 +654,7 @@ if [[ "$ORG_LEVEL_SINK" == true ]]; then
 else
   echo "  Log Sink Mode    : Project-level (per-project sinks)"
 fi
-echo "  Git Ref          : (auto-detect latest release tag)"
+echo "  Git Ref          : ${GIT_REF:-(auto-detect latest release tag)}"
 echo ""
 
 if [[ "$AUTO_CONFIRM" != true ]]; then
@@ -563,14 +703,18 @@ done
   # Disable service account key creation constraint at project level (if enforced)
   log_info "Checking organization policy 'constraints/iam.disableServiceAccountKeyCreation'..."
 
+  POLICY_RC=0
   POLICY_ENFORCED=$(gcloud resource-manager org-policies describe \
     constraints/iam.disableServiceAccountKeyCreation \
     --effective \
     --project="$PROJECT_ID" \
-    --format="value(booleanPolicy.enforced)" 2>/dev/null || echo "")
+    --format="value(booleanPolicy.enforced)" 2>/dev/null) || POLICY_RC=$?
 
-  if [[ "$POLICY_ENFORCED" == "True" ]]; then
+  if [[ $POLICY_RC -ne 0 ]]; then
+    log_warn "Could not read org policy 'iam.disableServiceAccountKeyCreation' (exit $POLICY_RC) — continuing. If it is enforced, service account key creation will fail during apply."
+  elif [[ "$POLICY_ENFORCED" == "True" ]]; then
     log_warn "Organization policy 'iam.disableServiceAccountKeyCreation' is enforced — disabling at project level..."
+    log_warn "This overrides an organization-wide control for project '$PROJECT_ID' only, so that a key can be created for the Stream Security service account."
     if ! gcloud resource-manager org-policies disable-enforce \
       constraints/iam.disableServiceAccountKeyCreation \
       --project="$PROJECT_ID" \
@@ -807,10 +951,17 @@ cloudfunctions.functions.setIamPolicy,\
 cloudfunctions.functions.invoke,\
 cloudfunctions.operations.get"
 
-  # Ops role is always created at org level (Terraform requires org_id and creates org-level resources)
-  OPS_ROLE_PERMISSIONS="${OPS_ROLE_PERMISSIONS_BASE},${OPS_ROLE_ORG_EXTRA}"
-  OPS_SCOPE_FLAG="--organization=$ORGANIZATION_ID"
-  OPS_SCOPE_DISPLAY="organizations/$ORGANIZATION_ID"
+  if [[ "$PROJECT_ONLY" == true ]]; then
+    # Project-only mode: no org-level resources, so the ops role lives at project level
+    OPS_ROLE_PERMISSIONS="${OPS_ROLE_PERMISSIONS_BASE}"
+    OPS_SCOPE_FLAG="--project=$PROJECT_ID"
+    OPS_SCOPE_DISPLAY="projects/$PROJECT_ID"
+  else
+    # Otherwise the ops role is created at org level (Terraform creates org-level resources)
+    OPS_ROLE_PERMISSIONS="${OPS_ROLE_PERMISSIONS_BASE},${OPS_ROLE_ORG_EXTRA}"
+    OPS_SCOPE_FLAG="--organization=$ORGANIZATION_ID"
+    OPS_SCOPE_DISPLAY="organizations/$ORGANIZATION_ID"
+  fi
 
   # 2a. Create/update ops role
   log_info "Creating/updating ops role '$CUSTOM_ROLE_ID' in $OPS_SCOPE_DISPLAY..."
@@ -866,18 +1017,32 @@ fi
 # Step 4 — Grant IAM roles
 ###############################################################################
 if [[ $START_FROM_STEP -le 4 ]]; then
-  log_step "Step 4/$TOTAL_STEPS: Granting organization-level IAM roles to '$SA_EMAIL'..."
+  if [[ "$PROJECT_ONLY" == true ]]; then
+    log_step "Step 4/$TOTAL_STEPS: Granting project-level IAM roles to '$SA_EMAIL'..."
+  else
+    log_step "Step 4/$TOTAL_STEPS: Granting organization-level IAM roles to '$SA_EMAIL'..."
+  fi
 
   IAM_EXIT_CODE=0
 
-  # 4a. Grant the ops role (always at org level)
-  OPS_ROLE_RESOURCE="organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID"
-  log_info "Granting ops role '$OPS_ROLE_RESOURCE' at organization level..."
-  gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="$OPS_ROLE_RESOURCE" \
-    --condition=None \
-    --quiet >/dev/null || IAM_EXIT_CODE=$?
+  # 4a. Grant the ops role (org level, or project level in --project-only mode)
+  if [[ "$PROJECT_ONLY" == true ]]; then
+    OPS_ROLE_RESOURCE="projects/$PROJECT_ID/roles/$CUSTOM_ROLE_ID"
+    log_info "Granting ops role '$OPS_ROLE_RESOURCE' at project level..."
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="$OPS_ROLE_RESOURCE" \
+      --condition=None \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  else
+    OPS_ROLE_RESOURCE="organizations/$ORGANIZATION_ID/roles/$CUSTOM_ROLE_ID"
+    log_info "Granting ops role '$OPS_ROLE_RESOURCE' at organization level..."
+    gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="$OPS_ROLE_RESOURCE" \
+      --condition=None \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  fi
 
   # 4b. Grant the project resources role (always at project level)
   PROJECT_ROLE_RESOURCE="projects/$PROJECT_ID/roles/$PROJECT_ROLE_ID"
@@ -888,13 +1053,22 @@ if [[ $START_FROM_STEP -le 4 ]]; then
     --condition=None \
     --quiet >/dev/null || IAM_EXIT_CODE=$?
 
-  # 4c. Grant Cloud Infrastructure Manager Agent role (always at org level)
-  log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at organization level..."
-  gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/config.agent" \
-    --condition=None \
-    --quiet >/dev/null || IAM_EXIT_CODE=$?
+  # 4c. Grant Cloud Infrastructure Manager Agent role (org level, or project level in --project-only mode)
+  if [[ "$PROJECT_ONLY" == true ]]; then
+    log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at project level..."
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="roles/config.agent" \
+      --condition=None \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  else
+    log_info "Granting 'roles/config.agent' (Cloud Infrastructure Manager Agent) at organization level..."
+    gcloud organizations add-iam-policy-binding "$ORGANIZATION_ID" \
+      --member="serviceAccount:$SA_EMAIL" \
+      --role="roles/config.agent" \
+      --condition=None \
+      --quiet >/dev/null || IAM_EXIT_CODE=$?
+  fi
 
   log_ok "IAM bindings configured successfully."
   confirm_step "Grant IAM roles" $IAM_EXIT_CODE
@@ -942,17 +1116,21 @@ fi
 if [[ $START_FROM_STEP -le 6 ]]; then
   log_step "Step 6/$TOTAL_STEPS: Creating Infrastructure Manager preview deployment..."
 
-  # Determine Git ref (latest release tag)
-  log_info "Determining latest release tag from GitHub..."
-  GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
-    | grep '"tag_name":' \
-    | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-
-  if [[ -z "$GIT_REF" ]]; then
-    log_warn "Could not determine latest release tag. Falling back to 'main' branch."
-    GIT_REF="main"
+  # Determine Git ref: explicit --git-ref wins, otherwise the latest release tag
+  if [[ -n "$GIT_REF" ]]; then
+    log_ok "Using git ref from --git-ref: $GIT_REF"
   else
-    log_ok "Using latest release tag: $GIT_REF"
+    log_info "Determining latest release tag from GitHub..."
+    GIT_REF=$(curl -s "https://api.github.com/repos/streamsec-terraform/terraform-streamsec-google-integration/releases/latest" \
+      | grep '"tag_name":' \
+      | sed -E 's/.*"tag_name": "([^"]+)".*/\1/' || true)
+
+    if [[ -z "$GIT_REF" ]]; then
+      log_warn "Could not determine latest release tag. Falling back to 'main' branch."
+      GIT_REF="main"
+    else
+      log_ok "Using latest release tag: $GIT_REF"
+    fi
   fi
 
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"
@@ -995,14 +1173,14 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   "google_region": {"inputValue": "$REGION"},
   "streamsec_secret_name": {"inputValue": "$SECRET_NAME"},
   "org_level_sink": {"inputValue": "$ORG_LEVEL_SINK"},
-  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
+  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ "$PROJECT_ONLY" == true ]]; then echo ","; echo "  \"sa_project_level_permissions\": {\"inputValue\": \"true\"}"; fi)$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
 }
 JSONEOF
 )
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
 
-    HTTP_CODE=$(curl -s -o /tmp/im-preview-response.json -w "%{http_code}" \
+    HTTP_CODE=$(curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
       -X POST "$API_URL" \
       -H "Authorization: Bearer $ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
@@ -1023,11 +1201,10 @@ JSONEOF
       PREVIEW_CREATE_EXIT_CODE=0
     else
       log_error "REST API returned HTTP $HTTP_CODE"
-      cat /tmp/im-preview-response.json 2>/dev/null
+      cat "$TMP_PREVIEW_RESP" 2>/dev/null
       echo ""
       PREVIEW_CREATE_EXIT_CODE=1
     fi
-    rm -f /tmp/im-preview-response.json
   else
     gcloud infra-manager previews create "$PREVIEW_NAME" \
       --project="$PROJECT_ID" \
@@ -1107,7 +1284,12 @@ JSONEOF
         echo "     https://console.cloud.google.com/infra-manager/previews/details/$REGION/$PREVIEW_NAME?project=$PROJECT_ID"
         echo ""
         echo "  2. If the preview looks correct, create the deployment from the GCP Console (above link)"
-        echo "     using the same configuration as the preview."
+        echo "     using the same configuration as the preview. Input values to keep:"
+        echo "       google_project_id=$PROJECT_ID  google_region=$REGION  streamsec_secret_name=$SECRET_NAME"
+        echo "       org_level_sink=$ORG_LEVEL_SINK$( [[ -n "$ORGANIZATION_ID" ]] && echo "  org_id=$ORGANIZATION_ID" )"
+        if [[ "$SINGLE_PROJECT" == true ]]; then
+          echo "       include_projects=[\"$PROJECT_ID\"]$( [[ "$PROJECT_ONLY" == true ]] && echo "  sa_project_level_permissions=true" )"
+        fi
         echo ""
 
         break

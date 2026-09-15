@@ -38,7 +38,7 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID to create the Service Account in (REQUIRED if create_sa is true)."
+  description = "The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
   type        = string
   default     = null
 }
@@ -57,6 +57,12 @@ variable "create_sa" {
   description = "Boolean to determine if the Service Account should be created. If false, the existing service account must have organization level permissions."
   type        = bool
   default     = true
+}
+
+variable "sa_project_level_permissions" {
+  description = "When true (and create_sa = true; otherwise ignored), grant roles/viewer and roles/iam.securityReviewer to the Stream Security service account on each integrated project instead of on the organization. Requires include_projects. Use when no organization-level permissions are available; org- and folder-level IAM will not be collected."
+  type        = bool
+  default     = false
 }
 
 variable "existing_sa_json_file_path" {

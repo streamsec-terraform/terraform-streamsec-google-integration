@@ -14,11 +14,11 @@ at any time.
 | Step | Description |
 |------|-------------|
 | 1 | Enables required GCP APIs and configures the project (org-policy override, Cloud Build SA permissions) |
-| 2 | Creates two custom IAM roles: an **ops role** (IAM, logging, resource management) always created at organization level, and a **project resources role** (pubsub, secrets, functions) always created at project level. |
+| 2 | Creates two custom IAM roles: an **ops role** (IAM, logging, resource management) at organization level (project level with `--project-only`), and a **project resources role** (pubsub, secrets, functions) at project level. |
 | 3 | Creates a service account for Infrastructure Manager in the target project |
-| 4 | Grants both custom roles and `roles/config.agent` to the service account at organization level |
+| 4 | Grants both custom roles and `roles/config.agent` to the service account (organization level, or project level with `--project-only`) |
 | 5 | Creates the StreamSecurity credentials secret in Secret Manager |
-| 6 | Auto-detects the latest release tag, creates an Infrastructure Manager preview deployment, and monitors it until completion |
+| 6 | Uses the latest release tag (or `--git-ref`), creates an Infrastructure Manager preview deployment, and monitors it until completion |
 
 ### Modes
 
@@ -36,17 +36,36 @@ at any time.
 - Requires `--org-id` and organization-level permissions (same as org mode).
 - Use this mode to minimize scope of log collection and asset discovery, not to avoid org-level permissions.
 
+**Project-only mode (`--project-only`):**
+- Same scope as single-project mode (one project, project-level logging sink).
+- **No organization-level permissions required.** Ops role, runner SA bindings and
+  `roles/config.agent` are all created at the project level.
+- The Stream Security service account gets `roles/viewer` + `roles/iam.securityReviewer`
+  on the project only (`sa_project_level_permissions=true`), so organization- and
+  folder-level IAM is not collected.
+- `--org-id` is optional. Project `roles/owner` is sufficient (see Prerequisites for the
+  Editor-based alternative).
+- Use this mode when the person running the script cannot get organization-level access.
+  To cover more projects, run the script once per project.
+- When resuming with `--start-from-step`, pass `--project-only` again.
+
 ### Prerequisites
 
 - **gcloud CLI** installed and authenticated (`gcloud auth login`)
-- **Organization-level permissions** (choose one):
+- **Organization-level permissions** (org and single-project modes; not needed with `--project-only`), choose one:
   - `roles/owner` (simplest)
   - `roles/iam.organizationRoleAdmin` **+** `roles/resourcemanager.organizationAdmin` (both required)
 - **Project-level permissions** (choose one):
   - `roles/owner` or `roles/editor` (recommended)
   - Minimal: `roles/serviceusage.serviceUsageAdmin` + `roles/iam.serviceAccountAdmin` + `roles/secretmanager.admin` + `roles/config.admin`
 - The script will auto-grant `roles/orgpolicy.policyAdmin` if needed to disable the
-  `iam.disableServiceAccountKeyCreation` constraint at the project level.
+  `iam.disableServiceAccountKeyCreation` constraint at the project level. In
+  `--project-only` mode it does **not** self-grant: if the constraint is enforced on
+  the project and you cannot set org policy there, the script stops before making
+  changes and prints the command an organization admin must run.
+- `--project-only` mode: `roles/owner` on the project, or `roles/editor` +
+  `roles/iam.roleAdmin` + `roles/resourcemanager.projectIamAdmin` (custom roles and
+  project IAM policy are needed; `roles/editor` alone is not enough).
 
 > **Note:** In org mode, `roles/resourcemanager.organizationAdmin` alone is **not**
 > sufficient — it allows setting IAM policies but cannot create custom roles. You need
@@ -70,7 +89,7 @@ at any time.
 | Flag | Env var | Description |
 |------|---------|-------------|
 | `--project-id` | `PROJECT_ID` | GCP project for the Infrastructure Manager deployment |
-| `--org-id` | `ORGANIZATION_ID` | GCP organization ID (always required) |
+| `--org-id` | `ORGANIZATION_ID` | GCP organization ID (required unless `--project-only`) |
 | `--region` | `REGION` | GCP region (e.g. `us-central1`) |
 | `--streamsec-host` | `STREAMSEC_HOST` | StreamSecurity host (e.g. `your-org.streamsec.io`) |
 | `--workspace-id` | `WORKSPACE_ID` | StreamSecurity workspace ID |
@@ -86,7 +105,9 @@ at any time.
 | `--sa-name` | `SA_NAME` | `StreamSecurityInfraManagerSa` | Service account name |
 | `--secret-name` | `SECRET_NAME` | `streamsec-credentials` | Secret Manager secret name |
 | `--deployment-name` | `DEPLOYMENT_NAME` | `streamsec-integration` | IM deployment name |
+| `--git-ref` | `GIT_REF` | latest release | Module git ref used for the preview: a tag or a slash-free ref (Infrastructure Manager cannot fetch refs containing `/`, so `feature/x` style branch names are rejected) |
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
+| `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
 | `--skip-permission-check` | `SKIP_PERMISSION_CHECK=true` | — | Skip upfront permission validation |
 | `-y`, `--yes` | `AUTO_CONFIRM=true` | — | Skip all confirmation prompts |
@@ -101,8 +122,8 @@ at any time.
     --project-id my-gcp-project \
     --region us-central1 \
     --streamsec-host app.streamsec.io \
-    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
-    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN>
 ```
 
 **Single-project mode (project-level sink + scoped asset discovery):**
@@ -113,16 +134,28 @@ at any time.
     --project-id my-gcp-project \
     --region us-central1 \
     --streamsec-host app.streamsec.io \
-    --workspace-id 6a3f9c1e8b7d4f0a2c5e9b1d \
-    --api-token bLq9K84_zdRT921xkJfaQWpr6YHUtiox73NMbvCe2td \
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN> \
     --single-project
+```
+
+**Project-only mode (no organization-level permissions):**
+
+```bash
+./setup-prerequisites.sh \
+    --project-id my-gcp-project \
+    --region us-central1 \
+    --streamsec-host app.streamsec.io \
+    --workspace-id <WORKSPACE_ID> \
+    --api-token <API_TOKEN> \
+    --project-only
 ```
 
 ### After the script completes
 
-If the preview succeeded, the script prints a ready-to-use `gcloud infra-manager deployments apply` command.
-You can also create the deployment from the
-[GCP Console](https://console.cloud.google.com/infra-manager/deployments).
+If the preview succeeded, create the deployment from the preview in the
+[GCP Console](https://console.cloud.google.com/infra-manager/deployments)
+(Infrastructure Manager → Previews → select the preview → Create Deployment).
 
 ---
 

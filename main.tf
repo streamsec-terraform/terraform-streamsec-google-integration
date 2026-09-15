@@ -1,6 +1,10 @@
 # if var.org_integration is true, find all of the projects in the organization and add them to the var.projects map
 data "google_cloud_asset_search_all_resources" "this" {
-  count       = length(var.include_projects) > 0 ? 0 : 1
+  # Org-wide discovery is skipped when projects are listed explicitly, and also when
+  # project-level permissions are in effect (create_sa with sa_project_level_permissions:
+  # no organization access to search with). With create_sa = false the flag is a no-op
+  # and discovery behaves as before.
+  count       = length(var.include_projects) > 0 || (var.create_sa && var.sa_project_level_permissions) ? 0 : 1
   scope       = "organizations/${var.org_id}"
   asset_types = ["cloudresourcemanager.googleapis.com/Project"]
 }
@@ -14,7 +18,7 @@ locals {
   _all_projects = length(var.include_projects) > 0 ? { for p in data.google_project.this : p.project_id => {
     project_id = p.project_id
     name       = p.name
-    } if !contains(var.exclude_projects, p.project_id) } : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
+    } if !contains(var.exclude_projects, p.project_id) } : (var.create_sa && var.sa_project_level_permissions) ? {} : { for p in data.google_cloud_asset_search_all_resources.this[0].results : split("projects/", p.name)[1] => {
     project_id = split("projects/", p.name)[1]
     name       = p.display_name
   } if !contains(var.exclude_projects, split("projects/", p.name)[1]) }
@@ -41,6 +45,13 @@ resource "google_service_account" "org" {
   display_name = var.sa_display_name
   description  = var.sa_description
   project      = var.project_for_sa
+
+  lifecycle {
+    precondition {
+      condition     = !var.sa_project_level_permissions || length(var.include_projects) > 0
+      error_message = "`include_projects` is required when `sa_project_level_permissions` is true (organization-wide project discovery needs organization-level access)."
+    }
+  }
 }
 
 data "google_service_account" "existing" {
@@ -56,23 +67,46 @@ resource "google_service_account_key" "org" {
 }
 
 resource "google_organization_iam_member" "this" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/viewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
 }
 
 resource "google_organization_iam_member" "security_reviewer" {
-  count  = var.create_sa ? 1 : 0
+  count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/iam.securityReviewer"
   member = "serviceAccount:${google_service_account.org[0].email}"
   org_id = var.org_id
 }
+
+# Project-level alternative to the organization bindings above: used when the
+# deployer has no organization-level permissions (sa_project_level_permissions = true).
+resource "google_project_iam_member" "project_viewer" {
+  for_each = var.create_sa && var.sa_project_level_permissions ? local.projects : {}
+  project  = each.value.project_id
+  role     = "roles/viewer"
+  member   = "serviceAccount:${google_service_account.org[0].email}"
+}
+
+resource "google_project_iam_member" "project_security_reviewer" {
+  for_each = var.create_sa && var.sa_project_level_permissions ? local.projects : {}
+  project  = each.value.project_id
+  role     = "roles/iam.securityReviewer"
+  member   = "serviceAccount:${google_service_account.org[0].email}"
+}
+
 # add sleep to wait for the service account to be created
 resource "time_sleep" "this" {
   for_each        = { for k, v in local.projects : k => v }
   create_duration = "10s"
-  depends_on      = [streamsec_gcp_project.this]
+  depends_on = [
+    streamsec_gcp_project.this,
+    google_organization_iam_member.this,
+    google_organization_iam_member.security_reviewer,
+    google_project_iam_member.project_viewer,
+    google_project_iam_member.project_security_reviewer,
+  ]
 }
 
 resource "streamsec_gcp_project_ack" "this" {
@@ -81,7 +115,13 @@ resource "streamsec_gcp_project_ack" "this" {
   client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   private_key  = var.create_sa ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
-  depends_on = [google_organization_iam_member.this, google_organization_iam_member.security_reviewer, time_sleep.this]
+  depends_on = [
+    google_organization_iam_member.this,
+    google_organization_iam_member.security_reviewer,
+    google_project_iam_member.project_viewer,
+    google_project_iam_member.project_security_reviewer,
+    time_sleep.this,
+  ]
 }
 
 
@@ -119,6 +159,33 @@ module "response" {
   organization_id                  = var.org_id
   workflow_invoker_service_account = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
+}
+
+# sa_project_level_permissions needs an explicit project list because org-wide
+# discovery is not possible without organization-level access. With create_sa = false
+# the flag is a no-op (the existing service account's bindings are the caller's job).
+# (check blocks warn; the hard stop for the create_sa = true case is the
+# precondition on google_service_account.org.)
+check "project_level_permissions" {
+  assert {
+    condition     = !var.sa_project_level_permissions || length(var.include_projects) > 0
+    error_message = "`sa_project_level_permissions = true` requires a non-empty `include_projects`."
+  }
+}
+
+# org_id is needed by every organization-scoped operation. Warn when one of
+# them is enabled without it.
+check "org_id_required" {
+  assert {
+    condition = try(var.org_id != null && var.org_id != "", false) || !(
+      (var.create_sa && !var.sa_project_level_permissions)
+      || length(var.include_projects) == 0
+      || (var.enable_real_time_events && var.org_level_sink)
+      || var.enable_gke_logs
+      || (length(var.response_enabled_projects) > 0 && var.response_org_level_permissions)
+    )
+    error_message = "`org_id` is required for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
+  }
 }
 
 # Fail clearly if response is enabled but no region was provided (region is
