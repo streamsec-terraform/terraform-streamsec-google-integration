@@ -49,7 +49,7 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID to create the Service Account in (REQUIRED if create_sa is true)."
+  description = "The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
   type        = string
   default     = null
 }
@@ -74,6 +74,12 @@ variable "existing_sa_json_file_path" {
   description = "The path to the JSON file for the existing Service Account."
   type        = string
   default     = null
+}
+
+variable "sa_project_level_permissions" {
+  description = "When true (and create_sa = true; otherwise ignored), grant roles/viewer and roles/iam.securityReviewer on each project in include_projects instead of on the organization. Requires include_projects."
+  type        = bool
+  default     = false
 }
 
 variable "sa_account_id" {

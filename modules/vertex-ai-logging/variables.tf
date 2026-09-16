@@ -172,7 +172,7 @@ variable "name_prefix" {
 }
 
 variable "enable_request_response_logging" {
-  description = "Whether to manage Vertex AI request-response logging on the publisher models. When true the caller MUST pass a configured `restapi` provider (see README); when false no restapi resources are created and the provider need not be configured. Note this config is singular per model+location for the whole project: enabling it here overwrites any BigQuery destination another deployment set on the same model+region."
+  description = "Whether to manage Vertex AI request-response logging on the publisher models. When true the caller MUST pass a fully configured `restapi` provider (URI plus auth headers, see README); when false no restapi resources are created, but the provider block with at least a `uri` is still required because Terraform validates the provider configuration regardless of use. Note this config is singular per model+location for the whole project: enabling it here overwrites any BigQuery destination another deployment set on the same model+region."
   type        = bool
   default     = true
 }
