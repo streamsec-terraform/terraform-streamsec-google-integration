@@ -310,7 +310,21 @@ resource "google_cloud_scheduler_job" "cron" {
 # template_version is omitted when unset so the wire format matches what the
 # variable documents — absent reads as unknown, never as a wrong version.
 locals {
-  stream_ack_url = "${var.stream_api_url}/api/accounts/${var.project_id}/gcp-scanner-acknowledge"
+  # Served by ms_api, not the /api gateway. The gateway has no auth bypass for
+  # this path, so it answered 500 "No authorized" and no GCP project ever
+  # recorded a status or template version; the gateway is also being retired,
+  # so the route was added to ms_api rather than another bypass being carved
+  # into it.
+  #
+  # RELEASE ORDER: this route ships in lightlytics#22455. Do not cut a tag
+  # carrying this URL until that is deployed to the target environment. The ack
+  # below is intentionally non-fatal, so pointing at a route that does not exist
+  # yet does not fail the apply - it just silently goes back to recording
+  # nothing, which is the exact failure this change exists to fix.
+  # trimsuffix, as the palo-alto-waf module does: stream_api_url legitimately
+  # arrives with a trailing slash, and "//scanner-callback/..." would 404 —
+  # silently, because the ack is non-fatal.
+  stream_ack_url = "${trimsuffix(var.stream_api_url, "/")}/scanner-callback/gcp/${var.project_id}/acknowledge"
 
   stream_ack_payload = jsonencode(merge(
     {
@@ -328,9 +342,15 @@ resource "terraform_data" "acknowledge" {
   # stream_template_version but nothing about the job, so without this the ack
   # never re-fires and Stream keeps recording the old version - defeating the
   # staleness detection this variable exists for.
+  #
+  # And the URL, so that changing where the ack is delivered re-delivers it. A
+  # deployment re-applied at an unchanged job and version would otherwise keep
+  # the old resource and never call the new endpoint - which is this very
+  # change, and would have failed silently given the non-fatal provisioner.
   triggers_replace = [
     google_cloud_run_v2_job.orchestrator.uid,
     var.stream_template_version,
+    local.stream_ack_url,
   ]
 
   provisioner "local-exec" {
