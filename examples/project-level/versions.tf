@@ -4,14 +4,14 @@ terraform {
   required_providers {
     streamsec = {
       source  = "streamsec-terraform/streamsec"
-      version = ">= 1.10"
+      version = ">= 1.13"
     }
     google = {
       source  = "hashicorp/google"
       version = ">= 6.0"
     }
     # Declared by the root module for the optional vertex-ai-logging module;
-    # must be named here so the provider block below resolves to Mastercard/restapi.
+    # must be named here so the provider block in main.tf resolves to Mastercard/restapi.
     restapi = {
       source  = "Mastercard/restapi"
       version = ">= 3.0"
