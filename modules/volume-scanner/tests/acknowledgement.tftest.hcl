@@ -39,6 +39,35 @@ run "acknowledgement_contract" {
     condition     = contains(terraform_data.acknowledge.triggers_replace, "v2.12.0")
     error_message = "Changing the template version must cause Terraform to acknowledge again."
   }
+
+  # Without this, a deployment re-applied at an unchanged job and version keeps
+  # the old resource and never calls the new endpoint.
+  assert {
+    condition     = contains(terraform_data.acknowledge.triggers_replace, local.stream_ack_url)
+    error_message = "Changing the acknowledgement endpoint must cause Terraform to acknowledge again."
+  }
+}
+
+# stream_api_url legitimately arrives with a trailing slash (the palo-alto-waf
+# module's own test passes one). Left unnormalised it yields a double slash and
+# a 404 that the non-fatal provisioner swallows.
+run "normalises_a_trailing_slash_on_the_api_url" {
+  command = plan
+
+  variables {
+    project_id              = "stream-test-123"
+    region                  = "us-central1"
+    stream_api_url          = "https://tenant.streamsec.io/"
+    stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+    stream_ack_token        = "test-ack-token"
+    stream_collection_token = "test-collection-token"
+    stream_template_version = "v2.12.0"
+  }
+
+  assert {
+    condition     = local.stream_ack_url == "https://tenant.streamsec.io/scanner-callback/gcp/stream-test-123/acknowledge"
+    error_message = "A trailing slash on stream_api_url must not produce a double slash in the callback URL."
+  }
 }
 
 # stream_template_version defaults to empty, and an empty version must be

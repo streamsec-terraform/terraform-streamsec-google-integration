@@ -321,7 +321,10 @@ locals {
   # below is intentionally non-fatal, so pointing at a route that does not exist
   # yet does not fail the apply - it just silently goes back to recording
   # nothing, which is the exact failure this change exists to fix.
-  stream_ack_url = "${var.stream_api_url}/scanner-callback/gcp/${var.project_id}/acknowledge"
+  # trimsuffix, as the palo-alto-waf module does: stream_api_url legitimately
+  # arrives with a trailing slash, and "//scanner-callback/..." would 404 —
+  # silently, because the ack is non-fatal.
+  stream_ack_url = "${trimsuffix(var.stream_api_url, "/")}/scanner-callback/gcp/${var.project_id}/acknowledge"
 
   stream_ack_payload = jsonencode(merge(
     {
@@ -339,9 +342,15 @@ resource "terraform_data" "acknowledge" {
   # stream_template_version but nothing about the job, so without this the ack
   # never re-fires and Stream keeps recording the old version - defeating the
   # staleness detection this variable exists for.
+  #
+  # And the URL, so that changing where the ack is delivered re-delivers it. A
+  # deployment re-applied at an unchanged job and version would otherwise keep
+  # the old resource and never call the new endpoint - which is this very
+  # change, and would have failed silently given the non-fatal provisioner.
   triggers_replace = [
     google_cloud_run_v2_job.orchestrator.uid,
     var.stream_template_version,
+    local.stream_ack_url,
   ]
 
   provisioner "local-exec" {
