@@ -183,6 +183,17 @@ resource "google_cloud_run_v2_job" "orchestrator" {
   template {
     template {
       service_account = google_service_account.scanner.email
+
+      # The orchestrator waits while its Batch workers scan, and Cloud Run's
+      # default of 600s per attempt killed it mid-wait on every run
+      # (DEV-22980). This is a ceiling, not an estimate: a worker is capped at
+      # 11h by the scanner and a failed shard gets one retry, so allow 23h,
+      # which also keeps a slow run from overlapping the next daily one.
+      timeout = "82800s"
+      # No Cloud Run retries: the orchestrator keeps no state between attempts,
+      # so a retry rescans the whole fleet. It retries failed shards itself.
+      max_retries = 0
+
       containers {
         image = var.scanner_image
         env {
