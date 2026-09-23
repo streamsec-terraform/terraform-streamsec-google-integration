@@ -16,17 +16,18 @@ run "orchestrator_outlives_its_workers" {
     stream_collection_token = "test-collection-token"
   }
 
-  # The scanner caps a worker at 11h, and a failed shard gets one retry.
+  # The scanner caps a worker at no more than 11h, and a failed shard gets one
+  # retry. Leave room beyond that for discovery and the snapshot sweep.
   assert {
-    condition     = try(tonumber(trimsuffix(google_cloud_run_v2_job.orchestrator.template[0].template[0].timeout, "s")), 0) >= 22 * 3600
-    error_message = "The orchestrator's timeout must cover one shard plus its retry (2 x the scanner's 11h worker cap)."
+    condition     = try(tonumber(trimsuffix(google_cloud_run_v2_job.orchestrator.template[0].template[0].timeout, "s")), 0) > 22 * 3600
+    error_message = "The orchestrator's timeout must cover a shard plus its retry (2 x the scanner's 11h worker cap), with room to spare."
   }
 
-  # The cron fires daily; a run that outlives a day overlaps the next one and
-  # snapshots the same disks twice.
+  # The timeout applies to each attempt, so every attempt together must fit in
+  # the daily schedule, or one run's orchestrator overlaps the next one.
   assert {
-    condition     = try(tonumber(trimsuffix(google_cloud_run_v2_job.orchestrator.template[0].template[0].timeout, "s")), 86400) < 24 * 3600
-    error_message = "The orchestrator's timeout must stay under the daily schedule so runs never overlap."
+    condition     = (google_cloud_run_v2_job.orchestrator.template[0].template[0].max_retries + 1) * try(tonumber(trimsuffix(google_cloud_run_v2_job.orchestrator.template[0].template[0].timeout, "s")), 86400) < 24 * 3600
+    error_message = "All of the orchestrator's attempts must fit in a day, or one run overlaps the next scheduled one."
   }
 
   # The orchestrator keeps no state between attempts, so a Cloud Run retry
