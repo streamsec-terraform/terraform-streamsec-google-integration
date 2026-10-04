@@ -132,3 +132,65 @@ run "workload_only_needs_a_kind" {
 
   expect_failures = [google_cloud_run_v2_job.orchestrator]
 }
+
+# Each Cloud Run kind on its own gets exactly its own workload permissions: a
+# jobs-only install without run.locations.list fails every night, and one with
+# run.services.list is over-granted.
+run "cloud_run_services_only" {
+  command = plan
+
+  variables {
+    scan_cloud_run_jobs  = "false"
+    scan_cloud_functions = "false"
+  }
+
+  assert {
+    condition = toset([for p in google_project_iam_custom_role.scanner.permissions : p if startswith(p, "run.") || startswith(p, "cloudfunctions.") || startswith(p, "artifactregistry.")]) == toset([
+      "run.locations.list",
+      "run.services.list",
+      "run.revisions.get",
+      "artifactregistry.repositories.downloadArtifacts",
+    ])
+    error_message = "Scanning Cloud Run services only must grant exactly the services permissions."
+  }
+}
+
+run "cloud_run_jobs_only" {
+  command = plan
+
+  variables {
+    scan_cloud_run       = "false"
+    scan_cloud_functions = "false"
+  }
+
+  assert {
+    condition = toset([for p in google_project_iam_custom_role.scanner.permissions : p if startswith(p, "run.") || startswith(p, "cloudfunctions.") || startswith(p, "artifactregistry.")]) == toset([
+      "run.locations.list",
+      "run.jobs.list",
+      "artifactregistry.repositories.downloadArtifacts",
+    ])
+    error_message = "Scanning Cloud Run jobs only must grant exactly the jobs permissions."
+  }
+}
+
+# The workload permissions are added to the disk-scanning ones, never instead.
+run "keeps_the_disk_scanning_permissions" {
+  command = plan
+
+  assert {
+    condition = length(setsubtract([
+      "compute.instances.list",
+      "compute.instances.attachDisk",
+      "compute.disks.create",
+      "compute.snapshots.delete",
+      "batch.jobs.create",
+      "logging.logEntries.create",
+    ], google_project_iam_custom_role.scanner.permissions)) == 0
+    error_message = "The disk-scanning permissions must stay in the role."
+  }
+
+  assert {
+    condition     = length(google_project_iam_custom_role.scanner.permissions) == 25 + 7
+    error_message = "By default the role holds the 25 disk-scanning permissions plus the 7 workload ones."
+  }
+}
