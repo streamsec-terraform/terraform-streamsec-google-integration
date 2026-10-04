@@ -103,4 +103,10 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 
 Every resource name is fixed, so one deployment per project is the default, and a second apply with other inputs takes the scanner over. To run a second scanner beside it, for example one reporting to a staging workspace, give it a `name_suffix` such as `-stg`. Every project-unique name then carries the suffix: the service account, the custom role, the orchestrator job and its scheduler, both secrets, and the network, subnet, router and NAT.
 
-A suffixed instance must be workload-only (`scan_workload_only = "true"`), and the plan fails otherwise. Disk-scanning snapshots are labelled for the scanner, not for an instance, so a second disk scanner would delete the first one's snapshots and break its incremental bases. Workload scanning only lists workloads and pulls their images and source, so two instances don't interfere.
+A suffixed instance:
+
+- **Must be workload-only** (`scan_workload_only = "true"`); the plan fails otherwise.
+- **Gets no disk or snapshot permissions.** The orchestrator runs a project-wide snapshot sweep after every cycle, workload-only or not. It selects every scanner snapshot in the project, because snapshots are labelled for the scanner, not for an instance. Without those permissions the second instance's sweep fails with a warning instead of deleting the first instance's snapshots.
+- **Needs its own deployment**, for example the Infra Manager deployment `streamsec-volume-scanner-stg`. Never add `name_suffix` to an existing deployment: that plans the replacement of every resource of the running scanner.
+- **Must report to a different Stream workspace.** Acknowledgements and heartbeats are keyed by project, so two instances reporting to one workspace would interleave its status.
+- **Should get a different `scan_schedule`,** so neither instance scans the other's Batch VMs or competes with it for vCPU quota.

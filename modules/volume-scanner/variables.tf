@@ -124,3 +124,13 @@ variable "name_suffix" {
     error_message = "name_suffix must be empty, or a hyphen followed by 1 to 5 lowercase letters or digits, which keeps the service account id within 30 characters."
   }
 }
+
+variable "scan_schedule" {
+  type        = string
+  description = "Cron schedule, in UTC, of the daily scan. Give a second instance in the same project a different time, so neither scans the other's Batch VMs or competes with it for vCPU quota."
+  default     = "0 2 * * *"
+  validation {
+    condition     = length(split(" ", trimspace(var.scan_schedule))) == 5
+    error_message = "scan_schedule must be a five-field cron expression, for example \"0 2 * * *\"."
+  }
+}

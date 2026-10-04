@@ -35,36 +35,21 @@ locals {
       "cloudfunctions.functions.sourceCodeGet",
     ] : [],
   ))
-}
 
-# Required APIs.
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "compute.googleapis.com",
-    "batch.googleapis.com",
-    "run.googleapis.com",
-    "cloudscheduler.googleapis.com",
-    "secretmanager.googleapis.com",
-  ])
-  project            = var.project_id
-  service            = each.key
-  disable_on_destroy = false
-}
+  # Launching and logging the Batch jobs every instance runs.
+  runtime_permissions = [
+    "compute.subnetworks.use",
+    "batch.jobs.create",
+    "batch.jobs.get",
+    "batch.jobs.delete",
+    "logging.logEntries.create",
+  ]
 
-# Single service account for orchestrator + worker.
-resource "google_service_account" "scanner" {
-  project      = var.project_id
-  account_id   = local.sa_account_id
-  display_name = "Stream Security volume scanner"
-}
-
-# Least-privilege custom role: discover VMs, snapshot/attach disks, run Batch workers.
-resource "google_project_iam_custom_role" "scanner" {
-  project     = var.project_id
-  role_id     = "streamsecVolumeScanner${replace(var.name_suffix, "-", "_")}"
-  title       = "Stream Security Volume Scanner"
-  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
-  permissions = concat([
+  # Disk scanning, and the snapshot sweep the orchestrator runs after every
+  # cycle. A suffixed instance gets none of them: the sweep selects every
+  # scanner snapshot in the project, so with them it would delete the default
+  # instance's snapshots. Without them its sweep fails with a warning.
+  disk_permissions = [
     "compute.instances.list",
     "compute.instances.get",
     "compute.instances.attachDisk",
@@ -85,12 +70,41 @@ resource "google_project_iam_custom_role" "scanner" {
     "compute.zoneOperations.get",
     "compute.globalOperations.get",
     "compute.regionOperations.get",
-    "compute.subnetworks.use",
-    "batch.jobs.create",
-    "batch.jobs.get",
-    "batch.jobs.delete",
-    "logging.logEntries.create",
-  ], local.workload_permissions)
+  ]
+}
+
+# Required APIs.
+resource "google_project_service" "apis" {
+  for_each = toset([
+    "compute.googleapis.com",
+    "batch.googleapis.com",
+    "run.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "secretmanager.googleapis.com",
+  ])
+  project            = var.project_id
+  service            = each.key
+  disable_on_destroy = false
+}
+
+# Single service account for orchestrator + worker.
+resource "google_service_account" "scanner" {
+  project      = var.project_id
+  account_id   = local.sa_account_id
+  display_name = "Stream Security volume scanner${var.name_suffix == "" ? "" : " (${var.name_suffix})"}"
+}
+
+# Least-privilege custom role: discover VMs, snapshot/attach disks, run Batch workers.
+resource "google_project_iam_custom_role" "scanner" {
+  project     = var.project_id
+  role_id     = "streamsecVolumeScanner${replace(var.name_suffix, "-", "_")}"
+  title       = "Stream Security Volume Scanner${var.name_suffix == "" ? "" : " (${var.name_suffix})"}"
+  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
+  permissions = concat(
+    local.runtime_permissions,
+    var.name_suffix == "" ? local.disk_permissions : [],
+    local.workload_permissions,
+  )
 }
 
 resource "google_project_iam_member" "scanner" {
@@ -328,7 +342,7 @@ resource "google_cloud_run_v2_job" "orchestrator" {
     }
     precondition {
       condition     = var.name_suffix == "" || lower(var.scan_workload_only) == "true"
-      error_message = "A suffixed instance must set scan_workload_only to \"true\": disk-scanning snapshots are not scoped to an instance, so a second disk scanner in the project would delete the first one's snapshots."
+      error_message = "A suffixed instance must set scan_workload_only to \"true\": it gets no disk or snapshot permissions, since scanner snapshots are not scoped to an instance and a second disk scanner in the project would delete the first one's."
     }
   }
 
@@ -346,7 +360,7 @@ resource "google_cloud_scheduler_job" "cron" {
   name      = local.scheduler
   project   = var.project_id
   region    = var.region
-  schedule  = "0 2 * * *"
+  schedule  = var.scan_schedule
   time_zone = "Etc/UTC"
 
   http_target {
