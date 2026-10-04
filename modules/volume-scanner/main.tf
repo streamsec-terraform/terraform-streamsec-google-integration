@@ -63,7 +63,7 @@ resource "google_project_iam_custom_role" "scanner" {
   project     = var.project_id
   role_id     = "streamsecVolumeScanner"
   title       = "Stream Security Volume Scanner"
-  description = "Agentless disk scanning: discover VMs, snapshot/attach disks, run Batch workers."
+  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
   permissions = concat([
     "compute.instances.list",
     "compute.instances.get",
