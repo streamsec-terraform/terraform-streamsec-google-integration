@@ -80,3 +80,71 @@ run "suffix_too_long_for_the_service_account_id" {
 
   expect_failures = [var.name_suffix]
 }
+
+# The orchestrator sweeps every scanner snapshot in the project after each
+# cycle, workload-only or not. A suffixed instance holding disk or snapshot
+# permissions would delete the default instance's snapshots, so it holds none;
+# its sweep fails with a warning. It keeps what its Batch workload job needs.
+run "suffixed_instance_gets_no_disk_permissions" {
+  command = plan
+
+  variables {
+    name_suffix        = "-stg"
+    scan_workload_only = "true"
+  }
+
+  assert {
+    condition     = length([for p in google_project_iam_custom_role.scanner.permissions : p if startswith(p, "compute.") && p != "compute.subnetworks.use"]) == 0
+    error_message = "A suffixed instance must hold no disk, snapshot or instance permission."
+  }
+
+  assert {
+    condition = length(setsubtract([
+      "compute.subnetworks.use",
+      "batch.jobs.create",
+      "batch.jobs.get",
+      "logging.logEntries.create",
+      "run.services.list",
+      "cloudfunctions.functions.sourceCodeGet",
+    ], google_project_iam_custom_role.scanner.permissions)) == 0
+    error_message = "A suffixed instance must keep what its Batch workload job and its workload kinds need."
+  }
+}
+
+# The longest suffix the service account id allows (30 characters).
+run "longest_suffix_fits" {
+  command = plan
+
+  variables {
+    name_suffix        = "-abcde"
+    scan_workload_only = "true"
+  }
+
+  assert {
+    condition     = length(google_service_account.scanner.account_id) == 30
+    error_message = "The longest suffix must still fit the 30-character service account id."
+  }
+}
+
+run "schedule_is_configurable" {
+  command = plan
+
+  variables {
+    scan_schedule = "0 12 * * *"
+  }
+
+  assert {
+    condition     = google_cloud_scheduler_job.cron.schedule == "0 12 * * *"
+    error_message = "scan_schedule must reach the Cloud Scheduler job."
+  }
+}
+
+run "schedule_must_be_cron" {
+  command = plan
+
+  variables {
+    scan_schedule = "daily"
+  }
+
+  expect_failures = [var.scan_schedule]
+}
