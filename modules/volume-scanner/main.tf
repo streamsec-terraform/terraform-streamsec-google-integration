@@ -5,9 +5,9 @@
 # See infrastructure-manager/volume-scanner for the root Stream drives.
 
 locals {
-  sa_account_id = "streamsec-volume-scanner"
-  job_name      = "streamsec-volume-scanner-orchestrator"
-  scheduler     = "streamsec-volume-scanner-cron"
+  sa_account_id = "streamsec-volume-scanner${var.name_suffix}"
+  job_name      = "streamsec-volume-scanner-orchestrator${var.name_suffix}"
+  scheduler     = "streamsec-volume-scanner-cron${var.name_suffix}"
 
   scan_cloud_run       = lower(var.scan_cloud_run) == "true"
   scan_cloud_run_jobs  = lower(var.scan_cloud_run_jobs) == "true"
@@ -61,7 +61,7 @@ resource "google_service_account" "scanner" {
 # Least-privilege custom role: discover VMs, snapshot/attach disks, run Batch workers.
 resource "google_project_iam_custom_role" "scanner" {
   project     = var.project_id
-  role_id     = "streamsecVolumeScanner"
+  role_id     = "streamsecVolumeScanner${replace(var.name_suffix, "-", "_")}"
   title       = "Stream Security Volume Scanner"
   description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
   permissions = concat([
@@ -128,7 +128,7 @@ resource "google_project_iam_member" "scanner_agent_reporter" {
 # Collection + acknowledge tokens in Secret Manager, not plaintext Cloud Run env.
 resource "google_secret_manager_secret" "collection_token" {
   project   = var.project_id
-  secret_id = "streamsec-volume-scanner-collection-token"
+  secret_id = "streamsec-volume-scanner${var.name_suffix}-collection-token"
   replication {
     auto {}
   }
@@ -142,7 +142,7 @@ resource "google_secret_manager_secret_version" "collection_token" {
 
 resource "google_secret_manager_secret" "ack_token" {
   project   = var.project_id
-  secret_id = "streamsec-volume-scanner-ack-token"
+  secret_id = "streamsec-volume-scanner${var.name_suffix}-ack-token"
   replication {
     auto {}
   }
@@ -171,14 +171,14 @@ resource "google_secret_manager_secret_iam_member" "ack_token_accessor" {
 # Isolated network + Cloud NAT for the no-external-IP scan workers.
 resource "google_compute_network" "scanner" {
   project                 = var.project_id
-  name                    = "streamsec-scanner-vpc"
+  name                    = "streamsec-scanner-vpc${var.name_suffix}"
   auto_create_subnetworks = false
   depends_on              = [google_project_service.apis]
 }
 
 resource "google_compute_subnetwork" "scanner" {
   project                  = var.project_id
-  name                     = "streamsec-scanner-subnet"
+  name                     = "streamsec-scanner-subnet${var.name_suffix}"
   region                   = var.region
   network                  = google_compute_network.scanner.id
   ip_cidr_range            = "10.61.0.0/24"
@@ -187,14 +187,14 @@ resource "google_compute_subnetwork" "scanner" {
 
 resource "google_compute_router" "scanner" {
   project = var.project_id
-  name    = "streamsec-scanner-router"
+  name    = "streamsec-scanner-router${var.name_suffix}"
   region  = var.region
   network = google_compute_network.scanner.id
 }
 
 resource "google_compute_router_nat" "scanner" {
   project                            = var.project_id
-  name                               = "streamsec-scanner-nat"
+  name                               = "streamsec-scanner-nat${var.name_suffix}"
   router                             = google_compute_router.scanner.name
   region                             = var.region
   nat_ip_allocate_option             = "AUTO_ONLY"
@@ -325,6 +325,10 @@ resource "google_cloud_run_v2_job" "orchestrator" {
     precondition {
       condition     = !(lower(var.scan_workload_only) == "true" && length(local.workload_kinds) == 0)
       error_message = "scan_workload_only skips VM disks, so it needs at least one of scan_cloud_run, scan_cloud_run_jobs or scan_cloud_functions; otherwise the scanner scans nothing."
+    }
+    precondition {
+      condition     = var.name_suffix == "" || lower(var.scan_workload_only) == "true"
+      error_message = "A suffixed instance must set scan_workload_only to \"true\": disk-scanning snapshots are not scoped to an instance, so a second disk scanner in the project would delete the first one's snapshots."
     }
   }
 

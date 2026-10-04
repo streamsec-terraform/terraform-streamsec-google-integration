@@ -98,3 +98,9 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 - Re-applying a deployment from an older release turns the three kinds on, since they default to `true`. Set them to `false` first if you don't want that access.
 - `scan_workload_only` skips the disk scan but keeps its permissions for now, since the snapshot sweep still runs in that mode.
 - The kinds need a scanner image with GCP workload scanning, newer than v0.5.21. Older images ignore them, and with `scan_workload_only` an older image scans nothing.
+
+### A second instance in the same project
+
+Every resource name is fixed, so one deployment per project is the default, and a second apply with other inputs takes the scanner over. To run a second scanner beside it, for example one reporting to a staging workspace, give it a `name_suffix` such as `-stg`. Every project-unique name then carries the suffix: the service account, the custom role, the orchestrator job and its scheduler, both secrets, and the network, subnet, router and NAT.
+
+A suffixed instance must be workload-only (`scan_workload_only = "true"`), and the plan fails otherwise. Disk-scanning snapshots are labelled for the scanner, not for an instance, so a second disk scanner would delete the first one's snapshots and break its incremental bases. Workload scanning only lists workloads and pulls their images and source, so two instances don't interfere.
