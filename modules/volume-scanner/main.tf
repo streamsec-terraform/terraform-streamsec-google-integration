@@ -8,6 +8,33 @@ locals {
   sa_account_id = "streamsec-volume-scanner"
   job_name      = "streamsec-volume-scanner-orchestrator"
   scheduler     = "streamsec-volume-scanner-cron"
+
+  scan_cloud_run       = lower(var.scan_cloud_run) == "true"
+  scan_cloud_run_jobs  = lower(var.scan_cloud_run_jobs) == "true"
+  scan_cloud_functions = lower(var.scan_cloud_functions) == "true"
+
+  # The scanner's names for the kinds turned on. Sent as "none" when every one
+  # is off: an unset COLLECTOR_WORKLOAD_KINDS means the scanner's defaults.
+  workload_kinds = compact([
+    local.scan_cloud_run ? "cloudrun" : "",
+    local.scan_cloud_run_jobs ? "cloudrunjobs" : "",
+    local.scan_cloud_functions ? "cloudfunctions" : "",
+  ])
+
+  # Granted per kind, so turning a kind off also takes its access away; in
+  # particular sourceCodeGet reads every function's source.
+  workload_permissions = distinct(concat(
+    local.scan_cloud_run || local.scan_cloud_run_jobs ? [
+      "run.locations.list",
+      "artifactregistry.repositories.downloadArtifacts",
+    ] : [],
+    local.scan_cloud_run ? ["run.services.list", "run.revisions.get"] : [],
+    local.scan_cloud_run_jobs ? ["run.jobs.list"] : [],
+    local.scan_cloud_functions ? [
+      "cloudfunctions.functions.list",
+      "cloudfunctions.functions.sourceCodeGet",
+    ] : [],
+  ))
 }
 
 # Required APIs.
@@ -36,8 +63,8 @@ resource "google_project_iam_custom_role" "scanner" {
   project     = var.project_id
   role_id     = "streamsecVolumeScanner"
   title       = "Stream Security Volume Scanner"
-  description = "Agentless disk scanning: discover VMs, snapshot/attach disks, run Batch workers."
-  permissions = [
+  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
+  permissions = concat([
     "compute.instances.list",
     "compute.instances.get",
     "compute.instances.attachDisk",
@@ -63,7 +90,7 @@ resource "google_project_iam_custom_role" "scanner" {
     "batch.jobs.get",
     "batch.jobs.delete",
     "logging.logEntries.create",
-  ]
+  ], local.workload_permissions)
 }
 
 resource "google_project_iam_member" "scanner" {
@@ -245,6 +272,14 @@ resource "google_cloud_run_v2_job" "orchestrator" {
           value = lower(var.scan_ai_workloads)
         }
         env {
+          name  = "COLLECTOR_WORKLOAD_KINDS"
+          value = length(local.workload_kinds) > 0 ? join(",", local.workload_kinds) : "none"
+        }
+        env {
+          name  = "COLLECTOR_WORKLOAD_ONLY"
+          value = lower(var.scan_workload_only)
+        }
+        env {
           name  = "COLLECTOR_STREAM_SCAN_URL"
           value = "${var.stream_api_url}/openapi/vulnerabilities/stream_scan/raw"
         }
@@ -283,6 +318,13 @@ resource "google_cloud_run_v2_job" "orchestrator" {
           }
         }
       }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !(lower(var.scan_workload_only) == "true" && length(local.workload_kinds) == 0)
+      error_message = "scan_workload_only skips VM disks, so it needs at least one of scan_cloud_run, scan_cloud_run_jobs or scan_cloud_functions; otherwise the scanner scans nothing."
     }
   }
 

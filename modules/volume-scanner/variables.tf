@@ -69,6 +69,46 @@ variable "scan_ai_workloads" {
   }
 }
 
+variable "scan_cloud_run" {
+  type        = string
+  description = "Scan the images of Cloud Run services, which include Cloud Run functions and gen2 Cloud Functions (workload kind cloudrun). \"true\" or \"false\" (case-insensitive)."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_cloud_run))
+    error_message = "scan_cloud_run must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
+variable "scan_cloud_run_jobs" {
+  type        = string
+  description = "Scan the images of Cloud Run jobs (workload kind cloudrunjobs). \"true\" or \"false\" (case-insensitive)."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_cloud_run_jobs))
+    error_message = "scan_cloud_run_jobs must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
+variable "scan_cloud_functions" {
+  type        = string
+  description = "Scan gen1 Cloud Functions from their deployed source (workload kind cloudfunctions). Gen2 functions are Cloud Run services and are covered by scan_cloud_run. \"true\" or \"false\" (case-insensitive)."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_cloud_functions))
+    error_message = "scan_cloud_functions must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
+variable "scan_workload_only" {
+  type        = string
+  description = "Scan only the workloads selected above, and no VM disks (COLLECTOR_WORKLOAD_ONLY). Needs at least one workload kind on, and a scanner image with GCP workload scanning (newer than v0.5.21): with an older image a workload-only run scans nothing. \"true\" or \"false\" (case-insensitive)."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_workload_only))
+    error_message = "scan_workload_only must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
 variable "stream_template_version" {
   type        = string
   description = "Module release tag, echoed back in the install acknowledgement so Stream records which version was actually applied. Empty leaves the deployment's version unknown rather than wrong."
