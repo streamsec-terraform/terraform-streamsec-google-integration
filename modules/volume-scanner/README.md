@@ -10,7 +10,7 @@ authenticated by tokens minted for this deployment.
 
 - **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager)
 - **Service account** shared by the orchestrator and its workers
-- **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers; no data-plane read beyond the disks it scans
+- **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers; no data-plane read beyond the disks it scans. Each workload kind you leave on adds only what it uses: listing Cloud Run services, revisions and jobs, pulling their images from Artifact Registry, and listing gen1 functions and downloading their source
 - **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var
 - **Isolated VPC + Cloud NAT**, so scan workers run with no external IP
 - **Orchestrator Cloud Run Job** on a daily **Cloud Scheduler** trigger; workers are created at runtime as **Batch** jobs
@@ -75,3 +75,16 @@ deployment's version as *unknown* rather than as a version it does not have.
 | `scan_language_packages` | `true` (CVEs) | `COLLECTOR_SCAN_LANGUAGE_PACKAGES` |
 | `scan_secrets` | `false` | `COLLECTOR_SCAN_SECRETS` |
 | `scan_ai_workloads` | `false` | `COLLECTOR_SCAN_AI_WORKLOADS` |
+
+### Workload scanning
+
+Besides VM disks, the scanner scans the images of the project's serverless workloads. Each kind has its own toggle, and its permissions are granted only while it is on.
+
+| input | default | scans | permissions it adds |
+|---|---|---|---|
+| `scan_cloud_run` | `true` | Cloud Run services, including Cloud Run functions and gen2 Cloud Functions: the image of every revision serving traffic | `run.locations.list`, `run.services.list`, `run.revisions.get`, `artifactregistry.repositories.downloadArtifacts` |
+| `scan_cloud_run_jobs` | `true` | Cloud Run jobs | `run.locations.list`, `run.jobs.list`, `artifactregistry.repositories.downloadArtifacts` |
+| `scan_cloud_functions` | `true` | gen1 Cloud Functions, from their deployed source | `cloudfunctions.functions.list`, `cloudfunctions.functions.sourceCodeGet` |
+| `scan_workload_only` | `false` | only the kinds above, no VM disks; needs at least one of them on | none |
+
+They reach the scanner as `COLLECTOR_WORKLOAD_KINDS` (`none` when every kind is off) and `COLLECTOR_WORKLOAD_ONLY`. An image in another project's Artifact Registry also needs `roles/artifactregistry.reader` for the scanner's service account in that project.
