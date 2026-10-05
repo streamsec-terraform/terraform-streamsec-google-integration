@@ -130,7 +130,7 @@ variable "scan_schedule" {
   description = "Cron schedule, in UTC, of the daily scan. Give a second instance in the same project a different time, so neither scans the other's Batch VMs or competes with it for vCPU quota."
   default     = "0 2 * * *"
   validation {
-    condition     = length(split(" ", trimspace(var.scan_schedule))) == 5
+    condition     = length(regexall("[^[:space:]]+", var.scan_schedule)) == 5
     error_message = "scan_schedule must be a five-field cron expression, for example \"0 2 * * *\"."
   }
 }
