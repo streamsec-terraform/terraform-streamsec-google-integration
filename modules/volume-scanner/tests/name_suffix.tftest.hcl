@@ -148,3 +148,17 @@ run "schedule_must_be_cron" {
 
   expect_failures = [var.scan_schedule]
 }
+
+# Cron fields are whitespace-separated, not single-space-separated.
+run "schedule_accepts_any_whitespace" {
+  command = plan
+
+  variables {
+    scan_schedule = "0  12\t* * *"
+  }
+
+  assert {
+    condition     = google_cloud_scheduler_job.cron.schedule == "0  12\t* * *"
+    error_message = "A cron expression with repeated spaces or tabs is valid."
+  }
+}
