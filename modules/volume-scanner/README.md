@@ -98,3 +98,15 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 - Re-applying a deployment from an older release turns the three kinds on, since they default to `true`. Set them to `false` first if you don't want that access.
 - `scan_workload_only` skips the disk scan but keeps its permissions for now, since the snapshot sweep still runs in that mode.
 - The kinds need a scanner image with GCP workload scanning, newer than v0.5.21. Older images ignore them, and with `scan_workload_only` an older image scans nothing.
+
+### A second instance in the same project
+
+Every resource name is fixed, so one deployment per project is the default, and a second apply with other inputs takes the scanner over. To run a second scanner beside it, for example one reporting to a staging workspace, give it a `name_suffix` such as `-stg`. Every project-unique name then carries the suffix: the service account, the custom role, the orchestrator job and its scheduler, both secrets, and the network, subnet, router and NAT.
+
+A suffixed instance:
+
+- **Must be workload-only** (`scan_workload_only = "true"`); the plan fails otherwise.
+- **Gets no disk or snapshot permissions.** The orchestrator runs a project-wide snapshot sweep after every cycle, workload-only or not. It selects every scanner snapshot in the project, because snapshots are labelled for the scanner, not for an instance. Without those permissions the second instance's sweep fails with a warning instead of deleting the first instance's snapshots.
+- **Needs its own deployment**, for example the Infra Manager deployment `streamsec-volume-scanner-stg`. Never add `name_suffix` to an existing deployment: that plans the replacement of every resource of the running scanner.
+- **Must report to a different Stream workspace.** Acknowledgements and heartbeats are keyed by project, so two instances reporting to one workspace would interleave its status.
+- **Should get a different `scan_schedule`,** so neither instance scans the other's Batch VMs or competes with it for vCPU quota.

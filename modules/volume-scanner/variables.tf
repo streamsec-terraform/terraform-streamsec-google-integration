@@ -114,3 +114,23 @@ variable "stream_template_version" {
   description = "Module release tag, echoed back in the install acknowledgement so Stream records which version was actually applied. Empty leaves the deployment's version unknown rather than wrong."
   default     = ""
 }
+
+variable "name_suffix" {
+  type        = string
+  description = "Suffix for every resource name, to run a second instance of the scanner in the same project, for example \"-stg\" for one reporting to a staging workspace. Empty, the default, keeps the original names. A suffixed instance must be workload-only (scan_workload_only = \"true\"): disk-scanning snapshots are not scoped to an instance, so two disk scanners in one project would delete each other's snapshots."
+  default     = ""
+  validation {
+    condition     = can(regex("^(-[a-z0-9]{1,5})?$", var.name_suffix))
+    error_message = "name_suffix must be empty, or a hyphen followed by 1 to 5 lowercase letters or digits, which keeps the service account id within 30 characters."
+  }
+}
+
+variable "scan_schedule" {
+  type        = string
+  description = "Cron schedule, in UTC, of the daily scan. Give a second instance in the same project a different time, so neither scans the other's Batch VMs or competes with it for vCPU quota."
+  default     = "0 2 * * *"
+  validation {
+    condition     = length(regexall("[^[:space:]]+", var.scan_schedule)) == 5
+    error_message = "scan_schedule must be a five-field cron expression, for example \"0 2 * * *\"."
+  }
+}
