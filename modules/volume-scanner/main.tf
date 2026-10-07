@@ -306,6 +306,12 @@ resource "google_cloud_run_v2_job" "orchestrator" {
             }
           }
         }
+        # Not a secret: the token's exact secret version, which the scanner
+        # passes to its Batch workers so the token is not a plain job variable.
+        env {
+          name  = "COLLECTOR_STREAM_SCAN_TOKEN_SECRET"
+          value = google_secret_manager_secret_version.collection_token.name
+        }
         env {
           name  = "COLLECTOR_STREAM_SCAN_WORKSPACE"
           value = var.stream_customer_id
