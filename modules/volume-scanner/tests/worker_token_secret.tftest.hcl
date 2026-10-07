@@ -28,6 +28,15 @@ mock_provider "google" {
   }
 }
 
+# The ack token's version gets a name of its own, so wiring the variable to it
+# fails here.
+override_resource {
+  target = google_secret_manager_secret_version.ack_token
+  values = {
+    name = "projects/123456789012/secrets/streamsec-volume-scanner-ack-token/versions/3"
+  }
+}
+
 variables {
   project_id              = "stream-test-123"
   region                  = "us-central1"

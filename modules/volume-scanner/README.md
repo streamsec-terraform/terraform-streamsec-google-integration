@@ -11,10 +11,12 @@ authenticated by tokens minted for this deployment.
 - **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager)
 - **Service account** shared by the orchestrator and its workers
 - **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers, plus read access for each workload kind left on (see [Workload scanning](#workload-scanning)); no data-plane read beyond the disks and workloads it scans
-- **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var. The orchestrator also gets the collection token's exact secret version (`COLLECTOR_STREAM_SCAN_TOKEN_SECRET`, a resource name, not a secret), so a scanner that reads it passes the token to its Batch workers from Secret Manager rather than as a plain job variable, which anyone with the basic Viewer role can read
+- **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var
 - **Isolated VPC + Cloud NAT**, so scan workers run with no external IP
 - **Orchestrator Cloud Run Job** on a daily **Cloud Scheduler** trigger; workers are created at runtime as **Batch** jobs
 - A post-apply acknowledgement to Stream, best-effort and non-fatal
+
+The orchestrator also gets `COLLECTOR_STREAM_SCAN_TOKEN_SECRET`, the collection token's exact secret version: a resource name, not a secret. Scanner images that read it pass the token to their Batch workers from Secret Manager; older images pass it as a plain job variable, which anyone with the basic Viewer role can read.
 
 ### Usage
 
