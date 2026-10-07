@@ -43,6 +43,13 @@ mock_provider "google" {
       name = "projects/123456789012/secrets/streamsec-volume-scanner-stg-collection-token"
     }
   }
+  mock_resource "google_secret_manager_secret_version" {
+    defaults = {
+      id      = "projects/stream-test-123/secrets/streamsec-volume-scanner-stg-collection-token/versions/2"
+      name    = "projects/123456789012/secrets/streamsec-volume-scanner-stg-collection-token/versions/2"
+      version = "2"
+    }
+  }
   mock_resource "google_cloud_run_v2_job" {
     defaults = {
       id = "projects/stream-test-123/locations/us-central1/jobs/streamsec-volume-scanner-orchestrator-stg"
@@ -76,5 +83,13 @@ run "suffixed_instance_references_only_its_own_resources" {
       && one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_GCP_WORKER_SUBNETWORK"]) == google_compute_subnetwork.scanner.id
     )
     error_message = "Workers must run as this instance's service account on this instance's network."
+  }
+
+  assert {
+    condition = (
+      one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_STREAM_SCAN_TOKEN_SECRET"]) == google_secret_manager_secret_version.collection_token.name
+      && google_secret_manager_secret_version.collection_token.secret == google_secret_manager_secret.collection_token.id
+    )
+    error_message = "Workers must read the token from this instance's own collection-token secret version."
   }
 }
