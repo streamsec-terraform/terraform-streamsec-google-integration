@@ -57,6 +57,13 @@ mock_provider "google" {
   }
 }
 
+override_resource {
+  target = google_secret_manager_secret_version.ack_token
+  values = {
+    name = "projects/123456789012/secrets/streamsec-volume-scanner-stg-ack-token/versions/1"
+  }
+}
+
 variables {
   project_id              = "stream-test-123"
   region                  = "us-central1"
