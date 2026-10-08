@@ -16,6 +16,8 @@ authenticated by tokens minted for this deployment.
 - **Orchestrator Cloud Run Job** on a daily **Cloud Scheduler** trigger; workers are created at runtime as **Batch** jobs
 - A post-apply acknowledgement to Stream, best-effort and non-fatal
 
+The orchestrator also gets `COLLECTOR_STREAM_SCAN_TOKEN_SECRET`, the collection token's exact secret version: a resource name, not a secret. Scanner images that read it pass the token to their Batch workers from Secret Manager; older images pass it as a plain job variable, which anyone with the basic Viewer role can read.
+
 ### Usage
 
 ```hcl
