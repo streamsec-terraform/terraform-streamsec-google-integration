@@ -143,8 +143,17 @@ resource "google_project_iam_member" "scanner_agent_reporter" {
 resource "google_secret_manager_secret" "collection_token" {
   project   = var.project_id
   secret_id = "streamsec-volume-scanner${var.name_suffix}-collection-token"
+  # In var.region: automatic means "global", which gcp.resourceLocations can
+  # disallow. Existing secrets keep theirs; it can't change in place (DEV-23760).
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+  lifecycle {
+    ignore_changes = [replication]
   }
   depends_on = [google_project_service.apis]
 }
@@ -158,7 +167,14 @@ resource "google_secret_manager_secret" "ack_token" {
   project   = var.project_id
   secret_id = "streamsec-volume-scanner${var.name_suffix}-ack-token"
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+  lifecycle {
+    ignore_changes = [replication]
   }
   depends_on = [google_project_service.apis]
 }

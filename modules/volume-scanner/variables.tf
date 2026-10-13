@@ -7,7 +7,7 @@ variable "project_id" {
 
 variable "region" {
   type        = string
-  description = "Region for the orchestrator Cloud Run Job + Cloud Scheduler."
+  description = "Region for the orchestrator Cloud Run Job + Cloud Scheduler, and for the token secrets, which stay where they were created if it changes."
   default     = "us-central1"
 }
 
