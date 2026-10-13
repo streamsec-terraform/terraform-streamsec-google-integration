@@ -101,6 +101,13 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 - `scan_workload_only` skips the disk scan but keeps its permissions for now, since the snapshot sweep still runs in that mode.
 - The kinds need a scanner image with GCP workload scanning, newer than v0.5.21. Older images ignore them, and with `scan_workload_only` an older image scans nothing.
 
+### Projects that restrict resource locations
+
+Under a `constraints/gcp.resourceLocations` org policy, the policy must allow `region`, where Stream's console also creates the Infra Manager deployment, and the region of every VM the scanner scans. Check it with `gcloud org-policies describe constraints/gcp.resourceLocations --project=<PROJECT_ID> --effective`.
+
+- **Secrets:** both are created with one replica in `region`, and stay there if `region` later changes. A deployment created on an older release keeps its secrets' automatic replication, in `global`. Replication can't change in place, so the module leaves it rather than replacing the secrets, and a location policy doesn't apply to resources that already exist.
+- **Snapshots:** scanner images v0.5.31 and later store each disk's snapshot in that disk's region. Older images leave the location to the project's snapshot settings, by default the nearest multi-region (`us` for `us-central1`), so a policy without it fails every disk scan while the apply succeeds.
+
 ### A second instance in the same project
 
 Every resource name is fixed, so one deployment per project is the default, and a second apply with other inputs takes the scanner over. To run a second scanner beside it, for example one reporting to a staging workspace, give it a `name_suffix` such as `-stg`. Every project-unique name then carries the suffix: the service account, the custom role, the orchestrator job and its scheduler, both secrets, and the network, subnet, router and NAT.
