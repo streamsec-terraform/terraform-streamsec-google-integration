@@ -105,7 +105,7 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 
 Under a `constraints/gcp.resourceLocations` org policy, the policy must allow `region` and the region of every VM the scanner scans. Check it with `gcloud org-policies describe constraints/gcp.resourceLocations --project=<PROJECT_ID> --effective`.
 
-- **Secrets:** by default both are created in the `global` location, so a policy without `global` fails the apply at `google_secret_manager_secret`. Set `secret_replication = "region"` to keep them in `region`. Replication can't change on an existing secret, so setting it on an existing deployment replaces both secrets.
+- **Secrets:** both are created with one replica in `region`. A deployment created on an older release keeps its secrets' automatic replication, in `global`. Replication can't change in place, so the module leaves it rather than replacing the secrets, and a location policy doesn't apply to resources that already exist.
 - **Snapshots:** scanner images newer than v0.5.30 store each disk's snapshot in that disk's region. Older images leave the location to the project's snapshot settings, by default the nearest multi-region (`us` for `us-central1`), so a policy without it fails every disk scan while the apply succeeds.
 
 ### A second instance in the same project
