@@ -39,8 +39,7 @@ run "orchestrator_outlives_its_workers" {
   }
 }
 
-# Left unset, the provider protects the job, so deleting the deployment fails
-# at it, and so does any change that replaces it (DEV-23759).
+# Unset reads as protected: the provider defaults it to true (DEV-23759).
 run "orchestrator_can_be_deleted" {
   command = plan
 

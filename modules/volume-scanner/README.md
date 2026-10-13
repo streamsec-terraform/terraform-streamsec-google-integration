@@ -115,16 +115,18 @@ A suffixed instance:
 
 ### Uninstalling
 
-Delete the Infra Manager deployment, where `<LOCATION>` is the deployment's own location and may differ from `region`:
+Delete the Infra Manager deployment, where `<LOCATION>` is the deployment's own location and may differ from the `region` input:
 
 ```bash
 gcloud infra-manager deployments delete projects/<PROJECT_ID>/locations/<LOCATION>/deployments/streamsec-volume-scanner --quiet
 ```
 
-A deployment last applied from v2.14.0 or earlier has its orchestrator job deletion-protected in Terraform state, so that delete fails at the job. Re-apply it from a newer release first, or delete the job before the deployment:
+A deployment last applied from v2.14.0 or earlier has its orchestrator job deletion-protected in Terraform state, so that delete fails at the job. Delete the job first, where `<REGION>` is the `region` input, or re-apply the deployment from a newer release first:
 
 ```bash
 gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> --project=<PROJECT_ID> --quiet
 ```
 
-The same applies to any change that replaces the job, such as a new `region`: re-apply from a newer release with no other change first.
+- **An instance with a `name_suffix`** has its own deployment, and its job name ends in the suffix, for example `streamsec-volume-scanner-orchestrator-stg`. Use those names, or you delete the other instance.
+- **Delete outside the daily scan.** GCP doesn't delete the scanner's subnet while scan workers still run on it.
+- **A change that replaces the job,** such as a new `region`, fails the same way on those deployments. Re-apply from a newer release with no other change first.
