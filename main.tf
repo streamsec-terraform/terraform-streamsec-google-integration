@@ -66,6 +66,32 @@ resource "google_service_account_key" "org" {
   service_account_id = var.create_sa ? google_service_account.org[0].id : data.google_service_account.existing[0].id
 }
 
+locals {
+  sa_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+}
+
+resource "google_project_service" "scan_quota_apis" {
+  for_each = toset([
+    "sqladmin.googleapis.com",
+    "cloudkms.googleapis.com",
+    "spanner.googleapis.com",
+    "bigtableadmin.googleapis.com",
+    "apikeys.googleapis.com",
+    "appengine.googleapis.com",
+    "dataflow.googleapis.com",
+    "cloudidentity.googleapis.com",
+    "accesscontextmanager.googleapis.com",
+    "orgpolicy.googleapis.com",
+    "serviceusage.googleapis.com",
+    "firebaserules.googleapis.com",
+  ])
+
+  project                    = try(regex("@([^.]+)\\.iam\\.gserviceaccount\\.com$", local.sa_email)[0], var.project_for_sa)
+  service                    = each.value
+  disable_on_destroy         = false
+  disable_dependent_services = false
+}
+
 resource "google_organization_iam_member" "this" {
   count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/viewer"
@@ -120,6 +146,7 @@ resource "streamsec_gcp_project_ack" "this" {
     google_organization_iam_member.security_reviewer,
     google_project_iam_member.project_viewer,
     google_project_iam_member.project_security_reviewer,
+    google_project_service.scan_quota_apis,
     time_sleep.this,
   ]
 }
