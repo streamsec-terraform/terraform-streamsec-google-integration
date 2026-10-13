@@ -1,20 +1,20 @@
 mock_provider "google" {}
 
+variables {
+  project_id              = "stream-test-123"
+  region                  = "us-central1"
+  stream_api_url          = "https://tenant.streamsec.io"
+  stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+  stream_ack_token        = "test-ack-token"
+  stream_collection_token = "test-collection-token"
+}
+
 # With neither timeout nor max_retries set, Cloud Run runs the orchestrator on
 # its defaults: 600s per attempt and 3 retries. The orchestrator waits for its
 # Batch workers, which take longer than that, so every scheduled run was killed
 # mid-wait and each retry rescanned the whole fleet from scratch (DEV-22980).
 run "orchestrator_outlives_its_workers" {
   command = plan
-
-  variables {
-    project_id              = "stream-test-123"
-    region                  = "us-central1"
-    stream_api_url          = "https://tenant.streamsec.io"
-    stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
-    stream_ack_token        = "test-ack-token"
-    stream_collection_token = "test-collection-token"
-  }
 
   # The scanner caps a worker at no more than 11h, and a failed shard gets one
   # retry. Leave room beyond that for discovery and the snapshot sweep.
@@ -36,5 +36,16 @@ run "orchestrator_outlives_its_workers" {
   assert {
     condition     = google_cloud_run_v2_job.orchestrator.template[0].template[0].max_retries == 0
     error_message = "Cloud Run must not retry the orchestrator; a retry rescans the whole fleet."
+  }
+}
+
+# Left unset, the provider protects the job, so deleting the deployment fails
+# at it, and so does any change that replaces it (DEV-23759).
+run "orchestrator_can_be_deleted" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_job.orchestrator.deletion_protection == false
+    error_message = "The orchestrator job must not be deletion-protected, or deleting the deployment fails."
   }
 }

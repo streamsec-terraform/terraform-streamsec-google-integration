@@ -221,6 +221,10 @@ resource "google_cloud_run_v2_job" "orchestrator" {
   location = var.region
   project  = var.project_id
 
+  # The provider defaults this to true, which fails `deployments delete` and
+  # any change that replaces the job (DEV-23759).
+  deletion_protection = false
+
   template {
     template {
       service_account = google_service_account.scanner.email

@@ -112,3 +112,19 @@ A suffixed instance:
 - **Needs its own deployment**, for example the Infra Manager deployment `streamsec-volume-scanner-stg`. Never add `name_suffix` to an existing deployment: that plans the replacement of every resource of the running scanner.
 - **Must report to a different Stream workspace.** Acknowledgements and heartbeats are keyed by project, so two instances reporting to one workspace would interleave its status.
 - **Should get a different `scan_schedule`,** so neither instance scans the other's Batch VMs or competes with it for vCPU quota.
+
+### Uninstalling
+
+Delete the Infra Manager deployment, where `<LOCATION>` is the deployment's own location and may differ from `region`:
+
+```bash
+gcloud infra-manager deployments delete projects/<PROJECT_ID>/locations/<LOCATION>/deployments/streamsec-volume-scanner --quiet
+```
+
+A deployment last applied from v2.14.0 or earlier has its orchestrator job deletion-protected in Terraform state, so that delete fails at the job. Re-apply it from a newer release first, or delete the job before the deployment:
+
+```bash
+gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> --project=<PROJECT_ID> --quiet
+```
+
+The same applies to any change that replaces the job, such as a new `region`: re-apply from a newer release with no other change first.
