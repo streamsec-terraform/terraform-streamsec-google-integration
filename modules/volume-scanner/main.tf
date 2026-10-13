@@ -144,7 +144,18 @@ resource "google_secret_manager_secret" "collection_token" {
   project   = var.project_id
   secret_id = "streamsec-volume-scanner${var.name_suffix}-collection-token"
   replication {
-    auto {}
+    dynamic "auto" {
+      for_each = var.secret_replication == "automatic" ? [1] : []
+      content {}
+    }
+    dynamic "user_managed" {
+      for_each = var.secret_replication == "region" ? [1] : []
+      content {
+        replicas {
+          location = var.region
+        }
+      }
+    }
   }
   depends_on = [google_project_service.apis]
 }
@@ -158,7 +169,18 @@ resource "google_secret_manager_secret" "ack_token" {
   project   = var.project_id
   secret_id = "streamsec-volume-scanner${var.name_suffix}-ack-token"
   replication {
-    auto {}
+    dynamic "auto" {
+      for_each = var.secret_replication == "automatic" ? [1] : []
+      content {}
+    }
+    dynamic "user_managed" {
+      for_each = var.secret_replication == "region" ? [1] : []
+      content {
+        replicas {
+          location = var.region
+        }
+      }
+    }
   }
   depends_on = [google_project_service.apis]
 }

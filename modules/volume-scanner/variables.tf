@@ -125,6 +125,16 @@ variable "name_suffix" {
   }
 }
 
+variable "secret_replication" {
+  type        = string
+  description = "Where Secret Manager stores the two token secrets. \"automatic\", the default, stores them in the global location; \"region\" keeps one replica in var.region, for projects whose gcp.resourceLocations org policy does not allow global. Replication can't change on an existing secret, so changing this replaces both secrets."
+  default     = "automatic"
+  validation {
+    condition     = contains(["automatic", "region"], var.secret_replication)
+    error_message = "secret_replication must be \"automatic\" or \"region\"."
+  }
+}
+
 variable "scan_schedule" {
   type        = string
   description = "Cron schedule, in UTC, of the daily scan. Give a second instance in the same project a different time, so neither scans the other's Batch VMs or competes with it for vCPU quota."

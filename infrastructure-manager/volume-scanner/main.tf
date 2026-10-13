@@ -38,6 +38,7 @@ module "volume_scanner" {
   scan_cloud_functions = var.scan_cloud_functions
   scan_workload_only   = var.scan_workload_only
 
-  name_suffix   = var.name_suffix
-  scan_schedule = var.scan_schedule
+  name_suffix        = var.name_suffix
+  scan_schedule      = var.scan_schedule
+  secret_replication = var.secret_replication
 }
