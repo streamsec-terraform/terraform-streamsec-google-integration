@@ -12,7 +12,7 @@ authenticated by tokens minted for this deployment.
 - **Service account** shared by the orchestrator and its workers
 - **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers, plus read access for each workload kind left on (see [Workload scanning](#workload-scanning)); no data-plane read beyond the disks and workloads it scans
 - **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var
-- **Isolated VPC + Cloud NAT**, so scan workers run with no external IP
+- **Isolated VPC** with a subnet, router and Cloud NAT in `region` and in each of `worker_regions`, so scan workers run with no external IP
 - **Orchestrator Cloud Run Job** on a daily **Cloud Scheduler** trigger; workers are created at runtime as **Batch** jobs
 - A post-apply acknowledgement to Stream, best-effort and non-fatal
 
@@ -69,6 +69,12 @@ registering at all.
 Stream console can tell you when a deployment has fallen behind the current
 module. Pass the release tag you pinned. Leaving it empty records the
 deployment's version as *unknown* rather than as a version it does not have.
+
+### Regions
+
+A VM's disk is read only by a Batch worker in the VM's own region, so the module builds a worker subnet, router and Cloud NAT in `region` and in every region of `worker_regions`. The scanner skips VMs in any other region, with a warning that names it. The apply command Stream's console renders lists the regions that have VMs each time it runs, so re-running it covers new ones. Scanner images before v0.5.34 use the subnet in `region` for every worker, so their workers outside `region` still fail to start.
+
+Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour while a scan runs, per GiB it processes (the SBOM uploads to Stream; Google APIs go through Private Google Access), plus any NAT IP it holds.
 
 ### Scan feature toggles
 
