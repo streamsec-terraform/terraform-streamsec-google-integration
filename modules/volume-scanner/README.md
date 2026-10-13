@@ -106,7 +106,7 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 Under a `constraints/gcp.resourceLocations` org policy, the policy must allow `region`, where Stream's console also creates the Infra Manager deployment, and the region of every VM the scanner scans. Check it with `gcloud org-policies describe constraints/gcp.resourceLocations --project=<PROJECT_ID> --effective`.
 
 - **Secrets:** both are created with one replica in `region`, and stay there if `region` later changes. A deployment created on an older release keeps its secrets' automatic replication, in `global`. Replication can't change in place, so the module leaves it rather than replacing the secrets, and a location policy doesn't apply to resources that already exist.
-- **Snapshots:** scanner images newer than v0.5.30 store each disk's snapshot in that disk's region. Older images leave the location to the project's snapshot settings, by default the nearest multi-region (`us` for `us-central1`), so a policy without it fails every disk scan while the apply succeeds.
+- **Snapshots:** scanner images v0.5.31 and later store each disk's snapshot in that disk's region. Older images leave the location to the project's snapshot settings, by default the nearest multi-region (`us` for `us-central1`), so a policy without it fails every disk scan while the apply succeeds.
 
 ### A second instance in the same project
 
