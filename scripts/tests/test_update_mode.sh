@@ -11,7 +11,12 @@ make_stubs() {
 #!/usr/bin/env bash
 echo "gcloud $*" >> "$STUB_LOG"
 case "$*" in
-  "infra-manager deployments describe"*) [[ "$EXISTING" == true ]] && exit 0 || exit 1 ;;
+  "infra-manager deployments describe"*)
+    case "$EXISTING" in
+      true) exit 0 ;;
+      false) echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource not found" >&2; exit 1 ;;
+      *) echo "ERROR: (gcloud.infra-manager.deployments.describe) PERMISSION_DENIED: Permission denied" >&2; exit 1 ;;
+    esac ;;
   "infra-manager previews describe"*"value(state)"*) echo "SUCCEEDED" ;;
   "auth print-access-token"*) echo "test-token" ;;
 esac
@@ -71,6 +76,10 @@ check '[[ "$OUTPUT" == *"update the existing deployment"* ]]' "prints update ins
 
 run_case "single-project mode, new deployment" false --single-project
 check '[[ -n "$BODY" && "$BODY" != *"\"deployment\""* ]]' "REST preview is a new deployment"
+
+run_case "describe fails for another reason" denied
+check '[[ "$OUTPUT" == *"Could not check whether deployment"* && "$OUTPUT" == *"PERMISSION_DENIED"* ]]' "reports the describe error"
+check '[[ "$CALLS" != *"previews create"* ]]' "does not create any preview"
 
 if [[ $FAILURES -gt 0 ]]; then
   echo "$FAILURES check(s) failed"

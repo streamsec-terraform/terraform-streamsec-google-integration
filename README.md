@@ -97,7 +97,8 @@ project: sqladmin, cloudkms, spanner, bigtableadmin, apikeys, appengine, dataflo
 cloudidentity, accesscontextmanager, orgpolicy, serviceusage and firebaserules. Enabling
 them is free and they are never disabled on destroy.
 
-The identity that applies the module needs `serviceusage.services.enable` on that project.
+The identity that applies the module needs `serviceusage.services.enable`,
+`serviceusage.services.get` and `serviceusage.services.list` on that project.
 When `existing_sa_json_file_path` points to a service account from another project, grant
 the permission on that project too.
 

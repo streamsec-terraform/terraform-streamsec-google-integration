@@ -1140,10 +1140,13 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 
   DEPLOYMENT_PATH="projects/$PROJECT_ID/locations/$REGION/deployments/$DEPLOYMENT_NAME"
   EXISTING_DEPLOYMENT=false
-  if gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
-      --project="$PROJECT_ID" --location="$REGION" &>/dev/null; then
+  if DESCRIBE_ERR=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+      --project="$PROJECT_ID" --location="$REGION" 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
+  elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
+    log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"
+    exit 1
   fi
 
   log_info "Preview name: $PREVIEW_NAME"
