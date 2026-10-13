@@ -157,6 +157,17 @@ If the preview succeeded, create the deployment from the preview in the
 [GCP Console](https://console.cloud.google.com/infra-manager/deployments)
 (Infrastructure Manager → Previews → select the preview → Create Deployment).
 
+### Updating an existing integration
+
+Re-run the script with the same flags used at onboarding. When the deployment
+(`--deployment-name`, default `streamsec-integration`) already exists, the script updates the
+IAM roles, previews an update of that deployment to the latest release, and prints the Console
+steps to apply it: open the deployment, click **Edit**, set the Git ref to the new release, keep
+all other values, and click **Update**.
+
+A Console update alone is not enough when a release adds deployer permissions; re-running the
+script applies them first.
+
 ---
 
 ## cleanup-abandoned-deployment.sh

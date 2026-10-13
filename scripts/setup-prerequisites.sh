@@ -1138,6 +1138,14 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"
 
+  DEPLOYMENT_PATH="projects/$PROJECT_ID/locations/$REGION/deployments/$DEPLOYMENT_NAME"
+  EXISTING_DEPLOYMENT=false
+  if gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+      --project="$PROJECT_ID" --location="$REGION" &>/dev/null; then
+    EXISTING_DEPLOYMENT=true
+    log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
+  fi
+
   log_info "Preview name: $PREVIEW_NAME"
   log_info "Git ref: $GIT_REF"
 
@@ -1187,7 +1195,8 @@ JSONEOF
       -X POST "$API_URL" \
       -H "Authorization: Bearer $ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
-      -d "{
+      -d "{$( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "
+        \"deployment\": \"$DEPLOYMENT_PATH\"," )
         \"serviceAccount\": \"$SA_RESOURCE_PATH\",
         \"terraformBlueprint\": {
           \"gitSource\": {
@@ -1212,6 +1221,7 @@ JSONEOF
     gcloud infra-manager previews create "$PREVIEW_NAME" \
       --project="$PROJECT_ID" \
       --location="$REGION" \
+      $( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "--deployment=$DEPLOYMENT_PATH" ) \
       --service-account="$SA_RESOURCE_PATH" \
       --git-source-repo="$GIT_REPO" \
       --git-source-directory="$GIT_DIRECTORY" \
@@ -1286,6 +1296,13 @@ JSONEOF
         echo "  1. Review the preview results in the GCP Console:"
         echo "     https://console.cloud.google.com/infra-manager/previews/details/$REGION/$PREVIEW_NAME?project=$PROJECT_ID"
         echo ""
+        if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+          echo "  2. If the preview looks correct, update the existing deployment in the GCP Console:"
+          echo "     https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
+          echo "     Click Edit, set the Git ref to $GIT_REF, keep all other values, and click Update."
+          echo ""
+          break
+        fi
         echo "  2. If the preview looks correct, create the deployment from the GCP Console (above link)"
         echo "     using the same configuration as the preview. Input values to keep:"
         echo "       google_project_id=$PROJECT_ID  google_region=$REGION  streamsec_secret_name=$SECRET_NAME"
