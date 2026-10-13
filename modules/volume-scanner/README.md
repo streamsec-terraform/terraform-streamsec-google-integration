@@ -72,7 +72,7 @@ deployment's version as *unknown* rather than as a version it does not have.
 
 ### Regions
 
-A VM's disk is read only by a Batch worker in the VM's own region, so the module builds a worker subnet, router and Cloud NAT in `region` and in every region of `worker_regions`. The scanner skips VMs in any other region, with a warning that names it. The apply command Stream's console renders lists the regions that have VMs each time it runs, so re-running it covers new ones. Scanner images before v0.5.33 use the subnet in `region` for every worker, so their workers outside `region` still fail to start.
+A VM's disk is read only by a Batch worker in the VM's own region, so the module builds a worker subnet, router and Cloud NAT in `region` and in every region of `worker_regions`. The scanner skips VMs in any other region, with a warning that names it. The apply command Stream's console renders lists the regions that have VMs each time it runs, so re-running it covers new ones. Scanner images before v0.5.34 use the subnet in `region` for every worker, so their workers outside `region` still fail to start.
 
 Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour while a scan runs, per GiB it processes (the SBOM uploads to Stream; Google APIs go through Private Google Access), plus any NAT IP it holds.
 
