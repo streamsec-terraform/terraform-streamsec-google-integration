@@ -129,6 +129,12 @@ gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> -
 
 - **An instance with a `name_suffix`** has its own deployment, and its job name ends in the suffix, for example `streamsec-volume-scanner-orchestrator-stg`. Use those names, or you delete the other instance.
 - **Delete outside the daily scan.** GCP doesn't delete the scanner's subnet while scan workers still run on it.
-- **Then delete the scanner's snapshots.** It keeps one per scanned disk as the next scan's base, and Terraform doesn't track them. List them with `gcloud compute snapshots list --project=<PROJECT_ID> --filter="labels.purpose=cloud-volume-scanner"`, then delete them with `gcloud compute snapshots delete`. Skip this when removing only a suffixed instance: it makes none, so the ones listed belong to the other instance.
 - **From your own root,** bump `version` past v2.14.0 and apply before `terraform destroy`.
 - **A change that replaces the job,** such as a new `region`, fails the same way on those deployments. Re-apply from a newer release with no other change first.
+
+Then delete the scanner's snapshots. It keeps one per scanned disk as the next scan's base, and Terraform doesn't track them. gcloud lists them and asks before deleting. Skip this when removing only a suffixed instance: it makes none, so these belong to the other instance.
+
+```bash
+gcloud compute snapshots delete --project=<PROJECT_ID> \
+  $(gcloud compute snapshots list --project=<PROJECT_ID> --filter="labels.purpose=cloud-volume-scanner" --format="value(name)")
+```
