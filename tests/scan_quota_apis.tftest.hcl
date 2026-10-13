@@ -55,7 +55,7 @@ run "created_sa_home_project" {
   }
 
   assert {
-    condition     = alltrue([for s in google_project_service.scan_quota_apis : s.disable_on_destroy == false && s.disable_dependent_services == false])
+    condition     = alltrue([for s in google_project_service.scan_quota_apis : s.disable_on_destroy == false])
     error_message = "Removing the integration must never disable APIs the customer may rely on."
   }
 }

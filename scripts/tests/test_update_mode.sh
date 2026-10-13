@@ -44,6 +44,7 @@ run_case() {
   CALLS=$(cat "$STUB_LOG")
   BODY=$(cat "$CURL_BODY")
   CASE="$name"
+  rm -rf "$dir"
 }
 
 check() {
