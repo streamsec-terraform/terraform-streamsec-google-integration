@@ -85,6 +85,13 @@ run "every_current_region_gets_its_own_range" {
     condition     = length(google_compute_subnetwork.regional) == 42
     error_message = "Every region but the install region needs a subnet."
   }
+  assert {
+    condition = (
+      length(distinct([for s in google_compute_subnetwork.regional : s.ip_cidr_range])) == 42
+      && !contains([for s in google_compute_subnetwork.regional : s.ip_cidr_range], "10.61.0.0/24")
+    )
+    error_message = "Every current region needs its own range, and none may be the install subnet's."
+  }
 }
 
 run "colliding_ranges_are_rejected" {
