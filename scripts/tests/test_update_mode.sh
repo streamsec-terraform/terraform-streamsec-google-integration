@@ -13,7 +13,24 @@ echo "gcloud $*" >> "$STUB_LOG"
 case "$*" in
   "infra-manager deployments describe"*)
     case "$EXISTING" in
-      true) exit 0 ;;
+      true)
+        if [[ "$*" == *inputValues* ]]; then
+          cat <<'JSON'
+{
+  "terraformBlueprint": {
+    "inputValues": {
+      "include_projects": {
+        "inputValue": ["test-proj"]
+      },
+      "sa_account_id": {
+        "inputValue": "custom-sa"
+      }
+    }
+  }
+}
+JSON
+        fi
+        exit 0 ;;
       false) echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource not found" >&2; exit 1 ;;
       *) echo "ERROR: (gcloud.infra-manager.deployments.describe) PERMISSION_DENIED: Permission denied" >&2; exit 1 ;;
     esac ;;
@@ -62,16 +79,19 @@ check() {
 }
 
 run_case "org mode, existing deployment" true
-check '[[ "$CALLS" == *"previews create"*"--deployment=$DEPLOYMENT_PATH"* ]]' "preview targets the existing deployment"
+check '[[ "$BODY" == *"\"deployment\": \"$DEPLOYMENT_PATH\""* ]]' "preview targets the existing deployment"
+check '[[ "$BODY" == *"\"custom-sa\""* && "$BODY" == *"[\"test-proj\"]"* ]]' "preview keeps the deployment's own inputs"
+check '[[ "$BODY" != *"streamsec_secret_name"* ]]' "preview does not use the script's default inputs"
 check '[[ "$OUTPUT" == *"update the existing deployment"* && "$OUTPUT" == *"Git ref to v9.9.9"* ]]' "prints update instructions"
 check '[[ "$OUTPUT" != *"create the deployment"* ]]' "does not tell the customer to create a new deployment"
 
 run_case "org mode, new deployment" false
-check '[[ "$CALLS" == *"previews create"* && "$CALLS" != *"--deployment="* ]]' "preview is a new deployment"
+check '[[ "$CALLS" == *"previews create"* && "$CALLS" != *"--deployment="* && -z "$BODY" ]]' "preview is a new deployment"
 check '[[ "$OUTPUT" == *"create the deployment"* ]]' "prints create instructions"
 
 run_case "single-project mode, existing deployment" true --single-project
 check '[[ "$BODY" == *"\"deployment\": \"$DEPLOYMENT_PATH\""* ]]' "REST preview targets the existing deployment"
+check '[[ "$BODY" == *"\"custom-sa\""* ]]' "REST preview keeps the deployment's own inputs"
 check '[[ "$OUTPUT" == *"update the existing deployment"* ]]' "prints update instructions"
 
 run_case "single-project mode, new deployment" false --single-project
