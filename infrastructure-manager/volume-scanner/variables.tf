@@ -10,6 +10,16 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "worker_regions" {
+  type        = string
+  description = "Comma-separated regions, besides region, whose VM disks the scanner reads, for example \"europe-west1,asia-east1\". Each gets a worker subnet and Cloud NAT: a disk is read only by a worker in its own region. Empty, the default, covers region alone, and VMs elsewhere are not scanned. A workload-only instance ignores it."
+  default     = ""
+  validation {
+    condition     = alltrue([for r in split(",", var.worker_regions) : can(regex("^([a-z]+-[a-z]+[0-9]+)?$", lower(trimspace(r))))])
+    error_message = "worker_regions must be comma-separated GCP regions, for example \"europe-west1,asia-east1\"."
+  }
+}
+
 variable "scanner_image" {
   type        = string
   description = "Public scanner container image (orchestrator + worker), in a GCP-pullable registry."
