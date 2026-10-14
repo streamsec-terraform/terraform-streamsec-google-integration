@@ -71,6 +71,15 @@ locals {
     "compute.globalOperations.get",
     "compute.regionOperations.get",
   ]
+
+  # Batch requires a job's subnet in the job's region, so each region with VMs
+  # needs its own. A hash of the name keeps a region's range fixed as others come and go.
+  install_worker_cidr = "10.61.0.0/24"
+  worker_cidrs = lower(var.scan_workload_only) == "true" ? {} : {
+    for r in distinct([for r in split(",", lower(var.worker_regions)) : trimspace(r)]) :
+    r => cidrsubnet("10.0.0.0/8", 16, parseint(substr(sha256(r), 0, 4), 16))
+    if r != "" && r != lower(var.region)
+  }
 }
 
 # Required APIs.
@@ -211,7 +220,7 @@ resource "google_compute_subnetwork" "scanner" {
   name                     = "streamsec-scanner-subnet${var.name_suffix}"
   region                   = var.region
   network                  = google_compute_network.scanner.id
-  ip_cidr_range            = "10.61.0.0/24"
+  ip_cidr_range            = local.install_worker_cidr
   private_ip_google_access = true
 }
 
@@ -227,6 +236,41 @@ resource "google_compute_router_nat" "scanner" {
   name                               = "streamsec-scanner-nat${var.name_suffix}"
   router                             = google_compute_router.scanner.name
   region                             = var.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+}
+
+resource "google_compute_subnetwork" "regional" {
+  for_each                 = local.worker_cidrs
+  project                  = var.project_id
+  name                     = "streamsec-scanner-subnet${var.name_suffix}-${each.key}"
+  region                   = each.key
+  network                  = google_compute_network.scanner.id
+  ip_cidr_range            = each.value
+  private_ip_google_access = true
+
+  lifecycle {
+    precondition {
+      condition     = length(distinct(concat(values(local.worker_cidrs), [local.install_worker_cidr]))) == length(local.worker_cidrs) + 1
+      error_message = "Two of worker_regions hash to the same /24, or one to the install region's ${local.install_worker_cidr}, and subnets in one VPC cannot overlap."
+    }
+  }
+}
+
+resource "google_compute_router" "regional" {
+  for_each = local.worker_cidrs
+  project  = var.project_id
+  name     = "streamsec-scanner-router${var.name_suffix}-${each.key}"
+  region   = each.key
+  network  = google_compute_network.scanner.id
+}
+
+resource "google_compute_router_nat" "regional" {
+  for_each                           = local.worker_cidrs
+  project                            = var.project_id
+  name                               = "streamsec-scanner-nat${var.name_suffix}-${each.key}"
+  router                             = google_compute_router.regional[each.key].name
+  region                             = each.key
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 }
@@ -292,6 +336,15 @@ resource "google_cloud_run_v2_job" "orchestrator" {
         env {
           name  = "COLLECTOR_GCP_WORKER_SUBNETWORK"
           value = google_compute_subnetwork.scanner.id
+        }
+        # Every worker subnet, install region first; the scanner picks the
+        # shard's region's. Built from names so it is known at plan.
+        env {
+          name = "COLLECTOR_GCP_WORKER_SUBNETWORKS"
+          value = join(",", [
+            for s in concat([google_compute_subnetwork.scanner], [for r in sort(keys(local.worker_cidrs)) : google_compute_subnetwork.regional[r]]) :
+            "projects/${var.project_id}/regions/${s.region}/subnetworks/${s.name}"
+          ])
         }
         env {
           name  = "COLLECTOR_SCAN_LANGUAGE_PACKAGES"

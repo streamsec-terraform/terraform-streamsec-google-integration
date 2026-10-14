@@ -22,6 +22,7 @@ module "volume_scanner" {
 
   project_id              = var.project_id
   region                  = var.region
+  worker_regions          = var.worker_regions
   scanner_image           = var.scanner_image
   stream_api_url          = var.stream_api_url
   stream_customer_id      = var.stream_customer_id
