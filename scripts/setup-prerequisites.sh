@@ -1144,6 +1144,15 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
+    DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+        --project="$PROJECT_ID" --location="$REGION" --quiet \
+        --format="json(terraformBlueprint.inputValues)" | awk '
+          !found && /"inputValues": \{/ { found = 1; sub(/.*"inputValues": /, "") }
+          found { print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth == 0) exit }')
+    if [[ -z "$DEPLOYMENT_INPUTS_JSON" ]]; then
+      log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
+      exit 1
+    fi
   elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
     log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"
     exit 1
@@ -1169,10 +1178,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
   fi
 
-  if [[ "$SINGLE_PROJECT" == true ]]; then
+  if [[ "$SINGLE_PROJECT" == true || "$EXISTING_DEPLOYMENT" == true ]]; then
     # IM --input-values wraps all values in quotes, which breaks list types.
-    # Use the REST API directly to pass include_projects as a proper HCL list.
-    log_info "Using REST API for single-project mode (to pass include_projects as list)..."
+    # Use the REST API directly to pass list inputs as proper HCL lists.
+    log_info "Using REST API (to pass list inputs as lists)..."
 
     ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
     if [[ -z "$ACCESS_TOKEN" ]]; then
@@ -1180,7 +1189,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       exit 1
     fi
 
-    # Build the inputValues JSON object
+    # An update keeps the deployment's own inputs; a new deployment gets the defaults
+    if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+      INPUT_VALUES_JSON="$DEPLOYMENT_INPUTS_JSON"
+    else
     INPUT_VALUES_JSON=$(cat <<JSONEOF
 {
   "google_project_id": {"inputValue": "$PROJECT_ID"},
@@ -1191,6 +1203,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 }
 JSONEOF
 )
+    fi
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
 
@@ -1224,7 +1237,6 @@ JSONEOF
     gcloud infra-manager previews create "$PREVIEW_NAME" \
       --project="$PROJECT_ID" \
       --location="$REGION" \
-      $( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "--deployment=$DEPLOYMENT_PATH" ) \
       --service-account="$SA_RESOURCE_PATH" \
       --git-source-repo="$GIT_REPO" \
       --git-source-directory="$GIT_DIRECTORY" \
