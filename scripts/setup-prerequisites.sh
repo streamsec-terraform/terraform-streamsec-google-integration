@@ -1148,7 +1148,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
         --project="$PROJECT_ID" --location="$REGION" --quiet \
         --format="json(terraformBlueprint.inputValues)" | awk '
           !found && /"inputValues": \{/ { found = 1; sub(/.*"inputValues": /, "") }
-          found { print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth == 0) exit }')
+          found { print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth == 0) exit }') || true
     if [[ -z "$DEPLOYMENT_INPUTS_JSON" ]]; then
       log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
       exit 1
@@ -1207,11 +1207,7 @@ JSONEOF
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
 
-    HTTP_CODE=$(curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
-      -X POST "$API_URL" \
-      -H "Authorization: Bearer $ACCESS_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d "{$( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "
+    HTTP_CODE=$(printf '%s' "{$( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "
         \"deployment\": \"$DEPLOYMENT_PATH\"," )
         \"serviceAccount\": \"$SA_RESOURCE_PATH\",
         \"terraformBlueprint\": {
@@ -1223,7 +1219,11 @@ JSONEOF
           \"inputValues\": $INPUT_VALUES_JSON
         },
         \"labels\": {\"managed-by\": \"setup-script\"}
-      }")
+      }" | curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
+      -X POST "$API_URL" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data-binary @-)
 
     if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
       PREVIEW_CREATE_EXIT_CODE=0

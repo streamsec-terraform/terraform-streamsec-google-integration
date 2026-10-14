@@ -44,7 +44,7 @@ STUB
 echo "curl $*" >> "$STUB_LOG"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -d) printf '%s' "$2" > "$CURL_BODY"; shift 2 ;;
+    --data-binary) [[ "$2" == @- ]] && cat > "$CURL_BODY"; shift 2 ;;
     -w) printf '200'; shift 2 ;;
     *) shift ;;
   esac
@@ -82,20 +82,24 @@ run_case "org mode, existing deployment" true
 check '[[ "$BODY" == *"\"deployment\": \"$DEPLOYMENT_PATH\""* ]]' "preview targets the existing deployment"
 check '[[ "$BODY" == *"\"custom-sa\""* && "$BODY" == *"[\"test-proj\"]"* ]]' "preview keeps the deployment's own inputs"
 check '[[ "$BODY" != *"streamsec_secret_name"* ]]' "preview does not use the script's default inputs"
+check 'python3 -c "import json,sys; json.load(sys.stdin)" <<< "$BODY"' "request body is valid JSON"
+check '[[ "$(grep "^curl" <<< "$CALLS")" == curl* && "$(grep "^curl" <<< "$CALLS")" != *custom-sa* ]]' "request body is not on the curl command line"
 check '[[ "$OUTPUT" == *"update the existing deployment"* && "$OUTPUT" == *"Git ref to v9.9.9"* ]]' "prints update instructions"
 check '[[ "$OUTPUT" != *"create the deployment"* ]]' "does not tell the customer to create a new deployment"
 
 run_case "org mode, new deployment" false
-check '[[ "$CALLS" == *"previews create"* && "$CALLS" != *"--deployment="* && -z "$BODY" ]]' "preview is a new deployment"
+check '[[ "$CALLS" == *"previews create"* && -z "$BODY" ]]' "preview is a new deployment"
 check '[[ "$OUTPUT" == *"create the deployment"* ]]' "prints create instructions"
 
 run_case "single-project mode, existing deployment" true --single-project
 check '[[ "$BODY" == *"\"deployment\": \"$DEPLOYMENT_PATH\""* ]]' "REST preview targets the existing deployment"
 check '[[ "$BODY" == *"\"custom-sa\""* ]]' "REST preview keeps the deployment's own inputs"
+check 'python3 -c "import json,sys; json.load(sys.stdin)" <<< "$BODY"' "request body is valid JSON"
 check '[[ "$OUTPUT" == *"update the existing deployment"* ]]' "prints update instructions"
 
 run_case "single-project mode, new deployment" false --single-project
 check '[[ -n "$BODY" && "$BODY" != *"\"deployment\""* ]]' "REST preview is a new deployment"
+check 'python3 -c "import json,sys; json.load(sys.stdin)" <<< "$BODY"' "request body is valid JSON"
 
 run_case "describe fails for another reason" denied
 check '[[ "$OUTPUT" == *"Could not check whether deployment"* && "$OUTPUT" == *"PERMISSION_DENIED"* ]]' "reports the describe error"
