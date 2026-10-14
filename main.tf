@@ -82,6 +82,7 @@ resource "google_project_service" "scan_quota_apis" {
     "orgpolicy.googleapis.com",
     "serviceusage.googleapis.com",
     "firebaserules.googleapis.com",
+    "bigquery.googleapis.com",
   ])
 
   project            = try(regex("@([^.]+)\\.iam\\.gserviceaccount\\.com$", local.sa_email)[0], var.project_for_sa)
