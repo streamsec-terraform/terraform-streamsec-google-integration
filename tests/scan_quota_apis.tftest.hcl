@@ -48,8 +48,9 @@ run "created_sa_home_project" {
       "orgpolicy.googleapis.com",
       "serviceusage.googleapis.com",
       "firebaserules.googleapis.com",
+      "bigquery.googleapis.com",
     ])
-    error_message = "Exactly the 10 client-based scan APIs must be enabled."
+    error_message = "Exactly the 11 client-based scan APIs must be enabled."
   }
 
   assert {
