@@ -100,7 +100,8 @@ and Dataflow are not enabled: both need billing, and Dataflow also turns on the 
 Engine API. Enable them on that project yourself to scan Spanner instances or Dataflow jobs.
 
 The identity that applies the module needs `serviceusage.services.enable`,
-`serviceusage.services.get` and `serviceusage.services.list` on that project.
+`serviceusage.services.get`, `serviceusage.services.list` and `serviceusage.operations.get`
+on that project.
 When `existing_sa_json_file_path` points to a service account from another project, grant
 the permission on that project too.
 

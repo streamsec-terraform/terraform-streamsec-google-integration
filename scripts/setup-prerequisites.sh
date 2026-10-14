@@ -952,7 +952,8 @@ cloudfunctions.functions.invoke,\
 cloudfunctions.operations.get,\
 serviceusage.services.enable,\
 serviceusage.services.get,\
-serviceusage.services.list"
+serviceusage.services.list,\
+serviceusage.operations.get"
 
   if [[ "$PROJECT_ONLY" == true ]]; then
     # Project-only mode: no org-level resources, so the ops role lives at project level
@@ -1148,7 +1149,18 @@ if [[ $START_FROM_STEP -le 6 ]]; then
         --project="$PROJECT_ID" --location="$REGION" --quiet \
         --format="json(terraformBlueprint.inputValues)" | awk '
           !found && /"inputValues": \{/ { found = 1; sub(/.*"inputValues": /, "") }
-          found { print; depth += gsub(/\{/, "{") - gsub(/\}/, "}"); if (depth == 0) exit }') || true
+          found {
+            print
+            for (i = 1; i <= length($0); i++) {
+              c = substr($0, i, 1)
+              if (esc) esc = 0
+              else if (c == "\\") esc = instr
+              else if (c == "\"") instr = !instr
+              else if (!instr && c == "{") depth++
+              else if (!instr && c == "}") depth--
+            }
+            if (depth == 0) exit
+          }') || true
     if [[ -z "$DEPLOYMENT_INPUTS_JSON" ]]; then
       log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
       exit 1
