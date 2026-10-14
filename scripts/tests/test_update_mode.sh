@@ -24,6 +24,9 @@ case "$*" in
       },
       "sa_account_id": {
         "inputValue": "custom-sa"
+      },
+      "sa_description": {
+        "inputValue": "Scanner } team \"x\""
       }
     }
   }
@@ -81,6 +84,7 @@ check() {
 run_case "org mode, existing deployment" true
 check '[[ "$BODY" == *"\"deployment\": \"$DEPLOYMENT_PATH\""* ]]' "preview targets the existing deployment"
 check '[[ "$BODY" == *"\"custom-sa\""* && "$BODY" == *"[\"test-proj\"]"* ]]' "preview keeps the deployment's own inputs"
+check '[[ "$BODY" == *"Scanner } team \\\"x\\\""* ]]' "keeps an input whose string contains braces and quotes"
 check '[[ "$BODY" != *"streamsec_secret_name"* ]]' "preview does not use the script's default inputs"
 check 'python3 -c "import json,sys; json.load(sys.stdin)" <<< "$BODY"' "request body is valid JSON"
 check '[[ "$(grep "^curl" <<< "$CALLS")" == curl* && "$(grep "^curl" <<< "$CALLS")" != *custom-sa* ]]' "request body is not on the curl command line"
