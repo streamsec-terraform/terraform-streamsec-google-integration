@@ -952,8 +952,7 @@ cloudfunctions.functions.invoke,\
 cloudfunctions.operations.get,\
 serviceusage.services.enable,\
 serviceusage.services.get,\
-serviceusage.services.list,\
-serviceusage.operations.get"
+serviceusage.services.list"
 
   if [[ "$PROJECT_ONLY" == true ]]; then
     # Project-only mode: no org-level resources, so the ops role lives at project level
