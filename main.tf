@@ -74,11 +74,9 @@ resource "google_project_service" "scan_quota_apis" {
   for_each = toset([
     "sqladmin.googleapis.com",
     "cloudkms.googleapis.com",
-    "spanner.googleapis.com",
     "bigtableadmin.googleapis.com",
     "apikeys.googleapis.com",
     "appengine.googleapis.com",
-    "dataflow.googleapis.com",
     "cloudidentity.googleapis.com",
     "accesscontextmanager.googleapis.com",
     "orgpolicy.googleapis.com",

@@ -40,18 +40,16 @@ run "created_sa_home_project" {
     condition = toset(keys(google_project_service.scan_quota_apis)) == toset([
       "sqladmin.googleapis.com",
       "cloudkms.googleapis.com",
-      "spanner.googleapis.com",
       "bigtableadmin.googleapis.com",
       "apikeys.googleapis.com",
       "appengine.googleapis.com",
-      "dataflow.googleapis.com",
       "cloudidentity.googleapis.com",
       "accesscontextmanager.googleapis.com",
       "orgpolicy.googleapis.com",
       "serviceusage.googleapis.com",
       "firebaserules.googleapis.com",
     ])
-    error_message = "Exactly the 12 client-based scan APIs must be enabled."
+    error_message = "Exactly the 10 client-based scan APIs must be enabled."
   }
 
   assert {
