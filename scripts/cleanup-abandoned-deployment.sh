@@ -6,17 +6,20 @@
 # deployment was deleted with --delete-policy=abandon (or after a partial apply).
 #
 # It will attempt to delete the following resources:
-#   1. Cloud Function v2 (audit-log event processor + its IAM bindings)
-#   2. Organization-level or project-level logging sink
-#   3. Pub/Sub topic
-#   4. Global secret (collection token created by Terraform)
-#   5. Regional secret (and its versions)
-#   6. Organization IAM bindings for the stream-security service account
+#   1. Organization IAM bindings for the stream-security service account
+#   2. Cloud Function v2 (audit-log event processor + its IAM bindings)
+#   3. Organization-level or project-level logging sink
+#   4. Pub/Sub topic
+#   5. Global secret (collection token created by Terraform)
+#   6. Regional secret (and its versions)
 #   7. Function service account
 #   8. Stream-security service account (and its keys)
 #   9. Infrastructure Manager SA IAM bindings (ops role, project role, config.agent)
 #  10. Infrastructure Manager service account
 #  11. Custom IAM roles (ops role at org or project, project resources role)
+#
+# --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
+# which is how setup-prerequisites.sh's leftover check points here.
 #
 # Safety:
 #   - Each resource is checked for existence before deletion
@@ -27,7 +30,8 @@
 #   ./cleanup-abandoned-deployment.sh \
 #       --project-id <PROJECT_ID> \
 #       --region <REGION> \
-#       [--org-id <ORGANIZATION_ID>]
+#       [--org-id <ORGANIZATION_ID>] \
+#       [--only <kind>[,<kind>...]]
 #
 set -euo pipefail
 
@@ -45,21 +49,27 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step()    { echo -e "\n${CYAN}==>${NC} $*"; }
 
+# Piped in, there is no script directory: never fall back to the current one.
+IR_LIB=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  IR_LIB="$(CDPATH="" cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)/lib/integration-resources.sh"
+fi
+if [[ -z "$IR_LIB" || ! -f "$IR_LIB" ]]; then
+  log_error "lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
+  exit 1
+fi
+# Resource names (SA_ACCOUNT_ID, PUBSUB_TOPIC, ...) and how to check and delete each.
+# shellcheck source=lib/integration-resources.sh
+source "$IR_LIB"
+
 ###############################################################################
 # Defaults (overridable via env vars)
 ###############################################################################
 PROJECT_ID="${PROJECT_ID:-}"
 ORGANIZATION_ID="${ORGANIZATION_ID:-}"
 REGION="${REGION:-}"
-
-# Resource names — must match what setup-prerequisites.sh / Terraform creates
-SA_ACCOUNT_ID="${SA_ACCOUNT_ID:-stream-security}"
-FUNCTION_SA_ACCOUNT_ID="${FUNCTION_SA_ACCOUNT_ID:-stream-security-function-sa}"
-FUNCTION_NAME="${FUNCTION_NAME:-stream-security-events-function}"
-PUBSUB_TOPIC="${PUBSUB_TOPIC:-stream-security-events-topic}"
-LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
-REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
-GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
+ONLY_KINDS=""
+ONLY_GIVEN=false
 
 # Infrastructure Manager SA and role names (from setup-prerequisites.sh)
 IM_SA_NAME="${IM_SA_NAME:-StreamSecurityInfraManagerSa}"
@@ -81,6 +91,9 @@ Required options:
 
 Optional:
   --org-id          ID    GCP organization ID (required only for org-level cleanup)
+  --only            KINDS Delete only these comma-separated kinds, and none of the
+                          Infrastructure Manager SA, its bindings or the custom roles:
+                          ${IR_KINDS[*]}
 
 Optional overrides:
   --sa-account-id         NAME  Main service account ID       (default: $SA_ACCOUNT_ID)
@@ -110,6 +123,7 @@ while [[ $# -gt 0 ]]; do
     --sa-account-id)      SA_ACCOUNT_ID="$2";           shift 2 ;;
     --function-sa-id)     FUNCTION_SA_ACCOUNT_ID="$2";  shift 2 ;;
     --function-name)      FUNCTION_NAME="$2";           shift 2 ;;
+    --only)               ONLY_KINDS="${2// /}"; ONLY_GIVEN=true; shift 2 ;;
     --pubsub-topic)       PUBSUB_TOPIC="$2";            shift 2 ;;
     --logging-sink)       LOGGING_SINK="$2";            shift 2 ;;
     --regional-secret)    REGIONAL_SECRET="$2";         shift 2 ;;
@@ -136,8 +150,33 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   usage
 fi
 
+# REGION ends up in an API endpoint's host name.
+if [[ ! "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]]; then
+  log_error "Invalid --region '$REGION' (expected e.g. us-central1)."
+  exit 1
+fi
+
+if [[ "$ONLY_GIVEN" == true ]]; then
+  if [[ -z "${ONLY_KINDS//,/}" ]]; then
+    log_error "--only needs at least one kind (${IR_KINDS[*]})."
+    exit 1
+  fi
+  for kind in ${ONLY_KINDS//,/ }; do
+    if ! ir_is_kind "$kind"; then
+      log_error "Unknown kind in --only: '$kind' (expected: ${IR_KINDS[*]})"
+      exit 1
+    fi
+  done
+  if [[ ",$ONLY_KINDS," == *",org-sink,"* && -z "$ORGANIZATION_ID" ]]; then
+    log_error "--only org-sink needs --org-id."
+    exit 1
+  fi
+fi
+
+# Whether --only (if given) includes this kind.
+selected() { [[ "$ONLY_GIVEN" != true || ",$ONLY_KINDS," == *",$1,"* ]]; }
+
 SA_EMAIL="${SA_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
-FUNCTION_SA_EMAIL="${FUNCTION_SA_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 IM_SA_EMAIL="${IM_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 ###############################################################################
@@ -163,56 +202,38 @@ check_resource() {
   fi
 }
 
-HAS_CLOUD_FUNCTION=false
-HAS_ORG_LOGGING_SINK=false
-HAS_PROJECT_LOGGING_SINK=false
-HAS_PUBSUB_TOPIC=false
-HAS_GLOBAL_SECRET=false
-HAS_REGIONAL_SECRET=false
 HAS_ORG_IAM_VIEWER=false
 HAS_ORG_IAM_SECURITY_REVIEWER=false
-HAS_FUNCTION_SA=false
-HAS_SA=false
-HAS_SA_KEY=false
+FOUND_KINDS=()
+UNCHECKED_RESOURCES=()
 
-check_resource "Cloud Function v2: $FUNCTION_NAME ($REGION)" \
-  "gcloud functions describe '$FUNCTION_NAME' --region='$REGION' --project='$PROJECT_ID' --gen2" \
-  && HAS_CLOUD_FUNCTION=true
+kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
 
-# Auto-detect: check org-level sink first (only if org-id provided), then project-level
-if [[ -n "$ORGANIZATION_ID" ]]; then
-  check_resource "Org logging sink: $LOGGING_SINK" \
-    "gcloud logging sinks describe '$LOGGING_SINK' --organization='$ORGANIZATION_ID'" \
-    && HAS_ORG_LOGGING_SINK=true
-fi
-
-if [[ "$HAS_ORG_LOGGING_SINK" == false ]]; then
-  check_resource "Project logging sink: $LOGGING_SINK" \
-    "gcloud logging sinks describe '$LOGGING_SINK' --project='$PROJECT_ID'" \
-    && HAS_PROJECT_LOGGING_SINK=true
-fi
-
-check_resource "Pub/Sub topic: $PUBSUB_TOPIC" \
-  "gcloud pubsub topics describe '$PUBSUB_TOPIC' --project='$PROJECT_ID'" \
-  && HAS_PUBSUB_TOPIC=true
-
-check_resource "Global secret: $GLOBAL_SECRET" \
-  "gcloud secrets describe '$GLOBAL_SECRET' --project='$PROJECT_ID'" \
-  && HAS_GLOBAL_SECRET=true
-
-# Regional secrets need list+filter — describe --location is unreliable across gcloud versions
-if gcloud secrets list --project="$PROJECT_ID" --location="$REGION" \
-     --filter="name~secrets/$REGIONAL_SECRET$" --format="value(name)" 2>/dev/null | grep -q .; then
-  FOUND_RESOURCES+=("Regional secret: $REGIONAL_SECRET ($REGION)")
-  log_info "Found: Regional secret: $REGIONAL_SECRET ($REGION)"
-  HAS_REGIONAL_SECRET=true
-else
-  NOT_FOUND_RESOURCES+=("Regional secret: $REGIONAL_SECRET ($REGION)")
-  log_warn "Not found: Regional secret: $REGIONAL_SECRET ($REGION) (skipping)"
-fi
+for kind in "${IR_KINDS[@]}"; do
+  selected "$kind" || continue
+  # Auto-detect the sink: org level first (only with an org ID), then project level; --only takes both as asked.
+  if [[ "$kind" == org-sink && -z "$ORGANIZATION_ID" ]] ||
+      { [[ "$kind" == project-sink && "$ONLY_GIVEN" != true ]] && kind_found org-sink; }; then
+    continue
+  fi
+  label=$(ir_label "$kind")
+  exists_rc=0
+  ir_exists "$kind" || exists_rc=$?
+  if [[ $exists_rc -eq 0 ]]; then
+    FOUND_KINDS+=("$kind")
+    FOUND_RESOURCES+=("$label")
+    log_info "Found: $label"
+  elif [[ $exists_rc -eq 1 ]]; then
+    NOT_FOUND_RESOURCES+=("$label")
+    log_warn "Not found: $label (skipping)"
+  else
+    UNCHECKED_RESOURCES+=("$label")
+    log_warn "Could not check: $label (skipping)"
+  fi
+done
 
 # Check org IAM bindings (only if org-id provided)
-if [[ -n "$ORGANIZATION_ID" ]]; then
+if [[ -n "$ORGANIZATION_ID" && "$ONLY_GIVEN" != true ]]; then
   ORG_IAM_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
     --flatten="bindings[].members" \
     --filter="bindings.members:serviceAccount:$SA_EMAIL" \
@@ -237,15 +258,8 @@ if [[ -n "$ORGANIZATION_ID" ]]; then
   fi
 fi
 
-check_resource "Function service account: $FUNCTION_SA_EMAIL" \
-  "gcloud iam service-accounts describe '$FUNCTION_SA_EMAIL' --project='$PROJECT_ID'" \
-  && HAS_FUNCTION_SA=true
-
-check_resource "Service account: $SA_EMAIL" \
-  "gcloud iam service-accounts describe '$SA_EMAIL' --project='$PROJECT_ID'" \
-  && HAS_SA=true
-
-if [[ "$HAS_SA" == true ]]; then
+HAS_SA_KEY=false
+if kind_found sa; then
   SA_KEYS=$(gcloud iam service-accounts keys list \
     --iam-account="$SA_EMAIL" \
     --managed-by=user \
@@ -257,32 +271,34 @@ if [[ "$HAS_SA" == true ]]; then
   fi
 fi
 
-# Check for Infrastructure Manager SA
+# The Infrastructure Manager SA and the custom roles (never with --only)
 HAS_IM_SA=false
-check_resource "IM service account: $IM_SA_EMAIL" \
-  "gcloud iam service-accounts describe '$IM_SA_EMAIL' --project='$PROJECT_ID'" \
-  && HAS_IM_SA=true
-
-# Check for ops role (org-level first if org-id provided, then project-level)
 HAS_OPS_ROLE_ORG=false
 HAS_OPS_ROLE_PROJECT=false
-if [[ -n "$ORGANIZATION_ID" ]]; then
-  check_resource "Ops role (org): $OPS_ROLE_ID" \
-    "gcloud iam roles describe '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID'" \
-    && HAS_OPS_ROLE_ORG=true
-fi
-
-if [[ "$HAS_OPS_ROLE_ORG" == false ]]; then
-  check_resource "Ops role (project): $OPS_ROLE_ID" \
-    "gcloud iam roles describe '$OPS_ROLE_ID' --project='$PROJECT_ID'" \
-    && HAS_OPS_ROLE_PROJECT=true
-fi
-
-# Check for project resources role (always project-level)
 HAS_PROJECT_ROLE=false
-check_resource "Project resources role: $PROJECT_ROLE_ID" \
-  "gcloud iam roles describe '$PROJECT_ROLE_ID' --project='$PROJECT_ID'" \
-  && HAS_PROJECT_ROLE=true
+if [[ "$ONLY_GIVEN" != true ]]; then
+  check_resource "IM service account: $IM_SA_EMAIL" \
+    "gcloud iam service-accounts describe '$IM_SA_EMAIL' --project='$PROJECT_ID'" \
+    && HAS_IM_SA=true
+
+  # Ops role: org level first if org-id provided, then project level
+  if [[ -n "$ORGANIZATION_ID" ]]; then
+    check_resource "Ops role (org): $OPS_ROLE_ID" \
+      "gcloud iam roles describe '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID'" \
+      && HAS_OPS_ROLE_ORG=true
+  fi
+
+  if [[ "$HAS_OPS_ROLE_ORG" == false ]]; then
+    check_resource "Ops role (project): $OPS_ROLE_ID" \
+      "gcloud iam roles describe '$OPS_ROLE_ID' --project='$PROJECT_ID'" \
+      && HAS_OPS_ROLE_PROJECT=true
+  fi
+
+  # Project resources role (always project-level)
+  check_resource "Project resources role: $PROJECT_ROLE_ID" \
+    "gcloud iam roles describe '$PROJECT_ROLE_ID' --project='$PROJECT_ID'" \
+    && HAS_PROJECT_ROLE=true
+fi
 
 # Check for IM SA IAM bindings (ops role + config.agent at org or project)
 HAS_IM_OPS_ROLE_BINDING_ORG=false
@@ -342,6 +358,10 @@ fi
 ###############################################################################
 echo ""
 if [[ ${#FOUND_RESOURCES[@]} -eq 0 ]]; then
+  if [[ ${#UNCHECKED_RESOURCES[@]} -gt 0 ]]; then
+    log_error "Found nothing to delete, but could not check: ${UNCHECKED_RESOURCES[*]}"
+    exit 1
+  fi
   log_info "No resources found to clean up. Nothing to do."
   exit 0
 fi
@@ -365,7 +385,7 @@ fi
 
 # Check if any org-level resources will be deleted
 HAS_ORG_LEVEL_DELETIONS=false
-if [[ "$HAS_ORG_LOGGING_SINK" == true ]] || \
+if kind_found org-sink || \
    [[ "$HAS_ORG_IAM_VIEWER" == true ]] || \
    [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]] || \
    [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]] || \
@@ -427,40 +447,7 @@ delete_resource() {
   fi
 }
 
-# 1. Cloud Function v2 (delete first — depends on topic, SA, etc.)
-if [[ "$HAS_CLOUD_FUNCTION" == true ]]; then
-  delete_resource "Cloud Function v2: $FUNCTION_NAME" \
-    "gcloud functions delete '$FUNCTION_NAME' --region='$REGION' --project='$PROJECT_ID' --gen2 --quiet"
-fi
-
-# 2. Logging sink (org-level or project-level — auto-detected)
-if [[ "$HAS_ORG_LOGGING_SINK" == true ]]; then
-  delete_resource "Org logging sink: $LOGGING_SINK" \
-    "gcloud logging sinks delete '$LOGGING_SINK' --organization='$ORGANIZATION_ID' --quiet"
-elif [[ "$HAS_PROJECT_LOGGING_SINK" == true ]]; then
-  delete_resource "Project logging sink: $LOGGING_SINK" \
-    "gcloud logging sinks delete '$LOGGING_SINK' --project='$PROJECT_ID' --quiet"
-fi
-
-# 3. Pub/Sub topic (IAM bindings on topic are removed automatically)
-if [[ "$HAS_PUBSUB_TOPIC" == true ]]; then
-  delete_resource "Pub/Sub topic: $PUBSUB_TOPIC" \
-    "gcloud pubsub topics delete '$PUBSUB_TOPIC' --project='$PROJECT_ID' --quiet"
-fi
-
-# 4. Global secret (collection token created by Terraform)
-if [[ "$HAS_GLOBAL_SECRET" == true ]]; then
-  delete_resource "Global secret: $GLOBAL_SECRET" \
-    "gcloud secrets delete '$GLOBAL_SECRET' --project='$PROJECT_ID' --quiet"
-fi
-
-# 5. Regional secret
-if [[ "$HAS_REGIONAL_SECRET" == true ]]; then
-  delete_resource "Regional secret: $REGIONAL_SECRET" \
-    "gcloud secrets delete 'projects/$PROJECT_ID/locations/$REGION/secrets/$REGIONAL_SECRET' --quiet"
-fi
-
-# 6. Org IAM bindings for main SA
+# 1. Org IAM bindings for main SA (while its member name still resolves)
 if [[ "$HAS_ORG_IAM_VIEWER" == true ]]; then
   delete_resource "Org IAM binding: roles/viewer" \
     "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$SA_EMAIL' --role='roles/viewer' --quiet"
@@ -471,17 +458,10 @@ if [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]]; then
     "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$SA_EMAIL' --role='roles/iam.securityReviewer' --quiet"
 fi
 
-# 7. Function service account
-if [[ "$HAS_FUNCTION_SA" == true ]]; then
-  delete_resource "Function service account: $FUNCTION_SA_EMAIL" \
-    "gcloud iam service-accounts delete '$FUNCTION_SA_EMAIL' --project='$PROJECT_ID' --quiet"
-fi
-
-# 8. Main service account (keys are deleted automatically with the SA)
-if [[ "$HAS_SA" == true ]]; then
-  delete_resource "Service account: $SA_EMAIL" \
-    "gcloud iam service-accounts delete '$SA_EMAIL' --project='$PROJECT_ID' --quiet"
-fi
+# 2-8. Module resources, in IR_KINDS (dependency) order
+for kind in ${FOUND_KINDS[@]+"${FOUND_KINDS[@]}"}; do
+  delete_resource "$(ir_label "$kind")" "ir_delete $kind"
+done
 
 # 9. IM SA IAM bindings (remove before deleting the SA)
 if [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]]; then
@@ -567,5 +547,14 @@ if [[ ${#NOT_FOUND_RESOURCES[@]} -gt 0 ]]; then
 fi
 
 echo ""
+if [[ ${#UNCHECKED_RESOURCES[@]} -gt 0 ]]; then
+  echo ""
+  log_error "Could not check (${#UNCHECKED_RESOURCES[@]}), so they may still exist:"
+  for resource in "${UNCHECKED_RESOURCES[@]}"; do
+    echo "  ? $resource"
+  done
+  exit 1
+fi
+
 log_info "Cleanup completed successfully!"
 echo ""
