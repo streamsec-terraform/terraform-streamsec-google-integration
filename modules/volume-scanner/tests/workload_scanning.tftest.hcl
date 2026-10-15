@@ -145,6 +145,7 @@ run "cloud_run_services_only" {
   variables {
     scan_cloud_run_jobs  = "false"
     scan_cloud_functions = "false"
+    scan_gke_images      = "false"
   }
 
   assert {
@@ -164,6 +165,7 @@ run "cloud_run_jobs_only" {
   variables {
     scan_cloud_run       = "false"
     scan_cloud_functions = "false"
+    scan_gke_images      = "false"
   }
 
   assert {
