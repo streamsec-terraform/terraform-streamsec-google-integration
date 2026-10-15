@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Test double for gcloud. A resource exists while "<kind>:<name>" is a line of
+# $FAKE_DIR/existing; deleting it removes the line. Every call is appended to
+# $FAKE_DIR/gcloud.log. Unknown commands succeed silently.
+set -u
+
+log_line="gcloud $*"
+[[ -n "${CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER:-}" ]] &&
+  log_line+=" [endpoint=$CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER]"
+echo "$log_line" >>"$FAKE_DIR/gcloud.log"
+
+has() { grep -qxF "$1" "$FAKE_DIR/existing" 2>/dev/null; }
+drop() {
+  grep -vxF "$1" "$FAKE_DIR/existing" >"$FAKE_DIR/existing.new" || true
+  mv "$FAKE_DIR/existing.new" "$FAKE_DIR/existing"
+}
+flag() { # value of --name=VALUE, if given
+  local arg
+  for arg in "${@:2}"; do [[ "$arg" == "--$1="* ]] && echo "${arg#*=}"; done
+  return 0
+}
+# Roles bound to the --filter=bindings.members:<member> member, from a "<member>\t<role>" file.
+roles_of() {
+  local member
+  member=$(flag filter "${@:2}"); member=${member#bindings.members:}
+  [[ -f "$FAKE_DIR/$1" ]] && awk -F'\t' -v m="$member" '$1 == m { print $2 }' "$FAKE_DIR/$1"
+  return 0
+}
+
+kind="" name="" verb=""
+case "$*" in
+  "functions describe "* | "functions delete "*)
+    kind=function2; [[ " $* " == *" --no-gen2 "* ]] && kind=function1; name=$3; verb=$2 ;;
+  "logging sinks describe "* | "logging sinks delete "*)
+    kind=project-sink; [[ "$*" == *--organization=* ]] && kind=org-sink; name=$4; verb=$3 ;;
+  "pubsub topics describe "* | "pubsub topics delete "*)
+    kind=topic; name=$4; verb=$3 ;;
+  "secrets describe "* | "secrets delete "*)
+    kind=secret; name=$3; verb=$2
+    if [[ "$*" == *--location=* ]]; then
+      kind=regional-secret
+      # The real gcloud rejects regional calls sent to the global endpoint.
+      if [[ -z "${CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER:-}" ]]; then
+        echo "ERROR: (gcloud.secrets.$verb) INVALID_ARGUMENT: The provided Secret ID does not match the expected format [projects/*/secrets/*]" >&2
+        exit 1
+      fi
+    fi ;;
+  "iam service-accounts describe "* | "iam service-accounts delete "*)
+    kind=sa; name=$4; verb=$3 ;;
+  "iam roles describe "* | "iam roles delete "*)
+    kind=project-role; [[ "$*" == *--organization=* ]] && kind=org-role; name=$4; verb=$3 ;;
+esac
+
+if [[ -n "$verb" ]]; then
+  if grep -qxF "$kind:$name" "$FAKE_DIR/describe-errors" 2>/dev/null; then
+    echo "ERROR: (gcloud.$kind.$verb) PERMISSION_DENIED: caller lacks permission" >&2
+    exit 1
+  fi
+  if ! has "$kind:$name"; then
+    echo "ERROR: (gcloud.$kind.$verb) NOT_FOUND: Resource '$name' was not found" >&2
+    exit 1
+  fi
+  if [[ "$verb" == delete ]]; then
+    if grep -qxF "$kind:$name" "$FAKE_DIR/fail-delete" 2>/dev/null; then
+      echo "ERROR: (gcloud.$kind.delete) FAILED_PRECONDITION: in use" >&2
+      exit 1
+    fi
+    drop "$kind:$name"
+  fi
+  if [[ "$kind" == *-sink && "$*" == *"value(destination)"* ]]; then
+    cat "$FAKE_DIR/sink-destination" 2>/dev/null || echo "pubsub.googleapis.com/projects/p1/topics/stream-security-events-topic"
+  fi
+  exit 0
+fi
+
+# Rows of a tab-separated file whose first column is $2, without that column.
+rows_for() { [[ -f "$FAKE_DIR/$1" ]] && awk -F'\t' -v k="$2" '$1 == k' "$FAKE_DIR/$1" | cut -f2-; return 0; }
+
+case "$*" in
+  # deployments: "<name>,<location>,<state>,<latest revision id>", as our csv --format prints them
+  "infra-manager deployments list"*)
+    if [[ -f "$FAKE_DIR/list-error" ]]; then cat "$FAKE_DIR/list-error" >&2; exit 1; fi
+    [[ -f "$FAKE_DIR/deployments" ]] && cat "$FAKE_DIR/deployments" ;;
+  # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
+  "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
+  # revisions: "<deployment path>\t<revision id>", newest first
+  "infra-manager revisions list"*) rows_for revisions "$(flag deployment "$@")" ;;
+  "infra-manager previews describe "*) [[ "$*" == *"value(state)"* ]] && echo SUCCEEDED ;;
+  "auth print-access-token"*) echo fake-token ;;
+  "projects describe "*)
+    if [[ -f "$FAKE_DIR/project-error" ]]; then cat "$FAKE_DIR/project-error" >&2; exit 1; fi
+    [[ "$*" == *"value(projectNumber)"* ]] && echo 123456789 ;;
+  "projects get-iam-policy "*) roles_of project-iam "$@" ;;
+  "organizations get-iam-policy "*) roles_of org-iam "$@" ;;
+  "iam service-accounts keys list "*)
+    sa=$(flag iam-account "$@")
+    [[ -f "$FAKE_DIR/keys" ]] && awk -F'\t' -v s="$sa" '$1 == s { print $2 }' "$FAKE_DIR/keys" ;;
+  "pubsub topics list-subscriptions "*) [[ -f "$FAKE_DIR/subscriptions" ]] && cat "$FAKE_DIR/subscriptions" ;;
+esac
+exit 0
