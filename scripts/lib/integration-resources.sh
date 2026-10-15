@@ -81,18 +81,18 @@ ir_delete() {
   esac
 }
 
-# "<terraform type>\t<id suffix>" of the resource in `gcloud infra-manager resources list`.
-# A suffix because the id's project/org prefix varies; a false match only leaves the 409.
+# "<terraform type>\t<id>" of the resource in `gcloud infra-manager resources list`. @P@ is
+# the project ID or number; a leading * matches any prefix (an org sink's name is unique in the org).
 ir_state_match() {
   case "$1" in
-    events-function)   printf 'google_cloudfunctions2_function\t/functions/%s\n' "$FUNCTION_NAME" ;;
-    org-sink)          printf 'google_logging_organization_sink\t/sinks/%s\n' "$LOGGING_SINK" ;;
-    project-sink)      printf 'google_logging_project_sink\t/sinks/%s\n' "$LOGGING_SINK" ;;
-    topic)             printf 'google_pubsub_topic\t/topics/%s\n' "$PUBSUB_TOPIC" ;;
-    global-secret)     printf 'google_secret_manager_secret\t/secrets/%s\n' "$GLOBAL_SECRET" ;;
-    regional-secret)   printf 'google_secret_manager_regional_secret\t/secrets/%s\n' "$REGIONAL_SECRET" ;;
-    function-sa)       printf 'google_service_account\t/serviceAccounts/%s\n' "$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" ;;
-    sa)                printf 'google_service_account\t/serviceAccounts/%s\n' "$(ir_sa_email "$SA_ACCOUNT_ID")" ;;
+    events-function)   printf 'google_cloudfunctions2_function\tprojects/@P@/locations/%s/functions/%s\n' "$REGION" "$FUNCTION_NAME" ;;
+    org-sink)          printf 'google_logging_organization_sink\t*/sinks/%s\n' "$LOGGING_SINK" ;;
+    project-sink)      printf 'google_logging_project_sink\tprojects/@P@/sinks/%s\n' "$LOGGING_SINK" ;;
+    topic)             printf 'google_pubsub_topic\tprojects/@P@/topics/%s\n' "$PUBSUB_TOPIC" ;;
+    global-secret)     printf 'google_secret_manager_secret\tprojects/@P@/secrets/%s\n' "$GLOBAL_SECRET" ;;
+    regional-secret)   printf 'google_secret_manager_regional_secret\tprojects/@P@/locations/%s/secrets/%s\n' "$REGION" "$REGIONAL_SECRET" ;;
+    function-sa)       printf 'google_service_account\tprojects/@P@/serviceAccounts/%s\n' "$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" ;;
+    sa)                printf 'google_service_account\tprojects/@P@/serviceAccounts/%s\n' "$(ir_sa_email "$SA_ACCOUNT_ID")" ;;
   esac
 }
 

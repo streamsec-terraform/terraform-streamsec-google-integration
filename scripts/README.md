@@ -201,7 +201,8 @@ To check a project without changing anything:
 ```
 
 It exits non-zero when it finds leftovers, or when the project's deployments can't be
-read or one of them is still applying. A resource it has no permission to read is
+read (including a location Infrastructure Manager can't reach) or one of them is still
+applying. A resource it has no permission to read is
 listed as `?` with a warning, without stopping the run. `--skip-leftover-check` skips
 the check, e.g. while an unrelated deployment is stuck.
 

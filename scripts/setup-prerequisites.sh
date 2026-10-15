@@ -410,14 +410,27 @@ revision_rows() {
 # every Infrastructure Manager deployment in the project to $TMP_OWNED. Any of them
 # may be the integration: the user names the deployment in the Console.
 read_owned_state() {
-  local deployments name location state latest rows list_format
-  list_format="csv[no-heading](name.segment(-1),name.segment(3),state,latestRevision)"
+  local deployments name location state latest rows token unreachable
   : >"$TMP_OWNED"
-  # --location=- skips unreachable locations without an error, so $REGION is also listed on its own.
-  if ! deployments=$( { gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- --format="$list_format" &&
-      gcloud infra-manager deployments list --project="$PROJECT_ID" --location="$REGION" --format="$list_format"; } \
-      2>"$TMP_GCLOUD_ERR" | sort -u); then
+  if ! PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)" 2>"$TMP_GCLOUD_ERR") ||
+      [[ -z "$PROJECT_NUMBER" ]]; then
     cat "$TMP_GCLOUD_ERR"
+    return 1
+  fi
+  if ! deployments=$(gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- \
+      --format="csv[no-heading](name.segment(-1),name.segment(3),state,latestRevision)" 2>"$TMP_GCLOUD_ERR"); then
+    cat "$TMP_GCLOUD_ERR"
+    return 1
+  fi
+  # gcloud leaves out locations it can't reach without saying so; the REST response names them.
+  token=$(gcloud auth print-access-token 2>/dev/null) || token=""
+  if ! unreachable=$(curl -sf -H "Authorization: Bearer $token" \
+      "https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/-/deployments?pageSize=1&fields=unreachable"); then
+    log_error "Could not ask Infrastructure Manager which locations it can reach."
+    return 1
+  fi
+  if [[ "$unreachable" == *'"unreachable"'* ]]; then
+    log_error "Infrastructure Manager can't reach some locations right now, so their deployments are unknown: $unreachable"
     return 1
   fi
   while IFS=, read -r name location state latest; do
@@ -441,10 +454,12 @@ read_owned_state() {
 
 # The deployment that owns kind $1, as "<name> (<location>)"; nothing if none does.
 owner_of() {
-  local type suffix
-  IFS=$'\t' read -r type suffix <<<"$(ir_state_match "$1")"
-  awk -F'\t' -v t="$type" -v s="$suffix" \
-    '$1 == t && substr($2, length($2) - length(s) + 1) == s { print $3; exit }' "$TMP_OWNED"
+  local type id
+  IFS=$'\t' read -r type id <<<"$(ir_state_match "$1")"
+  awk -F'\t' -v t="$type" -v a="${id//@P@/$PROJECT_ID}" -v b="${id//@P@/$PROJECT_NUMBER}" '
+    $1 != t { next }
+    a ~ /^\*/ { s = substr(a, 2); if (substr($2, length($2) - length(s) + 1) == s) { print $3; exit } next }
+    $2 == a || $2 == b { print $3; exit }' "$TMP_OWNED"
 }
 
 # Prints a table of the fixed-name resources the apply creates, and sorts the ones no

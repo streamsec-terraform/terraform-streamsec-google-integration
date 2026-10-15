@@ -52,7 +52,7 @@ run_check() {
   [[ "$output" == *"cleanup-abandoned-deployment.sh --project-id p1 --region us-central1 --only topic,function-sa --pubsub-topic stream-security-events-topic --function-sa-id stream-security-function-sa"* ]]
   [[ "$output" == *"--cleanup-leftovers"* ]]
   [[ "$output" != *"Step 6/6"* ]]
-  [ ! -s "$FAKE_DIR/curl.log" ]
+  refute_preview
   refute_called ' delete '
 }
 
@@ -65,7 +65,6 @@ run_check() {
   [[ "$output" == *"Step 6/6"* ]]
   called 'resources list --revision=projects/p1/locations/us-central1/deployments/streamsec-integration/revisions/r-1'
   called 'deployments list --project=p1 --location=- '
-  called 'deployments list --project=p1 --location=us-central1 '
 }
 
 @test "(d) --cleanup-leftovers --yes deletes in dependency order, then continues" {
@@ -133,7 +132,7 @@ run_check() {
   run_setup --cleanup-leftovers
   [ "$status" -eq 1 ]
   [[ "$output" == *"'some-other-deployment' (us-central1) is UPDATING"* ]]
-  [ ! -s "$FAKE_DIR/curl.log" ]
+  refute_preview
   refute_called ' delete '
 }
 
@@ -143,7 +142,7 @@ run_check() {
   run_setup --cleanup-leftovers
   [ "$status" -eq 1 ]
   [[ "$output" == *PERMISSION_DENIED* ]]
-  [ ! -s "$FAKE_DIR/curl.log" ]
+  refute_preview
   refute_called ' delete '
 }
 
@@ -291,7 +290,7 @@ abandoned_integration() {
   [[ "$output" == *"Service account: $SA (user-managed keys: 1)"* ]]
   [[ "$output" == *"With --yes nothing is deleted while a leftover looks in use"* ]]
   refute_called ' delete '
-  [ ! -s "$FAKE_DIR/curl.log" ]
+  refute_preview
 }
 
 @test "an abandoned integration is deleted after an interactive yes, in dependency order" {
@@ -344,4 +343,41 @@ abandoned_integration() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"Invalid --region"* ]]
   [ ! -s "$FAKE_DIR/gcloud.log" ]
+}
+
+@test "a location Infrastructure Manager can't reach stops the check" {
+  exist topic:stream-security-events-topic
+  echo '{"unreachable": ["projects/p1/locations/europe-west1"]}' >"$FAKE_DIR/curl-stdout"
+  run_setup --cleanup-leftovers
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"can't reach some locations"* ]]
+  refute_called ' delete '
+  refute_preview
+}
+
+@test "failing to ask which locations are reachable stops the check" {
+  exist topic:stream-security-events-topic
+  touch "$FAKE_DIR/curl-fail"
+  run_check --project-only --cleanup-leftovers --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Could not ask Infrastructure Manager"* ]]
+  refute_called ' delete '
+}
+
+@test "a state id written with the project number is owned too" {
+  exist topic:stream-security-events-topic
+  deployment streamsec-integration ACTIVE $'google_pubsub_topic\tprojects/123456789/topics/stream-security-events-topic\tUNCHANGED\tRECONCILED'
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No leftovers"* ]]
+}
+
+@test "a same-named resource in another project or region doesn't make ours owned" {
+  exist topic:stream-security-events-topic function2:stream-security-events-function
+  deployment streamsec-integration ACTIVE \
+    $'google_pubsub_topic\tprojects/p2/topics/stream-security-events-topic\tUNCHANGED\tRECONCILED' \
+    $'google_cloudfunctions2_function\tprojects/p1/locations/europe-west1/functions/stream-security-events-function\tUNCHANGED\tRECONCILED'
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--only events-function,topic --"* ]]
 }

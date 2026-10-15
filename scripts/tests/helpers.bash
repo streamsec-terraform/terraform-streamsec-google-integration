@@ -37,6 +37,10 @@ refute_called() {
   ! grep -qE "$1" "$FAKE_DIR/gcloud.log" || { echo "unexpected call(s):"; grep -E "$1" "$FAKE_DIR/gcloud.log"; return 1; }
 }
 
+refute_preview() {
+  ! grep -q 'previews?previewId=' "$FAKE_DIR/curl.log" || { echo "a preview was created"; return 1; }
+}
+
 # The first call matching $1 comes before the first matching $2.
 assert_called_before() {
   local a b

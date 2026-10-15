@@ -87,6 +87,7 @@ case "$*" in
   "infra-manager revisions list"*) rows_for revisions "$(flag deployment "$@")" ;;
   "infra-manager previews describe "*) [[ "$*" == *"value(state)"* ]] && echo SUCCEEDED ;;
   "auth print-access-token"*) echo fake-token ;;
+  "projects describe "*) [[ "$*" == *"value(projectNumber)"* ]] && echo 123456789 ;;
   "projects get-iam-policy "*) roles_of project-iam "$@" ;;
   "organizations get-iam-policy "*) roles_of org-iam "$@" ;;
   "iam service-accounts keys list "*)

@@ -211,8 +211,9 @@ kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
 
 for kind in "${IR_KINDS[@]}"; do
   selected "$kind" || continue
-  # Auto-detect the sink: org level first (only with an org ID), then project level.
-  if [[ "$kind" == org-sink && -z "$ORGANIZATION_ID" ]] || { [[ "$kind" == project-sink ]] && kind_found org-sink; }; then
+  # Auto-detect the sink: org level first (only with an org ID), then project level; --only takes both as asked.
+  if [[ "$kind" == org-sink && -z "$ORGANIZATION_ID" ]] ||
+      { [[ "$kind" == project-sink && "$ONLY_GIVEN" != true ]] && kind_found org-sink; }; then
     continue
   fi
   label=$(ir_label "$kind")

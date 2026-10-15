@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Test double for curl: logs the call, writes "{}" to the -o file and prints 200 for -w.
+# Test double for curl: logs the call. With -o it writes "{}" there (and -w prints 200);
+# otherwise it prints $FAKE_DIR/curl-stdout, or "{}". $FAKE_DIR/curl-fail makes it fail like -f.
 set -u
 echo "curl $*" >>"$FAKE_DIR/curl.log"
+[[ -f "$FAKE_DIR/curl-fail" ]] && exit 22
+to_file=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -o) echo '{}' >"$2"; shift 2 ;;
+    -o) echo '{}' >"$2"; to_file=true; shift 2 ;;
     -w) printf 200; shift 2 ;;
     *) shift ;;
   esac
 done
+if [[ "$to_file" != true ]]; then
+  cat "$FAKE_DIR/curl-stdout" 2>/dev/null || echo '{}'
+fi

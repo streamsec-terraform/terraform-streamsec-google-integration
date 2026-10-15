@@ -95,3 +95,11 @@ setup() { setup_fakes; }
   [[ "$output" == *"could not check"* ]]
   refute_called ' delete '
 }
+
+@test "--only with both sinks deletes both" {
+  exist org-sink:stream-security-events-sink project-sink:stream-security-events-sink
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --org-id 123 --only org-sink,project-sink --yes
+  [ "$status" -eq 0 ]
+  assert_mutations 'logging sinks delete stream-security-events-sink --organization=123' \
+    'logging sinks delete stream-security-events-sink --project=p1'
+}
