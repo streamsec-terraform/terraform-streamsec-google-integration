@@ -37,6 +37,7 @@ module "volume_scanner" {
   scan_cloud_run       = var.scan_cloud_run
   scan_cloud_run_jobs  = var.scan_cloud_run_jobs
   scan_cloud_functions = var.scan_cloud_functions
+  scan_gke_images      = var.scan_gke_images
   scan_workload_only   = var.scan_workload_only
 
   name_suffix   = var.name_suffix

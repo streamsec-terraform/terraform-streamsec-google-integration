@@ -17,7 +17,7 @@ run "every_kind_by_default" {
   command = plan
 
   assert {
-    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "cloudrun,cloudrunjobs,cloudfunctions"
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "cloudrun,cloudrunjobs,cloudfunctions,gkeimages"
     error_message = "COLLECTOR_WORKLOAD_KINDS must list every GCP kind by default."
   }
 
@@ -49,6 +49,7 @@ run "no_kinds" {
     scan_cloud_run       = "false"
     scan_cloud_run_jobs  = "false"
     scan_cloud_functions = "false"
+    scan_gke_images      = "false"
   }
 
   assert {
@@ -70,6 +71,7 @@ run "functions_only" {
   variables {
     scan_cloud_run      = "false"
     scan_cloud_run_jobs = "false"
+    scan_gke_images     = "false"
   }
 
   assert {
@@ -96,8 +98,8 @@ run "cloud_run_without_functions" {
   }
 
   assert {
-    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "cloudrun,cloudrunjobs"
-    error_message = "Only the Cloud Run kinds must be set."
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "cloudrun,cloudrunjobs,gkeimages"
+    error_message = "Only the Cloud Run kinds and GKE images must be set."
   }
 
   assert {
@@ -128,6 +130,7 @@ run "workload_only_needs_a_kind" {
     scan_cloud_run       = "false"
     scan_cloud_run_jobs  = "false"
     scan_cloud_functions = "false"
+    scan_gke_images      = "false"
   }
 
   expect_failures = [google_cloud_run_v2_job.orchestrator]
@@ -193,4 +196,53 @@ run "keeps_the_disk_scanning_permissions" {
     condition     = length(google_project_iam_custom_role.scanner.permissions) == 25 + 7
     error_message = "By default the role holds the 25 disk-scanning permissions plus the 7 workload ones."
   }
+}
+
+# DEV-23837: GKE images come from the Stream inventory, so the kind needs no
+# GCP API, only registry access to pull the images. On its own it still gets
+# that access, and nothing of Cloud Run's.
+run "gke_images_only" {
+  command = plan
+
+  variables {
+    scan_cloud_run       = "false"
+    scan_cloud_run_jobs  = "false"
+    scan_cloud_functions = "false"
+    scan_workload_only   = "true"
+  }
+
+  assert {
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "gkeimages"
+    error_message = "Only the gkeimages kind must be set."
+  }
+
+  assert {
+    condition = toset([for p in google_project_iam_custom_role.scanner.permissions : p if startswith(p, "run.") || startswith(p, "cloudfunctions.") || startswith(p, "artifactregistry.")]) == toset([
+      "artifactregistry.repositories.downloadArtifacts",
+    ])
+    error_message = "Scanning GKE images only must grant registry downloads and nothing else."
+  }
+}
+
+run "gke_images_off" {
+  command = plan
+
+  variables {
+    scan_gke_images = "FALSE"
+  }
+
+  assert {
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_WORKLOAD_KINDS"]) == "cloudrun,cloudrunjobs,cloudfunctions"
+    error_message = "With scan_gke_images off, gkeimages must not be set."
+  }
+}
+
+run "gke_images_rejects_a_non_boolean" {
+  command = plan
+
+  variables {
+    scan_gke_images = "yes"
+  }
+
+  expect_failures = [var.scan_gke_images]
 }
