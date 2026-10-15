@@ -83,6 +83,9 @@ Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour whil
 | `scan_language_packages` | `true` (CVEs) | `COLLECTOR_SCAN_LANGUAGE_PACKAGES` |
 | `scan_secrets` | `false` | `COLLECTOR_SCAN_SECRETS` |
 | `scan_ai_workloads` | `false` | `COLLECTOR_SCAN_AI_WORKLOADS` |
+| `scan_data_volumes` | `true` | `COLLECTOR_SCAN_DATA_VOLUMES` |
+
+`scan_data_volumes` scans each VM's attached data disks as well as its boot disk. Each data disk keeps one more scanner snapshot, the next scan's differential base, and a VM with large data disks takes longer to scan. A suffixed instance never scans disks, so it is always off there. An existing deployment picks it up when it is next re-applied.
 
 ### Workload scanning
 
