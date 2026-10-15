@@ -949,7 +949,10 @@ cloudfunctions.functions.delete,\
 cloudfunctions.functions.getIamPolicy,\
 cloudfunctions.functions.setIamPolicy,\
 cloudfunctions.functions.invoke,\
-cloudfunctions.operations.get"
+cloudfunctions.operations.get,\
+serviceusage.services.enable,\
+serviceusage.services.get,\
+serviceusage.services.list"
 
   if [[ "$PROJECT_ONLY" == true ]]; then
     # Project-only mode: no org-level resources, so the ops role lives at project level
@@ -1135,6 +1138,37 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"
 
+  DEPLOYMENT_PATH="projects/$PROJECT_ID/locations/$REGION/deployments/$DEPLOYMENT_NAME"
+  EXISTING_DEPLOYMENT=false
+  if DESCRIBE_ERR=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+      --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
+    EXISTING_DEPLOYMENT=true
+    log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
+    DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+        --project="$PROJECT_ID" --location="$REGION" --quiet \
+        --format="json(terraformBlueprint.inputValues)" | awk '
+          !found && /"inputValues": \{/ { found = 1; sub(/.*"inputValues": /, "") }
+          found {
+            print
+            for (i = 1; i <= length($0); i++) {
+              c = substr($0, i, 1)
+              if (esc) esc = 0
+              else if (c == "\\") esc = instr
+              else if (c == "\"") instr = !instr
+              else if (!instr && c == "{") depth++
+              else if (!instr && c == "}") depth--
+            }
+            if (depth == 0) exit
+          }') || true
+    if [[ -z "$DEPLOYMENT_INPUTS_JSON" ]]; then
+      log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
+      exit 1
+    fi
+  elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
+    log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"
+    exit 1
+  fi
+
   log_info "Preview name: $PREVIEW_NAME"
   log_info "Git ref: $GIT_REF"
 
@@ -1155,10 +1189,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
   fi
 
-  if [[ "$SINGLE_PROJECT" == true ]]; then
+  if [[ "$SINGLE_PROJECT" == true || "$EXISTING_DEPLOYMENT" == true ]]; then
     # IM --input-values wraps all values in quotes, which breaks list types.
-    # Use the REST API directly to pass include_projects as a proper HCL list.
-    log_info "Using REST API for single-project mode (to pass include_projects as list)..."
+    # Use the REST API directly to pass list inputs as proper HCL lists.
+    log_info "Using REST API (to pass list inputs as lists)..."
 
     ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null)
     if [[ -z "$ACCESS_TOKEN" ]]; then
@@ -1166,7 +1200,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       exit 1
     fi
 
-    # Build the inputValues JSON object
+    # An update keeps the deployment's own inputs; a new deployment gets the defaults
+    if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+      INPUT_VALUES_JSON="$DEPLOYMENT_INPUTS_JSON"
+    else
     INPUT_VALUES_JSON=$(cat <<JSONEOF
 {
   "google_project_id": {"inputValue": "$PROJECT_ID"},
@@ -1177,14 +1214,12 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 }
 JSONEOF
 )
+    fi
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
 
-    HTTP_CODE=$(curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
-      -X POST "$API_URL" \
-      -H "Authorization: Bearer $ACCESS_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d "{
+    HTTP_CODE=$(printf '%s' "{$( [[ "$EXISTING_DEPLOYMENT" == true ]] && echo "
+        \"deployment\": \"$DEPLOYMENT_PATH\"," )
         \"serviceAccount\": \"$SA_RESOURCE_PATH\",
         \"terraformBlueprint\": {
           \"gitSource\": {
@@ -1195,7 +1230,11 @@ JSONEOF
           \"inputValues\": $INPUT_VALUES_JSON
         },
         \"labels\": {\"managed-by\": \"setup-script\"}
-      }")
+      }" | curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
+      -X POST "$API_URL" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data-binary @-)
 
     if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
       PREVIEW_CREATE_EXIT_CODE=0
@@ -1283,6 +1322,13 @@ JSONEOF
         echo "  1. Review the preview results in the GCP Console:"
         echo "     https://console.cloud.google.com/infra-manager/previews/details/$REGION/$PREVIEW_NAME?project=$PROJECT_ID"
         echo ""
+        if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+          echo "  2. If the preview looks correct, update the existing deployment in the GCP Console:"
+          echo "     https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
+          echo "     Click Edit, set the Git ref to $GIT_REF, keep all other values, and click Update."
+          echo ""
+          break
+        fi
         echo "  2. If the preview looks correct, create the deployment from the GCP Console (above link)"
         echo "     using the same configuration as the preview. Input values to keep:"
         echo "       google_project_id=$PROJECT_ID  google_region=$REGION  streamsec_secret_name=$SECRET_NAME"

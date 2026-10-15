@@ -66,6 +66,30 @@ resource "google_service_account_key" "org" {
   service_account_id = var.create_sa ? google_service_account.org[0].id : data.google_service_account.existing[0].id
 }
 
+locals {
+  sa_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+}
+
+resource "google_project_service" "scan_quota_apis" {
+  for_each = toset([
+    "sqladmin.googleapis.com",
+    "cloudkms.googleapis.com",
+    "bigtableadmin.googleapis.com",
+    "apikeys.googleapis.com",
+    "appengine.googleapis.com",
+    "cloudidentity.googleapis.com",
+    "accesscontextmanager.googleapis.com",
+    "orgpolicy.googleapis.com",
+    "serviceusage.googleapis.com",
+    "firebaserules.googleapis.com",
+    "bigquery.googleapis.com",
+  ])
+
+  project            = try(regex("@([^.]+)\\.iam\\.gserviceaccount\\.com$", local.sa_email)[0], var.project_for_sa)
+  service            = each.value
+  disable_on_destroy = false
+}
+
 resource "google_organization_iam_member" "this" {
   count  = var.create_sa && !var.sa_project_level_permissions ? 1 : 0
   role   = "roles/viewer"
@@ -112,7 +136,7 @@ resource "time_sleep" "this" {
 resource "streamsec_gcp_project_ack" "this" {
   for_each     = { for k, v in local.projects : k => v }
   project_id   = each.value.project_id
-  client_email = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+  client_email = local.sa_email
   private_key  = var.create_sa ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : var.existing_sa_json_file_path == null ? jsondecode(base64decode(google_service_account_key.org[0].private_key)).private_key : jsondecode(file(var.existing_sa_json_file_path)).private_key
 
   depends_on = [
@@ -157,7 +181,7 @@ module "response" {
   exclude_runbooks                 = var.exclude_runbooks
   org_level_permissions            = var.response_org_level_permissions
   organization_id                  = var.org_id
-  workflow_invoker_service_account = var.create_sa ? google_service_account.org[0].email : var.existing_sa_json_file_path == null ? data.google_service_account.existing[0].email : jsondecode(file(var.existing_sa_json_file_path)).client_email
+  workflow_invoker_service_account = local.sa_email
   auto_grant_workflow_invoker      = var.auto_grant_workflow_invoker
 }
 

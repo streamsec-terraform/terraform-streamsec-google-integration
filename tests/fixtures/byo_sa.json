@@ -1,0 +1,5 @@
+{
+  "type": "service_account",
+  "client_email": "custom-scanner@byo-home-project.iam.gserviceaccount.com",
+  "private_key": "not-a-real-key"
+}
