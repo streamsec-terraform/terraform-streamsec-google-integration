@@ -361,6 +361,8 @@ abandoned_integration() {
   run_check --project-only --cleanup-leftovers --yes
   [ "$status" -eq 1 ]
   [[ "$output" == *"Could not ask Infrastructure Manager"* ]]
+  [[ "$output" == *"returned error: 403"* ]]
+  [[ "$output" == *"--skip-leftover-check"* ]]
   refute_called ' delete '
 }
 
@@ -380,4 +382,48 @@ abandoned_integration() {
   run_setup
   [ "$status" -eq 1 ]
   [[ "$output" == *"--only events-function,topic --"* ]]
+}
+
+@test "every kind the apply creates is owned through its exact state id" {
+  exist function2:stream-security-events-function project-sink:stream-security-events-sink \
+    topic:stream-security-events-topic regional-secret:stream-security "sa:$FN_SA" "sa:$SA"
+  deployment streamsec-integration ACTIVE \
+    $'google_cloudfunctions2_function\tprojects/p1/locations/us-central1/functions/stream-security-events-function\tUNCHANGED\tRECONCILED' \
+    $'google_logging_project_sink\tprojects/p1/sinks/stream-security-events-sink\tUNCHANGED\tRECONCILED' \
+    "$TOPIC_ROW"$'\tUNCHANGED\tRECONCILED' \
+    $'google_secret_manager_regional_secret\tprojects/p1/locations/us-central1/secrets/stream-security\tUNCHANGED\tRECONCILED' \
+    "$FN_SA_ROW"$'\tUNCHANGED\tRECONCILED' \
+    $'google_service_account\tprojects/p1/serviceAccounts/'"$SA"$'\tUNCHANGED\tRECONCILED'
+  run_check --project-only --cleanup-leftovers --yes
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'yes     streamsec-integration (us-central1)' <<<"$output")" -eq 6 ]
+  refute_called ' delete '
+}
+
+@test "an org sink is owned through its org-level state id" {
+  exist org-sink:stream-security-events-sink
+  deployment streamsec-integration ACTIVE \
+    $'google_logging_organization_sink\torganizations/123/sinks/stream-security-events-sink\tUNCHANGED\tRECONCILED'
+  run_check --org-id 123 --cleanup-leftovers --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No leftovers"* ]]
+  refute_called ' delete '
+}
+
+@test "an unreadable project number stops the check" {
+  exist topic:stream-security-events-topic
+  echo "ERROR: (gcloud.projects.describe) PERMISSION_DENIED: denied" >"$FAKE_DIR/project-error"
+  run_check --project-only --cleanup-leftovers --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *PERMISSION_DENIED* ]]
+  refute_called ' delete '
+}
+
+@test "a reachability answer that isn't {} stops the check" {
+  exist topic:stream-security-events-topic
+  echo '<html>proxy login</html>' >"$FAKE_DIR/curl-stdout"
+  run_check --project-only --cleanup-leftovers --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"can't reach some locations"* ]]
+  refute_called ' delete '
 }

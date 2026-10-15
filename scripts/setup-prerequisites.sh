@@ -406,33 +406,41 @@ revision_rows() {
   echo "$rows"
 }
 
+all_locations_reachable() {
+  local body
+  if ! body=$(curl -sSf -H "Authorization: Bearer $1" \
+      "https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/-/deployments?pageSize=1&fields=unreachable" 2>"$TMP_GCLOUD_ERR"); then
+    cat "$TMP_GCLOUD_ERR"
+    log_error "Could not ask Infrastructure Manager which locations it can reach."
+    return 1
+  fi
+  if [[ "${body//[[:space:]]/}" != "{}" ]]; then
+    log_error "Infrastructure Manager can't reach some locations right now, so their deployments are unknown: $body"
+    return 1
+  fi
+}
+
 # Writes "<type>\t<id>\t<deployment> (<location>)" for each resource in the state of
 # every Infrastructure Manager deployment in the project to $TMP_OWNED. Any of them
 # may be the integration: the user names the deployment in the Console.
 read_owned_state() {
-  local deployments name location state latest rows token unreachable
+  local deployments name location state latest rows token
   : >"$TMP_OWNED"
   if ! PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)" 2>"$TMP_GCLOUD_ERR") ||
       [[ -z "$PROJECT_NUMBER" ]]; then
     cat "$TMP_GCLOUD_ERR"
     return 1
   fi
+  # gcloud's --location=- list leaves out unreachable locations without saying so; the REST
+  # response names them. Asked before and after the list, so none can drop out in between.
+  token=$(gcloud auth print-access-token 2>/dev/null) || token=""
+  all_locations_reachable "$token" || return 1
   if ! deployments=$(gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- \
       --format="csv[no-heading](name.segment(-1),name.segment(3),state,latestRevision)" 2>"$TMP_GCLOUD_ERR"); then
     cat "$TMP_GCLOUD_ERR"
     return 1
   fi
-  # gcloud leaves out locations it can't reach without saying so; the REST response names them.
-  token=$(gcloud auth print-access-token 2>/dev/null) || token=""
-  if ! unreachable=$(curl -sf -H "Authorization: Bearer $token" \
-      "https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/-/deployments?pageSize=1&fields=unreachable"); then
-    log_error "Could not ask Infrastructure Manager which locations it can reach."
-    return 1
-  fi
-  if [[ "$unreachable" == *'"unreachable"'* ]]; then
-    log_error "Infrastructure Manager can't reach some locations right now, so their deployments are unknown: $unreachable"
-    return 1
-  fi
+  all_locations_reachable "$token" || return 1
   while IFS=, read -r name location state latest; do
     [[ -n "$name" ]] || continue
     case "$state" in
@@ -476,6 +484,7 @@ check_leftovers() {
   IN_USE=()
   if ! read_owned_state; then
     log_error "Could not read the Infrastructure Manager deployments in '$PROJECT_ID', so their resources can't be told apart from leftovers."
+    echo "  Fix the error above and re-run, or skip the check with --skip-leftover-check."
     return 2
   fi
 
