@@ -52,7 +52,7 @@ log_step()    { echo -e "\n${CYAN}==>${NC} $*"; }
 # Piped in, there is no script directory: never fall back to the current one.
 IR_LIB=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
-  IR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/integration-resources.sh"
+  IR_LIB="$(CDPATH="" cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)/lib/integration-resources.sh"
 fi
 if [[ -z "$IR_LIB" || ! -f "$IR_LIB" ]]; then
   log_error "lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
@@ -205,6 +205,7 @@ check_resource() {
 HAS_ORG_IAM_VIEWER=false
 HAS_ORG_IAM_SECURITY_REVIEWER=false
 FOUND_KINDS=()
+UNCHECKED_RESOURCES=()
 
 kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
 
@@ -225,7 +226,7 @@ for kind in "${IR_KINDS[@]}"; do
     NOT_FOUND_RESOURCES+=("$label")
     log_warn "Not found: $label (skipping)"
   else
-    NOT_FOUND_RESOURCES+=("$label (could not check)")
+    UNCHECKED_RESOURCES+=("$label")
     log_warn "Could not check: $label (skipping)"
   fi
 done
@@ -356,6 +357,10 @@ fi
 ###############################################################################
 echo ""
 if [[ ${#FOUND_RESOURCES[@]} -eq 0 ]]; then
+  if [[ ${#UNCHECKED_RESOURCES[@]} -gt 0 ]]; then
+    log_error "Found nothing to delete, but could not check: ${UNCHECKED_RESOURCES[*]}"
+    exit 1
+  fi
   log_info "No resources found to clean up. Nothing to do."
   exit 0
 fi
@@ -541,5 +546,14 @@ if [[ ${#NOT_FOUND_RESOURCES[@]} -gt 0 ]]; then
 fi
 
 echo ""
+if [[ ${#UNCHECKED_RESOURCES[@]} -gt 0 ]]; then
+  echo ""
+  log_error "Could not check (${#UNCHECKED_RESOURCES[@]}), so they may still exist:"
+  for resource in "${UNCHECKED_RESOURCES[@]}"; do
+    echo "  ? $resource"
+  done
+  exit 1
+fi
+
 log_info "Cleanup completed successfully!"
 echo ""

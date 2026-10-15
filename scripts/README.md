@@ -183,9 +183,10 @@ stops before the preview with two ways forward:
   this script (`--start-from-step 6` if steps 1-5 are done), or
 - re-run this script with `--cleanup-leftovers`: it deletes the same resources after a
   confirmation and goes on to the preview. An organization-level sink takes typing
-  `DELETE-ORG-RESOURCES`. `--yes` skips the confirmation, except for resources that
-  look in use (a topic with subscriptions, a service account with user-managed keys, a
-  secret with IAM bindings).
+  `DELETE-ORG-RESOURCES`. `--yes` skips the confirmation, but then deletes nothing if
+  any leftover looks in use (a topic with subscriptions, a service account with
+  user-managed keys, a secret with IAM bindings). A whole abandoned integration looks
+  in use too, so confirm it interactively or use the cleanup script.
 
 These resources are only leftovers if nothing else manages them: a project integrated
 with plain Terraform, or by a deployment in another project, shows the same table.
@@ -199,10 +200,10 @@ To check a project without changing anything:
 ./setup-prerequisites.sh --project-only --project-id my-gcp-project --region us-central1 --check-leftovers
 ```
 
-It exits non-zero when it finds leftovers, when it can't tell whether a resource
-exists, or when the project's deployments can't be read or one of them is still
-applying. `--skip-leftover-check` skips the check, e.g. while an unrelated deployment
-is stuck.
+It exits non-zero when it finds leftovers, or when the project's deployments can't be
+read or one of them is still applying. A resource it has no permission to read is
+listed as `?` with a warning, without stopping the run. `--skip-leftover-check` skips
+the check, e.g. while an unrelated deployment is stuck.
 
 ### After the script completes
 

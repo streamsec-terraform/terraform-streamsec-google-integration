@@ -184,7 +184,7 @@ fi
 # Piped in, there is no script directory: never fall back to the current one.
 IR_LIB=""
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
-  IR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/integration-resources.sh"
+  IR_LIB="$(CDPATH="" cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)/lib/integration-resources.sh"
 fi
 IR_LIB_LOADED=false
 if [[ -n "$IR_LIB" && -f "$IR_LIB" ]]; then
@@ -368,6 +368,11 @@ if [[ "$START_FROM_STEP" -gt 1 ]]; then
   echo ""
 fi
 
+if [[ "$SKIP_LEFTOVER_CHECK" == true && ( "$CHECK_LEFTOVERS" == true || "$CLEANUP_LEFTOVERS" == true ) ]]; then
+  log_error "--skip-leftover-check can't be combined with --check-leftovers or --cleanup-leftovers."
+  exit 1
+fi
+
 if [[ "$IR_LIB_LOADED" != true && ( "$CHECK_LEFTOVERS" == true || "$CLEANUP_LEFTOVERS" == true ) ]]; then
   log_error "lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
   exit 1
@@ -444,7 +449,7 @@ owner_of() {
 
 # Prints a table of the fixed-name resources the apply creates, and sorts the ones no
 # deployment owns into LEFTOVER_KINDS and BLOCKED. Returns 1 if there are any, 2 if
-# ownership or existence can't be read.
+# ownership can't be read.
 check_leftovers() {
   local kind label exists exists_rc owner hints destination reason row width=8 owner_width=8
   local rows unknown
@@ -508,10 +513,11 @@ check_leftovers() {
     printf "  %-${width}s  %-6s  %-${owner_width}s  %s\n" "$label" "$exists" "$owner" "$hints"
   done
   echo ""
+  # Unreadable is not deletable either, so warn rather than block (the documented minimal roles can't read some).
   if [[ ${#unknown[@]} -gt 0 ]]; then
-    log_error "Could not tell whether these exist (see the errors above):"
+    log_warn "Could not check these (see the errors above). If one exists, the apply fails on it with 409:"
     printf '    %s\n' "${unknown[@]}"
-    return 2
+    echo ""
   fi
   if [[ ${#LEFTOVER_KINDS[@]} -gt 0 || ${#BLOCKED[@]} -gt 0 ]]; then
     return 1
@@ -588,7 +594,8 @@ run_leftover_check() {
   if [[ "$CLEANUP_LEFTOVERS" == true ]]; then
     if [[ "$AUTO_CONFIRM" == true ]]; then
       if [[ ${#IN_USE[@]} -gt 0 ]]; then
-        log_error "--yes doesn't delete resources that look in use. Re-run without --yes to confirm, or delete them with cleanup-abandoned-deployment.sh."
+        log_error "With --yes nothing is deleted while a leftover looks in use (a whole abandoned integration does too)."
+        echo "  Re-run without --yes to confirm, or delete them with cleanup-abandoned-deployment.sh."
         return 1
       fi
     elif [[ " ${LEFTOVER_KINDS[*]} " == *" org-sink "* ]]; then
@@ -622,7 +629,7 @@ run_leftover_check() {
   echo "  a) Delete them with the cleanup script, then re-run this script (with --start-from-step 6 if steps 1-5 are done):"
   echo "       $cmd"
   echo "  b) Re-run this script with --cleanup-leftovers: it deletes the same resources after a confirmation"
-  echo "     (--yes skips it, but not for resources that look in use)."
+  echo "     (--yes skips it, but then deletes nothing if any of them looks in use)."
   echo ""
   return 1
 }

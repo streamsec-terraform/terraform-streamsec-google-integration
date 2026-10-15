@@ -264,33 +264,63 @@ run_check() {
   [[ "$output" == *"--only topic --"* ]]
 }
 
-@test "a resource whose existence can't be read stops the check" {
-  exist "sa:$FN_SA"
+@test "a resource it may not read is a warning, never a deletion, and doesn't block the run" {
+  exist topic:stream-security-events-topic
   echo topic:stream-security-events-topic >"$FAKE_DIR/describe-errors"
   run_setup --cleanup-leftovers
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 0 ]
   [[ "$output" == *PERMISSION_DENIED* ]]
-  [[ "$output" == *"Could not tell whether these exist"* ]]
+  [[ "$output" == *"Could not check these"* ]]
+  [[ "$output" == *"Step 6/6"* ]]
+  refute_called ' delete '
+}
+
+# What a whole abandoned integration leaves: the module's eventarc subscription, SA key and secret accessor.
+abandoned_integration() {
+  exist function2:stream-security-events-function project-sink:stream-security-events-sink \
+    topic:stream-security-events-topic regional-secret:stream-security "sa:$FN_SA" "sa:$SA"
+  echo projects/p1/subscriptions/eventarc-us-central1-stream-security-events-function-sub >"$FAKE_DIR/subscriptions"
+  printf '%s\t%s\n' "$SA" 45e8260cbea2c75cded6299b995e301a202abd48 >"$FAKE_DIR/keys"
+}
+
+@test "--yes deletes nothing while a leftover looks in use" {
+  abandoned_integration
+  run_setup --cleanup-leftovers
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Pub/Sub topic: stream-security-events-topic (subscriptions: 1)"* ]]
+  [[ "$output" == *"Service account: $SA (user-managed keys: 1)"* ]]
+  [[ "$output" == *"With --yes nothing is deleted while a leftover looks in use"* ]]
   refute_called ' delete '
   [ ! -s "$FAKE_DIR/curl.log" ]
 }
 
-@test "--yes doesn't delete leftovers that look in use" {
-  exist topic:stream-security-events-topic "sa:$FN_SA"
-  echo projects/p1/subscriptions/eventarc-sub >"$FAKE_DIR/subscriptions"
-  run_setup --cleanup-leftovers
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Pub/Sub topic: stream-security-events-topic (subscriptions: 1)"* ]]
-  [[ "$output" == *"--yes doesn't delete resources that look in use"* ]]
-  refute_called ' delete '
-}
-
-@test "leftovers that look in use are deleted after an interactive yes" {
-  exist topic:stream-security-events-topic
-  echo projects/p1/subscriptions/eventarc-sub >"$FAKE_DIR/subscriptions"
+@test "an abandoned integration is deleted after an interactive yes, in dependency order" {
+  abandoned_integration
   run bash -c 'echo y | bash "$0" --project-only --project-id p1 --region us-central1 --check-leftovers --cleanup-leftovers' "$SETUP"
   [ "$status" -eq 0 ]
-  called 'pubsub topics delete stream-security-events-topic'
+  assert_called_before 'functions delete stream-security-events-function' 'pubsub topics delete'
+  assert_called_before 'logging sinks delete' 'pubsub topics delete'
+  assert_called_before 'functions delete stream-security-events-function' "service-accounts delete $FN_SA"
+  [ ! -s "$FAKE_DIR/existing" ]
+}
+
+@test "an exported CDPATH doesn't hide the lib" {
+  exist topic:stream-security-events-topic
+  local dir
+  dir=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
+  cd "$(dirname "$dir")"
+  # CDPATH only applies to a relative path, so run the script by one.
+  CDPATH=.:/tmp run bash "$(basename "$dir")/setup-prerequisites.sh" \
+    --project-only --project-id p1 --region us-central1 --check-leftovers
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Pub/Sub topic: stream-security-events-topic"* ]]
+}
+
+@test "--skip-leftover-check can't be combined with the leftover modes" {
+  run_check --project-only --skip-leftover-check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"can't be combined"* ]]
+  [ ! -s "$FAKE_DIR/gcloud.log" ]
 }
 
 @test "CLEANUP_LEFTOVERS in the environment doesn't turn on deletion" {

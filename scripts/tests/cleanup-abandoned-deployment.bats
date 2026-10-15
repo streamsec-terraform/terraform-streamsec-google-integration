@@ -90,6 +90,8 @@ setup() { setup_fakes; }
   exist topic:stream-security-events-topic
   echo topic:stream-security-events-topic >"$FAKE_DIR/describe-errors"
   run bash "$CLEANUP" --project-id p1 --region us-central1 --only topic --yes
+  [ "$status" -eq 1 ]
   [[ "$output" == *"Could not check: Pub/Sub topic: stream-security-events-topic"* ]]
+  [[ "$output" == *"could not check"* ]]
   refute_called ' delete '
 }
