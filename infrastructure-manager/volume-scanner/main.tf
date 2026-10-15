@@ -33,6 +33,7 @@ module "volume_scanner" {
   scan_language_packages = var.scan_language_packages
   scan_secrets           = var.scan_secrets
   scan_ai_workloads      = var.scan_ai_workloads
+  scan_data_volumes      = var.scan_data_volumes
 
   scan_cloud_run       = var.scan_cloud_run
   scan_cloud_run_jobs  = var.scan_cloud_run_jobs
