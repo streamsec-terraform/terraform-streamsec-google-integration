@@ -8,18 +8,17 @@
 # It will attempt to delete the following resources:
 #   1. Organization IAM bindings for the stream-security service account
 #   2. Cloud Function v2 (audit-log event processor + its IAM bindings)
-#   3. Cloud Function (1st gen) for flow logs
-#   4. Organization-level or project-level logging sink
-#   5. Pub/Sub topic
-#   6. Global secret (collection token created by Terraform)
-#   7. Regional secret (and its versions)
-#   8. Function service account
-#   9. Stream-security service account (and its keys)
-#  10. Infrastructure Manager SA IAM bindings (ops role, project role, config.agent)
-#  11. Infrastructure Manager service account
-#  12. Custom IAM roles (ops role at org or project, project resources role)
+#   3. Organization-level or project-level logging sink
+#   4. Pub/Sub topic
+#   5. Global secret (collection token created by Terraform)
+#   6. Regional secret (and its versions)
+#   7. Function service account
+#   8. Stream-security service account (and its keys)
+#   9. Infrastructure Manager SA IAM bindings (ops role, project role, config.agent)
+#  10. Infrastructure Manager service account
+#  11. Custom IAM roles (ops role at org or project, project resources role)
 #
-# --only <kinds> limits it to some of 2-9 (the kinds in lib/integration-resources.sh),
+# --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
 # which is how setup-prerequisites.sh's leftover check points here.
 #
 # Safety:
@@ -50,7 +49,7 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step()    { echo -e "\n${CYAN}==>${NC} $*"; }
 
-IR_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/integration-resources.sh"
+IR_LIB="$(dirname "${BASH_SOURCE[0]:-}")/lib/integration-resources.sh"
 if [[ ! -f "$IR_LIB" ]]; then
   log_error "$IR_LIB not found. Run this script from a clone of the repository."
   exit 1
@@ -66,6 +65,7 @@ PROJECT_ID="${PROJECT_ID:-}"
 ORGANIZATION_ID="${ORGANIZATION_ID:-}"
 REGION="${REGION:-}"
 ONLY_KINDS=""
+ONLY_GIVEN=false
 
 # Infrastructure Manager SA and role names (from setup-prerequisites.sh)
 IM_SA_NAME="${IM_SA_NAME:-StreamSecurityInfraManagerSa}"
@@ -95,7 +95,6 @@ Optional overrides:
   --sa-account-id         NAME  Main service account ID       (default: $SA_ACCOUNT_ID)
   --function-sa-id        NAME  Function service account ID   (default: $FUNCTION_SA_ACCOUNT_ID)
   --function-name         NAME  Cloud Function v2 name        (default: $FUNCTION_NAME)
-  --flowlogs-function-name NAME Flow logs function name       (default: $FLOWLOGS_FUNCTION_NAME)
   --pubsub-topic          NAME  Pub/Sub topic name            (default: $PUBSUB_TOPIC)
   --logging-sink          NAME  Logging sink name             (default: $LOGGING_SINK)
   --regional-secret       NAME  Regional secret name          (default: $REGIONAL_SECRET)
@@ -120,8 +119,7 @@ while [[ $# -gt 0 ]]; do
     --sa-account-id)      SA_ACCOUNT_ID="$2";           shift 2 ;;
     --function-sa-id)     FUNCTION_SA_ACCOUNT_ID="$2";  shift 2 ;;
     --function-name)      FUNCTION_NAME="$2";           shift 2 ;;
-    --flowlogs-function-name) FLOWLOGS_FUNCTION_NAME="$2"; shift 2 ;;
-    --only)               ONLY_KINDS="$2";              shift 2 ;;
+    --only)               ONLY_KINDS="$2"; ONLY_GIVEN=true; shift 2 ;;
     --pubsub-topic)       PUBSUB_TOPIC="$2";            shift 2 ;;
     --logging-sink)       LOGGING_SINK="$2";            shift 2 ;;
     --regional-secret)    REGIONAL_SECRET="$2";         shift 2 ;;
@@ -148,7 +146,11 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   usage
 fi
 
-if [[ -n "$ONLY_KINDS" ]]; then
+if [[ "$ONLY_GIVEN" == true ]]; then
+  if [[ -z "${ONLY_KINDS//,/}" ]]; then
+    log_error "--only needs at least one kind (${IR_KINDS[*]})."
+    exit 1
+  fi
   for kind in ${ONLY_KINDS//,/ }; do
     if ! ir_is_kind "$kind"; then
       log_error "Unknown kind in --only: '$kind' (expected: ${IR_KINDS[*]})"
@@ -162,7 +164,7 @@ if [[ -n "$ONLY_KINDS" ]]; then
 fi
 
 # Whether --only (if given) includes this kind.
-selected() { [[ -z "$ONLY_KINDS" || ",$ONLY_KINDS," == *",$1,"* ]]; }
+selected() { [[ "$ONLY_GIVEN" != true || ",$ONLY_KINDS," == *",$1,"* ]]; }
 
 SA_EMAIL="${SA_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 IM_SA_EMAIL="${IM_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -214,7 +216,7 @@ for kind in "${IR_KINDS[@]}"; do
 done
 
 # Check org IAM bindings (only if org-id provided)
-if [[ -n "$ORGANIZATION_ID" && -z "$ONLY_KINDS" ]]; then
+if [[ -n "$ORGANIZATION_ID" && "$ONLY_GIVEN" != true ]]; then
   ORG_IAM_BINDINGS=$(gcloud organizations get-iam-policy "$ORGANIZATION_ID" \
     --flatten="bindings[].members" \
     --filter="bindings.members:serviceAccount:$SA_EMAIL" \
@@ -257,7 +259,7 @@ HAS_IM_SA=false
 HAS_OPS_ROLE_ORG=false
 HAS_OPS_ROLE_PROJECT=false
 HAS_PROJECT_ROLE=false
-if [[ -z "$ONLY_KINDS" ]]; then
+if [[ "$ONLY_GIVEN" != true ]]; then
   check_resource "IM service account: $IM_SA_EMAIL" \
     "gcloud iam service-accounts describe '$IM_SA_EMAIL' --project='$PROJECT_ID'" \
     && HAS_IM_SA=true
@@ -435,12 +437,12 @@ if [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]]; then
     "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$SA_EMAIL' --role='roles/iam.securityReviewer' --quiet"
 fi
 
-# 2-9. Module resources, in IR_KINDS (dependency) order
+# 2-8. Module resources, in IR_KINDS (dependency) order
 for kind in ${FOUND_KINDS[@]+"${FOUND_KINDS[@]}"}; do
   delete_resource "$(ir_label "$kind")" "ir_delete $kind"
 done
 
-# 10. IM SA IAM bindings (remove before deleting the SA)
+# 9. IM SA IAM bindings (remove before deleting the SA)
 if [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]]; then
   delete_resource "Org IAM binding: ops role for $IM_SA_EMAIL" \
     "gcloud organizations remove-iam-policy-binding '$ORGANIZATION_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='organizations/$ORGANIZATION_ID/roles/$OPS_ROLE_ID' --quiet"
@@ -466,13 +468,13 @@ if [[ "$HAS_IM_CONFIG_AGENT_PROJECT" == true ]]; then
     "gcloud projects remove-iam-policy-binding '$PROJECT_ID' --member='serviceAccount:$IM_SA_EMAIL' --role='roles/config.agent' --quiet"
 fi
 
-# 11. IM service account
+# 10. IM service account
 if [[ "$HAS_IM_SA" == true ]]; then
   delete_resource "IM service account: $IM_SA_EMAIL" \
     "gcloud iam service-accounts delete '$IM_SA_EMAIL' --project='$PROJECT_ID' --quiet"
 fi
 
-# 12. Custom roles (delete after removing all bindings)
+# 11. Custom roles (delete after removing all bindings)
 if [[ "$HAS_OPS_ROLE_ORG" == true ]]; then
   delete_resource "Ops role (org): $OPS_ROLE_ID" \
     "gcloud iam roles delete '$OPS_ROLE_ID' --organization='$ORGANIZATION_ID' --quiet"

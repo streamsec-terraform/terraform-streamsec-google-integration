@@ -9,7 +9,6 @@
 SA_ACCOUNT_ID="${SA_ACCOUNT_ID:-stream-security}"
 FUNCTION_SA_ACCOUNT_ID="${FUNCTION_SA_ACCOUNT_ID:-stream-security-function-sa}"
 FUNCTION_NAME="${FUNCTION_NAME:-stream-security-events-function}"
-FLOWLOGS_FUNCTION_NAME="${FLOWLOGS_FUNCTION_NAME:-stream-security-flowlogs-function}"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-stream-security-events-topic}"
 LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
 REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
@@ -17,7 +16,7 @@ GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
 
 # In deletion order: functions before the topic and service account they use,
 # sinks before the topic they write to.
-IR_KINDS=(events-function flowlogs-function org-sink project-sink topic global-secret regional-secret function-sa sa)
+IR_KINDS=(events-function org-sink project-sink topic global-secret regional-secret function-sa sa)
 
 ir_is_kind() { [[ " ${IR_KINDS[*]} " == *" $1 "* ]]; }
 
@@ -33,7 +32,6 @@ ir_regional_secrets() {
 ir_label() {
   case "$1" in
     events-function)   echo "Cloud Function v2: $FUNCTION_NAME ($REGION)" ;;
-    flowlogs-function) echo "Cloud Function (1st gen): $FLOWLOGS_FUNCTION_NAME ($REGION)" ;;
     org-sink)          echo "Org logging sink: $LOGGING_SINK" ;;
     project-sink)      echo "Project logging sink: $LOGGING_SINK" ;;
     topic)             echo "Pub/Sub topic: $PUBSUB_TOPIC" ;;
@@ -47,7 +45,6 @@ ir_label() {
 ir_exists() {
   case "$1" in
     events-function)   gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 ;;
-    flowlogs-function) gcloud functions describe "$FLOWLOGS_FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --no-gen2 ;;
     org-sink)          gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" ;;
     project-sink)      gcloud logging sinks describe "$LOGGING_SINK" --project="$PROJECT_ID" ;;
     topic)             gcloud pubsub topics describe "$PUBSUB_TOPIC" --project="$PROJECT_ID" ;;
@@ -61,7 +58,6 @@ ir_exists() {
 ir_delete() {
   case "$1" in
     events-function)   gcloud functions delete "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 --quiet ;;
-    flowlogs-function) gcloud functions delete "$FLOWLOGS_FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --no-gen2 --quiet ;;
     org-sink)          gcloud logging sinks delete "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --quiet ;;
     project-sink)      gcloud logging sinks delete "$LOGGING_SINK" --project="$PROJECT_ID" --quiet ;;
     # IAM bindings on the topic go with it.
@@ -74,18 +70,18 @@ ir_delete() {
   esac
 }
 
-# "<terraform type>\t<id>", as `gcloud infra-manager resources list` shows the resource.
-ir_state_id() {
+# "<terraform type>\t<id suffix>" of the resource in `gcloud infra-manager resources list`.
+# A suffix because the id's project/org prefix varies; a false match only leaves the 409.
+ir_state_match() {
   case "$1" in
-    events-function)   printf 'google_cloudfunctions2_function\tprojects/%s/locations/%s/functions/%s\n' "$PROJECT_ID" "$REGION" "$FUNCTION_NAME" ;;
-    flowlogs-function) printf 'google_cloudfunctions_function\tprojects/%s/locations/%s/functions/%s\n' "$PROJECT_ID" "$REGION" "$FLOWLOGS_FUNCTION_NAME" ;;
-    org-sink)          printf 'google_logging_organization_sink\torganizations/%s/sinks/%s\n' "$ORGANIZATION_ID" "$LOGGING_SINK" ;;
-    project-sink)      printf 'google_logging_project_sink\tprojects/%s/sinks/%s\n' "$PROJECT_ID" "$LOGGING_SINK" ;;
-    topic)             printf 'google_pubsub_topic\tprojects/%s/topics/%s\n' "$PROJECT_ID" "$PUBSUB_TOPIC" ;;
-    global-secret)     printf 'google_secret_manager_secret\tprojects/%s/secrets/%s\n' "$PROJECT_ID" "$GLOBAL_SECRET" ;;
-    regional-secret)   printf 'google_secret_manager_regional_secret\tprojects/%s/locations/%s/secrets/%s\n' "$PROJECT_ID" "$REGION" "$REGIONAL_SECRET" ;;
-    function-sa)       printf 'google_service_account\tprojects/%s/serviceAccounts/%s\n' "$PROJECT_ID" "$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" ;;
-    sa)                printf 'google_service_account\tprojects/%s/serviceAccounts/%s\n' "$PROJECT_ID" "$(ir_sa_email "$SA_ACCOUNT_ID")" ;;
+    events-function)   printf 'google_cloudfunctions2_function\t/functions/%s\n' "$FUNCTION_NAME" ;;
+    org-sink)          printf 'google_logging_organization_sink\t/sinks/%s\n' "$LOGGING_SINK" ;;
+    project-sink)      printf 'google_logging_project_sink\t/sinks/%s\n' "$LOGGING_SINK" ;;
+    topic)             printf 'google_pubsub_topic\t/topics/%s\n' "$PUBSUB_TOPIC" ;;
+    global-secret)     printf 'google_secret_manager_secret\t/secrets/%s\n' "$GLOBAL_SECRET" ;;
+    regional-secret)   printf 'google_secret_manager_regional_secret\t/secrets/%s\n' "$REGIONAL_SECRET" ;;
+    function-sa)       printf 'google_service_account\t/serviceAccounts/%s\n' "$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" ;;
+    sa)                printf 'google_service_account\t/serviceAccounts/%s\n' "$(ir_sa_email "$SA_ACCOUNT_ID")" ;;
   esac
 }
 
@@ -104,19 +100,8 @@ ir_hints() {
       value=$(gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 \
         --format='value(eventTrigger.pubsubTopic)' 2>/dev/null) || value='?'
       echo "trigger: ${value:--}" ;;
-    flowlogs-function)
-      value=$(gcloud functions describe "$FLOWLOGS_FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --no-gen2 \
-        --format='value(eventTrigger.resource)' 2>/dev/null) || value='?'
-      echo "trigger: ${value:--}" ;;
     org-sink | project-sink)
-      if [[ "$1" == org-sink ]]; then
-        value=$(gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --format='value(destination)' 2>/dev/null) || value='?'
-      else
-        value=$(gcloud logging sinks describe "$LOGGING_SINK" --project="$PROJECT_ID" --format='value(destination)' 2>/dev/null) || value='?'
-      fi
-      if [[ -n "$value" && "$value" != '?' && "$value" != *"/projects/$PROJECT_ID/"* ]]; then
-        value+=" (another project: may feed a live integration)"
-      fi
+      value=$(ir_sink_destination "$1") || value='?'
       echo "destination: ${value:--}" ;;
     topic)
       echo "$(ir_count gcloud pubsub topics list-subscriptions "$PUBSUB_TOPIC" --project="$PROJECT_ID" --format='value(.)') subscriptions," \
@@ -131,9 +116,22 @@ ir_hints() {
     function-sa | sa)
       email=$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")
       [[ "$1" == sa ]] && email=$(ir_sa_email "$SA_ACCOUNT_ID")
-      echo "$(ir_count gcloud iam service-accounts keys list --iam-account="$email" --managed-by=user \
-          --project="$PROJECT_ID" --format='value(name)') user-managed keys," \
-        "$(ir_count gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
-          --filter="bindings.members:serviceAccount:$email" --format='value(bindings.role)') project roles" ;;
+      value="$(ir_count gcloud iam service-accounts keys list --iam-account="$email" --managed-by=user \
+          --project="$PROJECT_ID" --format='value(name)') user-managed keys,"
+      value+=" $(ir_count gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
+          --filter="bindings.members:serviceAccount:$email" --format='value(bindings.role)') project roles"
+      if [[ "$1" == sa && -n "$ORGANIZATION_ID" ]]; then
+        value+=", $(ir_count gcloud organizations get-iam-policy "$ORGANIZATION_ID" --flatten='bindings[].members' \
+          --filter="bindings.members:serviceAccount:$email" --format='value(bindings.role)') org roles"
+      fi
+      echo "$value" ;;
   esac
+}
+
+ir_sink_destination() {
+  if [[ "$1" == org-sink ]]; then
+    gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --format='value(destination)'
+  else
+    gcloud logging sinks describe "$LOGGING_SINK" --project="$PROJECT_ID" --format='value(destination)'
+  fi 2>/dev/null
 }

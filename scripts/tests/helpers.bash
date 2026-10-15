@@ -13,12 +13,20 @@ setup_fakes() {
 # exist topic:NAME sa:EMAIL ... (kinds as in tests/bin/gcloud)
 exist() { printf '%s\n' "$@" >>"$FAKE_DIR/existing"; }
 
-# deployment STATE [ROW...]: a deployment whose latest revision lists ROWs of
-# "<terraform type>\t<id>\t<intent>\t<state>".
+# deployment NAME STATE [ROW...]: an Infrastructure Manager deployment in us-central1
+# whose latest revision, r-1, lists ROWs of "<terraform type>\t<id>\t<intent>\t<state>".
 deployment() {
-  printf 'projects/p1/locations/us-central1/deployments/streamsec-integration/revisions/r-0\t%s\n' "$1" >"$FAKE_DIR/deployment"
-  shift
-  printf '%s\n' "$@" >"$FAKE_DIR/resources"
+  local path="projects/p1/locations/us-central1/deployments/$1" row
+  printf '%s\tus-central1\t%s\tr-1\n' "$1" "$2" >>"$FAKE_DIR/deployments"
+  printf '%s\tr-1\n' "$path" >>"$FAKE_DIR/revisions"
+  for row in "${@:3}"; do printf '%s/revisions/r-1\t%s\n' "$path" "$row" >>"$FAKE_DIR/resources"; done
+}
+
+# older_revision NAME REV [ROW...]: an earlier revision of deployment NAME.
+older_revision() {
+  local path="projects/p1/locations/us-central1/deployments/$1" row
+  printf '%s\t%s\n' "$path" "$2" >>"$FAKE_DIR/revisions"
+  for row in "${@:3}"; do printf '%s/revisions/%s\t%s\n' "$path" "$2" "$row" >>"$FAKE_DIR/resources"; done
 }
 
 called() {

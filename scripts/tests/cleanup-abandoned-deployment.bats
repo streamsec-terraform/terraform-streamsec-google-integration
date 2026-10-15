@@ -11,7 +11,7 @@ IM_SA=StreamSecurityInfraManagerSa@p1.iam.gserviceaccount.com
 setup() { setup_fakes; }
 
 @test "a full cleanup deletes everything, each resource after what depends on it" {
-  exist function2:stream-security-events-function function1:stream-security-flowlogs-function \
+  exist function2:stream-security-events-function \
     project-sink:stream-security-events-sink topic:stream-security-events-topic \
     secret:stream-security-collection-token regional-secret:stream-security \
     "sa:$FN_SA" "sa:$SA" "sa:$IM_SA" \
@@ -22,7 +22,6 @@ setup() { setup_fakes; }
   [ "$status" -eq 0 ]
   assert_mutations \
     'functions delete stream-security-events-function .*--gen2' \
-    'functions delete stream-security-flowlogs-function .*--no-gen2' \
     'logging sinks delete stream-security-events-sink --project=p1' \
     'pubsub topics delete stream-security-events-topic' \
     'secrets delete stream-security-collection-token --project=p1' \
@@ -71,4 +70,11 @@ setup() { setup_fakes; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"--org-id"* ]]
   [ ! -s "$FAKE_DIR/gcloud.log" ]
+}
+
+@test "an empty --only is rejected, not read as a full cleanup" {
+  exist "sa:$IM_SA" project-role:StreamSecurityInfraManagerProjectRole
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --only "" --yes
+  [ "$status" -ne 0 ]
+  refute_called ' delete '
 }

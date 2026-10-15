@@ -110,7 +110,7 @@ at any time.
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
-| `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check), read-only. Needs only `--project-id`, `--region` and the mode flags |
+| `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check): read-only, unless with `--cleanup-leftovers`. Needs only `--project-id`, `--region`, the mode flags and `--org-id` (unless `--project-only`) |
 | `--cleanup-leftovers` | `CLEANUP_LEFTOVERS=true` | — | Delete the leftovers the check finds, after a confirmation, then go on |
 | `--skip-permission-check` | `SKIP_PERMISSION_CHECK=true` | — | Skip upfront permission validation |
 | `-y`, `--yes` | `AUTO_CONFIRM=true` | — | Skip all confirmation prompts |
@@ -162,25 +162,30 @@ partial removal. The preview doesn't notice them, but the apply fails on them wi
 `--import-existing-resources` fails with `found unsupported type for importing:
 google_pubsub_topic`.
 
-So before step 6 the script looks for the resources the module creates under fixed
+So before step 6 the script looks for the resources the apply creates under fixed
 names (the names are in [`lib/integration-resources.sh`](lib/integration-resources.sh)):
 
 - the Pub/Sub topic and the logging sink (organization-level in organization mode, project-level otherwise)
-- the events Cloud Function (2nd gen) and the flow logs Cloud Function (1st gen)
+- the events Cloud Function
 - the function service account and the `stream-security` service account
-- the global collection-token secret and the regional secret
+- the regional `stream-security` secret
 
-A resource in the state of the Infrastructure Manager deployment of the same name
-(`--deployment-name`, in `--region`) belongs to it: re-running the script on an
-integrated project is not a leftover. Anything else that exists is printed with hints
-for judging whether it is safe to delete (subscriptions, IAM bindings, user-managed
-keys, triggers, the sink's destination). The script then stops before the preview and
-prints two ways forward:
+A resource in the state of any Infrastructure Manager deployment in the project belongs
+to it, whatever the deployment is called: re-running the script on an integrated
+project finds no leftovers. (If the owner isn't `--deployment-name`, the script says
+so: apply the preview to that deployment.) Anything else that exists is printed with
+hints for judging whether it is safe to delete (subscriptions, IAM bindings,
+user-managed keys, the function's trigger, the sink's destination), and the script
+stops before the preview with two ways forward:
 
 - run `cleanup-abandoned-deployment.sh` with the printed `--only` command, then re-run
   this script (`--start-from-step 6` if steps 1-5 are done), or
 - re-run this script with `--cleanup-leftovers`: it deletes the same resources after a
-  confirmation (`--yes` skips it) and goes on to the preview.
+  confirmation (`--yes` skips it; an organization-level sink takes typing
+  `DELETE-ORG-RESOURCES`) and goes on to the preview.
+
+A leftover sink that writes to another project is never deleted: it may serve a live
+integration there. The script prints the command to delete it by hand.
 
 To check a project without changing anything:
 
@@ -188,8 +193,8 @@ To check a project without changing anything:
 ./setup-prerequisites.sh --project-only --project-id my-gcp-project --region us-central1 --check-leftovers
 ```
 
-It exits non-zero when it finds leftovers, or when the deployment can't be read or is
-still applying.
+It exits non-zero when it finds leftovers, or when the project's deployments can't be
+read or one of them is still applying.
 
 ### After the script completes
 
@@ -201,7 +206,7 @@ If the preview succeeded, create the deployment from the preview in the
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| The preview succeeds, but the deployment apply fails with `Error 409` / `already exists` on `stream-security-events-topic`, `stream-security-function-sa` or another `stream-security-*` resource. Re-applying with `--import-existing-resources` fails with `found unsupported type for importing: google_pubsub_topic`. | Leftovers of an earlier integration. Previews don't check whether resources exist, and Infrastructure Manager can't import them. | Run `./setup-prerequisites.sh ... --check-leftovers` with the same mode flags, then delete what it lists (see [Leftover check](#leftover-check)) and re-apply the deployment. Resources the failed apply created itself are in its state and are left alone. |
+| The preview succeeds, but the deployment apply fails with `Error 409` / `already exists` on `stream-security-events-topic`, `stream-security-function-sa` or another `stream-security-*` resource. Re-applying with `--import-existing-resources` fails with `found unsupported type for importing: google_pubsub_topic`. | Leftovers of an earlier integration. Previews don't check whether resources exist, and Infrastructure Manager can't import them. | Run `./setup-prerequisites.sh ... --check-leftovers` with the same mode flags, then delete what it lists (see [Leftover check](#leftover-check)) and re-apply the deployment. Resources the failed apply created itself are in its state, so they aren't listed. |
 
 ---
 
@@ -269,7 +274,7 @@ Regional secrets are only served by the regional Secret Manager endpoint
 
 **Delete only some Terraform-managed resources** (what `setup-prerequisites.sh`'s
 [leftover check](#leftover-check) prints): `--only` takes a comma-separated list of
-`events-function`, `flowlogs-function`, `org-sink`, `project-sink`, `topic`,
+`events-function`, `org-sink`, `project-sink`, `topic`,
 `global-secret`, `regional-secret`, `function-sa` and `sa`, and leaves the
 Infrastructure Manager service account, its bindings and the custom roles alone.
 

@@ -56,21 +56,31 @@ if [[ -n "$verb" ]]; then
     echo "ERROR: (gcloud.$kind.$verb) NOT_FOUND: Resource '$name' was not found" >&2
     exit 1
   fi
-  [[ "$verb" == delete ]] && drop "$kind:$name"
+  if [[ "$verb" == delete ]]; then
+    if grep -qxF "$kind:$name" "$FAKE_DIR/fail-delete" 2>/dev/null; then
+      echo "ERROR: (gcloud.$kind.delete) FAILED_PRECONDITION: in use" >&2
+      exit 1
+    fi
+    drop "$kind:$name"
+  fi
+  if [[ "$kind" == *-sink && "$*" == *"value(destination)"* ]]; then
+    cat "$FAKE_DIR/sink-destination" 2>/dev/null || echo "pubsub.googleapis.com/projects/p1/topics/stream-security-events-topic"
+  fi
   exit 0
 fi
 
+# Rows of a tab-separated file whose first column is $2, without that column.
+rows_for() { [[ -f "$FAKE_DIR/$1" ]] && awk -F'\t' -v k="$2" '$1 == k' "$FAKE_DIR/$1" | cut -f2-; return 0; }
+
 case "$*" in
-  "infra-manager deployments describe "*)
-    if [[ -f "$FAKE_DIR/describe-error" ]]; then cat "$FAKE_DIR/describe-error" >&2; exit 1; fi
-    if [[ ! -f "$FAKE_DIR/deployment" ]]; then
-      echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource '$4' was not found." >&2
-      exit 1
-    fi
-    cat "$FAKE_DIR/deployment" ;;
-  # "<deployment>\t<location>" rows, as value(name.segment(-1),name.segment(3)) prints them
-  "infra-manager deployments list"*) [[ -f "$FAKE_DIR/deployments" ]] && cat "$FAKE_DIR/deployments" ;;
-  "infra-manager resources list"*) [[ -f "$FAKE_DIR/resources" ]] && cat "$FAKE_DIR/resources" ;;
+  # deployments: "<name>\t<location>\t<state>\t<latest revision id>", as our --format prints them
+  "infra-manager deployments list"*)
+    if [[ -f "$FAKE_DIR/list-error" ]]; then cat "$FAKE_DIR/list-error" >&2; exit 1; fi
+    [[ -f "$FAKE_DIR/deployments" ]] && cat "$FAKE_DIR/deployments" ;;
+  # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
+  "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
+  # revisions: "<deployment path>\t<revision id>", newest first
+  "infra-manager revisions list"*) rows_for revisions "$(flag deployment "$@")" ;;
   "infra-manager previews describe "*) [[ "$*" == *"value(state)"* ]] && echo SUCCEEDED ;;
   "auth print-access-token"*) echo fake-token ;;
   "projects get-iam-policy "*) roles_of project-iam "$@" ;;
