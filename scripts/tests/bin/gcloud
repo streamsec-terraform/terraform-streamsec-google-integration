@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Test double for gcloud. A resource exists while "<kind>:<name>" is a line of
+# $FAKE_DIR/existing; deleting it removes the line. Every call is appended to
+# $FAKE_DIR/gcloud.log. Unknown commands succeed silently.
+set -u
+
+log_line="gcloud $*"
+[[ -n "${CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER:-}" ]] &&
+  log_line+=" [endpoint=$CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER]"
+echo "$log_line" >>"$FAKE_DIR/gcloud.log"
+
+has() { grep -qxF "$1" "$FAKE_DIR/existing" 2>/dev/null; }
+drop() {
+  grep -vxF "$1" "$FAKE_DIR/existing" >"$FAKE_DIR/existing.new" || true
+  mv "$FAKE_DIR/existing.new" "$FAKE_DIR/existing"
+}
+flag() { # value of --name=VALUE, if given
+  local arg
+  for arg in "${@:2}"; do [[ "$arg" == "--$1="* ]] && echo "${arg#*=}"; done
+  return 0
+}
+# Roles bound to the --filter=bindings.members:<member> member, from a "<member>\t<role>" file.
+roles_of() {
+  local member
+  member=$(flag filter "${@:2}"); member=${member#bindings.members:}
+  [[ -f "$FAKE_DIR/$1" ]] && awk -F'\t' -v m="$member" '$1 == m { print $2 }' "$FAKE_DIR/$1"
+  return 0
+}
+
+kind="" name="" verb=""
+case "$*" in
+  "functions describe "* | "functions delete "*)
+    kind=function2; [[ " $* " == *" --no-gen2 "* ]] && kind=function1; name=$3; verb=$2 ;;
+  "logging sinks describe "* | "logging sinks delete "*)
+    kind=project-sink; [[ "$*" == *--organization=* ]] && kind=org-sink; name=$4; verb=$3 ;;
+  "pubsub topics describe "* | "pubsub topics delete "*)
+    kind=topic; name=$4; verb=$3 ;;
+  "secrets describe "* | "secrets delete "*)
+    kind=secret; name=$3; verb=$2
+    if [[ "$*" == *--location=* ]]; then
+      kind=regional-secret
+      # The real gcloud rejects regional calls sent to the global endpoint.
+      if [[ -z "${CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER:-}" ]]; then
+        echo "ERROR: (gcloud.secrets.$verb) INVALID_ARGUMENT: The provided Secret ID does not match the expected format [projects/*/secrets/*]" >&2
+        exit 1
+      fi
+    fi ;;
+  "iam service-accounts describe "* | "iam service-accounts delete "*)
+    kind=sa; name=$4; verb=$3 ;;
+  "iam roles describe "* | "iam roles delete "*)
+    kind=project-role; [[ "$*" == *--organization=* ]] && kind=org-role; name=$4; verb=$3 ;;
+esac
+
+if [[ -n "$verb" ]]; then
+  if ! has "$kind:$name"; then
+    echo "ERROR: (gcloud.$kind.$verb) NOT_FOUND: Resource '$name' was not found" >&2
+    exit 1
+  fi
+  [[ "$verb" == delete ]] && drop "$kind:$name"
+  exit 0
+fi
+
+case "$*" in
+  "infra-manager deployments describe "*)
+    if [[ -f "$FAKE_DIR/describe-error" ]]; then cat "$FAKE_DIR/describe-error" >&2; exit 1; fi
+    if [[ ! -f "$FAKE_DIR/deployment" ]]; then
+      echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource '$4' was not found." >&2
+      exit 1
+    fi
+    cat "$FAKE_DIR/deployment" ;;
+  # "<deployment>\t<location>" rows, as value(name.segment(-1),name.segment(3)) prints them
+  "infra-manager deployments list"*) [[ -f "$FAKE_DIR/deployments" ]] && cat "$FAKE_DIR/deployments" ;;
+  "infra-manager resources list"*) [[ -f "$FAKE_DIR/resources" ]] && cat "$FAKE_DIR/resources" ;;
+  "infra-manager previews describe "*) [[ "$*" == *"value(state)"* ]] && echo SUCCEEDED ;;
+  "auth print-access-token"*) echo fake-token ;;
+  "projects get-iam-policy "*) roles_of project-iam "$@" ;;
+  "organizations get-iam-policy "*) roles_of org-iam "$@" ;;
+  "iam service-accounts keys list "*)
+    sa=$(flag iam-account "$@")
+    [[ -f "$FAKE_DIR/keys" ]] && awk -F'\t' -v s="$sa" '$1 == s { print $2 }' "$FAKE_DIR/keys" ;;
+  "pubsub topics list-subscriptions "*) [[ -f "$FAKE_DIR/subscriptions" ]] && cat "$FAKE_DIR/subscriptions" ;;
+esac
+exit 0

@@ -18,6 +18,7 @@ at any time.
 | 3 | Creates a service account for Infrastructure Manager in the target project |
 | 4 | Grants both custom roles and `roles/config.agent` to the service account (organization level, or project level with `--project-only`) |
 | 5 | Creates the StreamSecurity credentials secret in Secret Manager |
+| | [Leftover check](#leftover-check): stops before the preview if an earlier integration left resources under the module's fixed names |
 | 6 | Uses the latest release tag (or `--git-ref`), creates an Infrastructure Manager preview deployment, and monitors it until completion |
 
 ### Modes
@@ -109,6 +110,8 @@ at any time.
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
+| `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check), read-only. Needs only `--project-id`, `--region` and the mode flags |
+| `--cleanup-leftovers` | `CLEANUP_LEFTOVERS=true` | — | Delete the leftovers the check finds, after a confirmation, then go on |
 | `--skip-permission-check` | `SKIP_PERMISSION_CHECK=true` | — | Skip upfront permission validation |
 | `-y`, `--yes` | `AUTO_CONFIRM=true` | — | Skip all confirmation prompts |
 
@@ -151,11 +154,54 @@ at any time.
     --project-only
 ```
 
+### Leftover check
+
+A project that had the integration before can keep some of its resources after a
+partial removal. The preview doesn't notice them, but the apply fails on them with
+409 "already exists", and Infrastructure Manager can't adopt them: re-applying with
+`--import-existing-resources` fails with `found unsupported type for importing:
+google_pubsub_topic`.
+
+So before step 6 the script looks for the resources the module creates under fixed
+names (the names are in [`lib/integration-resources.sh`](lib/integration-resources.sh)):
+
+- the Pub/Sub topic and the logging sink (organization-level in organization mode, project-level otherwise)
+- the events Cloud Function (2nd gen) and the flow logs Cloud Function (1st gen)
+- the function service account and the `stream-security` service account
+- the global collection-token secret and the regional secret
+
+A resource in the state of the Infrastructure Manager deployment of the same name
+(`--deployment-name`, in `--region`) belongs to it: re-running the script on an
+integrated project is not a leftover. Anything else that exists is printed with hints
+for judging whether it is safe to delete (subscriptions, IAM bindings, user-managed
+keys, triggers, the sink's destination). The script then stops before the preview and
+prints two ways forward:
+
+- run `cleanup-abandoned-deployment.sh` with the printed `--only` command, then re-run
+  this script (`--start-from-step 6` if steps 1-5 are done), or
+- re-run this script with `--cleanup-leftovers`: it deletes the same resources after a
+  confirmation (`--yes` skips it) and goes on to the preview.
+
+To check a project without changing anything:
+
+```bash
+./setup-prerequisites.sh --project-only --project-id my-gcp-project --region us-central1 --check-leftovers
+```
+
+It exits non-zero when it finds leftovers, or when the deployment can't be read or is
+still applying.
+
 ### After the script completes
 
 If the preview succeeded, create the deployment from the preview in the
 [GCP Console](https://console.cloud.google.com/infra-manager/deployments)
 (Infrastructure Manager → Previews → select the preview → Create Deployment).
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| The preview succeeds, but the deployment apply fails with `Error 409` / `already exists` on `stream-security-events-topic`, `stream-security-function-sa` or another `stream-security-*` resource. Re-applying with `--import-existing-resources` fails with `found unsupported type for importing: google_pubsub_topic`. | Leftovers of an earlier integration. Previews don't check whether resources exist, and Infrastructure Manager can't import them. | Run `./setup-prerequisites.sh ... --check-leftovers` with the same mode flags, then delete what it lists (see [Leftover check](#leftover-check)) and re-apply the deployment. Resources the failed apply created itself are in its state and are left alone. |
 
 ---
 
@@ -186,16 +232,14 @@ gcloud infra-manager deployments delete <DEPLOYMENT_NAME> \
 **Step 2: Run the cleanup script**
 
 The script auto-detects which resources exist and removes:
-- Terraform-managed resources (functions, sinks, topics, secrets, service accounts)
+- Terraform-managed resources (functions, sinks, topics, secrets including the regional
+  `stream-security` secret, service accounts)
 - Custom IAM roles created by `setup-prerequisites.sh`
 - IAM bindings for the Infrastructure Manager service account
 - The Infrastructure Manager service account itself
 
-**Step 3: Manually delete regional secret (gcloud CLI limitation)**
-
-> **Known Limitation:** The gcloud CLI cannot delete regional secrets. You must manually
-> delete the `stream-security` regional secret from the
-> [GCP Console → Secret Manager → Regional secrets](https://console.cloud.google.com/security/secret-manager).
+Regional secrets are only served by the regional Secret Manager endpoint
+(`secretmanager.<region>.rep.googleapis.com`), which the script uses for them.
 
 ---
 
@@ -223,5 +267,29 @@ The script auto-detects which resources exist and removes:
 > resources are removed. The script auto-detects which resources exist before attempting
 > deletion.
 
+**Delete only some Terraform-managed resources** (what `setup-prerequisites.sh`'s
+[leftover check](#leftover-check) prints): `--only` takes a comma-separated list of
+`events-function`, `flowlogs-function`, `org-sink`, `project-sink`, `topic`,
+`global-secret`, `regional-secret`, `function-sa` and `sa`, and leaves the
+Infrastructure Manager service account, its bindings and the custom roles alone.
+
+```bash
+./cleanup-abandoned-deployment.sh \
+    --project-id my-gcp-project \
+    --region us-central1 \
+    --only topic,function-sa
+```
+
 Run with `--help` for the full list of optional overrides (resource names, `-y` for
 non-interactive mode, etc.).
+
+---
+
+## Tests
+
+`tests/` runs both scripts against a fake `gcloud` and `curl` (`tests/bin`), with
+[bats](https://github.com/bats-core/bats-core). From the repository root:
+
+```bash
+docker run --rm -v "$PWD/scripts:/code" bats/bats:1.11.1 /code/tests
+```

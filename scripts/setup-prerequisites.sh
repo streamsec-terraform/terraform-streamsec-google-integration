@@ -20,6 +20,11 @@
 #   6. Creates an Infrastructure Manager preview deployment and waits for
 #      it to complete.
 #
+# Before step 6 it stops if an earlier, partly removed integration left
+# resources under the module's fixed names: the preview can't see them, but the
+# apply fails on them with 409 and Infrastructure Manager can't import them.
+# --check-leftovers runs only that check; --cleanup-leftovers deletes them.
+#
 # Modes:
 #   Multi-project (default):
 #     - org_level_sink=true (single org-level logging sink)
@@ -116,7 +121,9 @@ set -euo pipefail
 # Temp files for API responses; removed on any exit.
 TMP_TEST_IAM=$(mktemp)
 TMP_PREVIEW_RESP=$(mktemp)
-trap 'rm -f "$TMP_TEST_IAM" "$TMP_PREVIEW_RESP"' EXIT
+TMP_OWNED=$(mktemp)
+TMP_GCLOUD_ERR=$(mktemp)
+trap 'rm -f "$TMP_TEST_IAM" "$TMP_PREVIEW_RESP" "$TMP_OWNED" "$TMP_GCLOUD_ERR"' EXIT
 
 ###############################################################################
 # Colours / helpers
@@ -173,6 +180,15 @@ else
   _timeout() { shift; "$@"; }
 fi
 
+# The resources the module creates under fixed names, for the leftover check.
+IR_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/integration-resources.sh"
+IR_LIB_LOADED=false
+if [[ -f "$IR_LIB" ]]; then
+  # shellcheck source=lib/integration-resources.sh
+  source "$IR_LIB"
+  IR_LIB_LOADED=true
+fi
+
 ###############################################################################
 # Defaults (overridable via env vars)
 ###############################################################################
@@ -200,6 +216,8 @@ GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (a tag, or a slash-f
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
+CHECK_LEFTOVERS="${CHECK_LEFTOVERS:-false}"
+CLEANUP_LEFTOVERS="${CLEANUP_LEFTOVERS:-false}"
 HAS_POLICY_SET=false
 SKIP_PERMISSION_CHECK="${SKIP_PERMISSION_CHECK:-false}"
 
@@ -243,7 +261,13 @@ Infrastructure Manager options:
                           --org-id becomes optional; project Owner is sufficient)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
-  -h, --help                  Show this help message and exit
+Leftovers of an earlier integration (checked before step 6):
+  --check-leftovers       Run only the check, read-only. Needs only --project-id,
+                          --region and the mode flags (--org-id unless --project-only)
+  --cleanup-leftovers     Delete the leftovers the check finds, after a confirmation,
+                          then go on
+
+  -h, --help                 Show this help message and exit
   -y, --yes                   Skip confirmation prompts
   --skip-permission-check     Skip permission validation (not recommended)
 
@@ -273,6 +297,8 @@ while [[ $# -gt 0 ]]; do
     --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
     --project-only)         ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; PROJECT_ONLY=true; shift ;;
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
+    --check-leftovers)      CHECK_LEFTOVERS=true;       shift   ;;
+    --cleanup-leftovers)    CLEANUP_LEFTOVERS=true;     shift   ;;
     -y|--yes)               AUTO_CONFIRM=true;          shift   ;;
     -h|--help)              usage ;;
     *) log_error "Unknown option: $1"; usage ;;
@@ -295,9 +321,11 @@ missing=()
 [[ -z "$PROJECT_ID" ]]      && missing+=("--project-id")
 [[ -z "$ORGANIZATION_ID" && "$PROJECT_ONLY" != true ]] && missing+=("--org-id")
 [[ -z "$REGION" ]]          && missing+=("--region")
-[[ -z "$STREAMSEC_HOST" ]]  && missing+=("--streamsec-host")
-[[ -z "$WORKSPACE_ID" ]]    && missing+=("--workspace-id")
-[[ -z "$API_TOKEN" ]]       && missing+=("--api-token")
+if [[ "$CHECK_LEFTOVERS" != true ]]; then
+  [[ -z "$STREAMSEC_HOST" ]]  && missing+=("--streamsec-host")
+  [[ -z "$WORKSPACE_ID" ]]    && missing+=("--workspace-id")
+  [[ -z "$API_TOKEN" ]]       && missing+=("--api-token")
+fi
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   log_error "Missing required parameters: ${missing[*]}"
@@ -322,6 +350,174 @@ if [[ "$START_FROM_STEP" -gt 1 ]]; then
   log_warn "Starting from step $START_FROM_STEP - skipping earlier steps"
   log_warn "Make sure the skipped steps were completed successfully!"
   echo ""
+fi
+
+if [[ "$IR_LIB_LOADED" != true && ( "$CHECK_LEFTOVERS" == true || "$CLEANUP_LEFTOVERS" == true ) ]]; then
+  log_error "$IR_LIB not found. Run this script from a clone of the repository."
+  exit 1
+fi
+
+###############################################################################
+# Leftover check — resources an earlier, partly removed integration left under
+# the module's fixed names. The preview doesn't see them; the apply fails on
+# them with 409, and Infrastructure Manager can't import a Pub/Sub topic.
+###############################################################################
+LEFTOVER_KINDS=()
+DEPLOYMENT_REVISION=""
+
+# Writes "<type>\t<id>" of each resource in the state of the deployment's latest
+# revision to $TMP_OWNED; nothing when there is no deployment. Rows a failed
+# apply couldn't create have no id.
+read_deployment_state() {
+  local info rc=0 revision state
+  : >"$TMP_OWNED"
+  info=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" --project="$PROJECT_ID" \
+    --location="$REGION" --format="value(latestRevision,state)" 2>"$TMP_GCLOUD_ERR") || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    grep -q NOT_FOUND "$TMP_GCLOUD_ERR" && return 0
+    cat "$TMP_GCLOUD_ERR"
+    return 1
+  fi
+  IFS=$'\t' read -r revision state <<<"$info"
+  case "$state" in
+    CREATING|UPDATING|DELETING)
+      log_error "Deployment '$DEPLOYMENT_NAME' is $state. Re-run when it has finished."
+      return 1 ;;
+  esac
+  DEPLOYMENT_REVISION="$revision"
+  if [[ -z "$revision" ]]; then
+    return 0
+  fi
+  gcloud infra-manager resources list --revision="$revision" \
+    --format="value(terraformInfo.type,terraformInfo.id,intent,state)" \
+    | awk -F'\t' '$2 != "" && !($3 == "DELETE" && $4 == "RECONCILED") { print $1 "\t" $2 }' >"$TMP_OWNED"
+}
+
+# Prints a table of the module's fixed-name resources and fills LEFTOVER_KINDS
+# (in deletion order). Returns 1 if there are leftovers, 2 if ownership is unknown.
+check_leftovers() {
+  local kind label exists owned hints row width=8
+  local rows
+  rows=()
+  LEFTOVER_KINDS=()
+  if ! read_deployment_state; then
+    log_error "Could not read Infrastructure Manager deployment '$DEPLOYMENT_NAME' in $REGION, so its own resources can't be told apart from leftovers."
+    return 2
+  fi
+  if [[ -n "$DEPLOYMENT_REVISION" ]]; then
+    log_info "OWNED = in the state of deployment '$DEPLOYMENT_NAME' (revision ${DEPLOYMENT_REVISION##*/})."
+  else
+    log_info "There is no deployment '$DEPLOYMENT_NAME' in $REGION, so nothing that exists is owned."
+  fi
+
+  for kind in "${IR_KINDS[@]}"; do
+    # The module creates either the org sink or the project sink.
+    if [[ "$kind" == org-sink && "$ORG_LEVEL_SINK" != true ]] || [[ "$kind" == project-sink && "$ORG_LEVEL_SINK" == true ]]; then
+      continue
+    fi
+    label=$(ir_label "$kind")
+    if [[ ${#label} -gt $width ]]; then width=${#label}; fi
+    exists=no owned=- hints=""
+    if ir_exists "$kind"; then
+      exists=yes owned=yes
+      if ! grep -qxF "$(ir_state_id "$kind")" "$TMP_OWNED"; then
+        owned=no
+        hints=$(ir_hints "$kind")
+        LEFTOVER_KINDS+=("$kind")
+      fi
+    fi
+    rows+=("$label"$'\t'"$exists"$'\t'"$owned"$'\t'"$hints")
+  done
+
+  echo ""
+  printf "  %-${width}s  %-6s  %-5s  %s\n" RESOURCE EXISTS OWNED HINTS
+  for row in "${rows[@]}"; do
+    IFS=$'\t' read -r label exists owned hints <<<"$row"
+    printf "  %-${width}s  %-6s  %-5s  %s\n" "$label" "$exists" "$owned" "$hints"
+  done
+  echo ""
+  if [[ ${#LEFTOVER_KINDS[@]} -gt 0 ]]; then
+    return 1
+  fi
+}
+
+delete_leftovers() {
+  local kind failed=0
+  for kind in "${LEFTOVER_KINDS[@]}"; do
+    log_info "Deleting $(ir_label "$kind") ..."
+    if ir_delete "$kind"; then
+      log_ok "✓ Deleted $(ir_label "$kind")"
+    else
+      log_error "✗ Could not delete $(ir_label "$kind")"
+      failed=1
+    fi
+  done
+  if [[ $failed -ne 0 ]]; then
+    log_error "Delete the rest by hand, then re-run this script."
+    return 1
+  fi
+}
+
+# Returns non-zero, after saying why, when the apply would fail on leftovers.
+run_leftover_check() {
+  local rc=0 response kinds cmd others
+  log_step "Checking for resources left over from an earlier integration..."
+  if [[ "$IR_LIB_LOADED" != true ]]; then
+    log_warn "Skipping the check: $IR_LIB not found. Run this script from a clone of the repository."
+    return 0
+  fi
+  check_leftovers || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    log_ok "No leftovers from an earlier integration."
+    return 0
+  elif [[ $rc -eq 2 ]]; then
+    return 1
+  fi
+
+  log_warn "${#LEFTOVER_KINDS[@]} resource(s) above exist outside deployment '$DEPLOYMENT_NAME', left over from an earlier integration."
+  echo "  The apply would fail on them with 409 \"already exists\", and Infrastructure Manager can't adopt"
+  echo "  them (--import-existing-resources fails with \"found unsupported type for importing\")."
+  others=$(gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- \
+    --format="value(name.segment(-1),name.segment(3))" 2>/dev/null \
+    | awk -F'\t' -v d="$DEPLOYMENT_NAME" -v r="$REGION" '!($1 == d && $2 == r) { print "    " $1 " (" $2 ")" }' || true)
+  if [[ -n "$others" ]]; then
+    log_warn "Other Infrastructure Manager deployments in '$PROJECT_ID'. Make sure none of them uses these resources:"
+    echo "$others"
+  fi
+  echo ""
+
+  if [[ "$CLEANUP_LEFTOVERS" == true ]]; then
+    if [[ "$AUTO_CONFIRM" != true ]]; then
+      read -r -p "Delete the ${#LEFTOVER_KINDS[@]} leftover resource(s) above? [y/N] " response
+      case "$response" in
+        [yY][eE][sS]|[yY]) ;;
+        *) log_warn "Aborted."; return 1 ;;
+      esac
+    fi
+    delete_leftovers
+    return
+  fi
+
+  kinds=$(IFS=,; echo "${LEFTOVER_KINDS[*]}")
+  cmd="$(dirname "$0")/cleanup-abandoned-deployment.sh --project-id $PROJECT_ID --region $REGION"
+  if [[ ",$kinds," == *",org-sink,"* ]]; then
+    cmd+=" --org-id $ORGANIZATION_ID"
+  fi
+  cmd+=" --only $kinds"
+  echo "Two ways forward:"
+  echo "  a) Delete them with the cleanup script, then re-run this script (with --start-from-step 6 if steps 1-5 are done):"
+  echo "       $cmd"
+  echo "  b) Re-run this script with --cleanup-leftovers: it deletes the same resources after a confirmation"
+  echo "     (--yes skips it)."
+  echo ""
+  return 1
+}
+
+if [[ "$CHECK_LEFTOVERS" == true ]]; then
+  if run_leftover_check; then
+    exit 0
+  fi
+  exit 1
 fi
 
 ###############################################################################
@@ -1109,6 +1305,11 @@ fi
 else
   log_info "Skipping Step 5: Create Secret Manager secret"
 fi
+
+###############################################################################
+# Leftover check (the preview would succeed anyway; the apply would not)
+###############################################################################
+run_leftover_check || exit 1
 
 ###############################################################################
 # Step 6 — Create Infrastructure Manager Preview
