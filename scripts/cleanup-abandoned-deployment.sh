@@ -49,9 +49,13 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step()    { echo -e "\n${CYAN}==>${NC} $*"; }
 
-IR_LIB="$(dirname "${BASH_SOURCE[0]:-}")/lib/integration-resources.sh"
-if [[ ! -f "$IR_LIB" ]]; then
-  log_error "$IR_LIB not found. Run this script from a clone of the repository."
+# Piped in, there is no script directory: never fall back to the current one.
+IR_LIB=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  IR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/integration-resources.sh"
+fi
+if [[ -z "$IR_LIB" || ! -f "$IR_LIB" ]]; then
+  log_error "lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
   exit 1
 fi
 # Resource names (SA_ACCOUNT_ID, PUBSUB_TOPIC, ...) and how to check and delete each.
@@ -119,7 +123,7 @@ while [[ $# -gt 0 ]]; do
     --sa-account-id)      SA_ACCOUNT_ID="$2";           shift 2 ;;
     --function-sa-id)     FUNCTION_SA_ACCOUNT_ID="$2";  shift 2 ;;
     --function-name)      FUNCTION_NAME="$2";           shift 2 ;;
-    --only)               ONLY_KINDS="$2"; ONLY_GIVEN=true; shift 2 ;;
+    --only)               ONLY_KINDS="${2// /}"; ONLY_GIVEN=true; shift 2 ;;
     --pubsub-topic)       PUBSUB_TOPIC="$2";            shift 2 ;;
     --logging-sink)       LOGGING_SINK="$2";            shift 2 ;;
     --regional-secret)    REGIONAL_SECRET="$2";         shift 2 ;;
@@ -144,6 +148,12 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   log_error "Missing required parameters: ${missing[*]}"
   echo ""
   usage
+fi
+
+# REGION ends up in an API endpoint's host name.
+if [[ ! "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]]; then
+  log_error "Invalid --region '$REGION' (expected e.g. us-central1)."
+  exit 1
 fi
 
 if [[ "$ONLY_GIVEN" == true ]]; then
@@ -205,13 +215,18 @@ for kind in "${IR_KINDS[@]}"; do
     continue
   fi
   label=$(ir_label "$kind")
-  if ir_exists "$kind"; then
+  exists_rc=0
+  ir_exists "$kind" || exists_rc=$?
+  if [[ $exists_rc -eq 0 ]]; then
     FOUND_KINDS+=("$kind")
     FOUND_RESOURCES+=("$label")
     log_info "Found: $label"
-  else
+  elif [[ $exists_rc -eq 1 ]]; then
     NOT_FOUND_RESOURCES+=("$label")
     log_warn "Not found: $label (skipping)"
+  else
+    NOT_FOUND_RESOURCES+=("$label (could not check)")
+    log_warn "Could not check: $label (skipping)"
   fi
 done
 

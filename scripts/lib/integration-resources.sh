@@ -42,7 +42,7 @@ ir_label() {
   esac
 }
 
-ir_exists() {
+ir_describe() {
   case "$1" in
     events-function)   gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 ;;
     org-sink)          gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" ;;
@@ -52,7 +52,18 @@ ir_exists() {
     regional-secret)   ir_regional_secrets describe "$REGIONAL_SECRET" ;;
     function-sa)       gcloud iam service-accounts describe "$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" --project="$PROJECT_ID" ;;
     sa)                gcloud iam service-accounts describe "$(ir_sa_email "$SA_ACCOUNT_ID")" --project="$PROJECT_ID" ;;
-  esac &>/dev/null
+  esac
+}
+
+# 0 = exists, 1 = doesn't (or its API is off), 2 = couldn't tell (the error goes to stderr).
+ir_exists() {
+  local err
+  err=$(ir_describe "$1" 2>&1 >/dev/null) && return 0
+  case "$err" in
+    *NOT_FOUND* | *"not found"* | *"does not exist"* | *"status=[404]"* | *SERVICE_DISABLED* | *"has not been used"*) return 1 ;;
+  esac
+  echo "$err" >&2
+  return 2
 }
 
 ir_delete() {
@@ -125,6 +136,43 @@ ir_hints() {
           --filter="bindings.members:serviceAccount:$email" --format='value(bindings.role)') org roles"
       fi
       echo "$value" ;;
+  esac
+}
+
+# Why the resource looks in use (subscriptions, keys, accessors), or nothing.
+ir_in_use() {
+  local n
+  case "$1" in
+    topic)
+      n=$(ir_count gcloud pubsub topics list-subscriptions "$PUBSUB_TOPIC" --project="$PROJECT_ID" --format='value(.)')
+      [[ "$n" == 0 ]] || echo "subscriptions: $n" ;;
+    function-sa | sa)
+      if [[ "$1" == sa ]]; then
+        n=$(ir_count gcloud iam service-accounts keys list --iam-account="$(ir_sa_email "$SA_ACCOUNT_ID")" \
+          --managed-by=user --project="$PROJECT_ID" --format='value(name)')
+      else
+        n=$(ir_count gcloud iam service-accounts keys list --iam-account="$(ir_sa_email "$FUNCTION_SA_ACCOUNT_ID")" \
+          --managed-by=user --project="$PROJECT_ID" --format='value(name)')
+      fi
+      [[ "$n" == 0 ]] || echo "user-managed keys: $n" ;;
+    regional-secret)
+      n=$(ir_count ir_regional_secrets get-iam-policy "$REGIONAL_SECRET" \
+        --flatten='bindings[].members' --format='value(bindings.role)')
+      [[ "$n" == 0 ]] || echo "IAM bindings: $n" ;;
+  esac
+  return 0
+}
+
+# The cleanup-abandoned-deployment.sh flag that names the resource.
+ir_name_flag() {
+  case "$1" in
+    events-function)        echo "--function-name $FUNCTION_NAME" ;;
+    org-sink | project-sink) echo "--logging-sink $LOGGING_SINK" ;;
+    topic)                  echo "--pubsub-topic $PUBSUB_TOPIC" ;;
+    global-secret)          echo "--global-secret $GLOBAL_SECRET" ;;
+    regional-secret)        echo "--regional-secret $REGIONAL_SECRET" ;;
+    function-sa)            echo "--function-sa-id $FUNCTION_SA_ACCOUNT_ID" ;;
+    sa)                     echo "--sa-account-id $SA_ACCOUNT_ID" ;;
   esac
 }
 

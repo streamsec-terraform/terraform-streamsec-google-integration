@@ -17,7 +17,7 @@ exist() { printf '%s\n' "$@" >>"$FAKE_DIR/existing"; }
 # whose latest revision, r-1, lists ROWs of "<terraform type>\t<id>\t<intent>\t<state>".
 deployment() {
   local path="projects/p1/locations/us-central1/deployments/$1" row
-  printf '%s\tus-central1\t%s\tr-1\n' "$1" "$2" >>"$FAKE_DIR/deployments"
+  printf '%s,us-central1,%s,r-1\n' "$1" "$2" >>"$FAKE_DIR/deployments"
   printf '%s\tr-1\n' "$path" >>"$FAKE_DIR/revisions"
   for row in "${@:3}"; do printf '%s/revisions/r-1\t%s\n' "$path" "$row" >>"$FAKE_DIR/resources"; done
 }

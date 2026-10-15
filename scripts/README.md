@@ -111,7 +111,8 @@ at any time.
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
 | `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check): read-only, unless with `--cleanup-leftovers`. Needs only `--project-id`, `--region`, the mode flags and `--org-id` (unless `--project-only`) |
-| `--cleanup-leftovers` | `CLEANUP_LEFTOVERS=true` | — | Delete the leftovers the check finds, after a confirmation, then go on |
+| `--cleanup-leftovers` | — | — | Delete the leftovers the check finds, after a confirmation, then go on |
+| `--skip-leftover-check` | — | — | Don't run the leftover check |
 | `--skip-permission-check` | `SKIP_PERMISSION_CHECK=true` | — | Skip upfront permission validation |
 | `-y`, `--yes` | `AUTO_CONFIRM=true` | — | Skip all confirmation prompts |
 
@@ -181,11 +182,16 @@ stops before the preview with two ways forward:
 - run `cleanup-abandoned-deployment.sh` with the printed `--only` command, then re-run
   this script (`--start-from-step 6` if steps 1-5 are done), or
 - re-run this script with `--cleanup-leftovers`: it deletes the same resources after a
-  confirmation (`--yes` skips it; an organization-level sink takes typing
-  `DELETE-ORG-RESOURCES`) and goes on to the preview.
+  confirmation and goes on to the preview. An organization-level sink takes typing
+  `DELETE-ORG-RESOURCES`. `--yes` skips the confirmation, except for resources that
+  look in use (a topic with subscriptions, a service account with user-managed keys, a
+  secret with IAM bindings).
 
-A leftover sink that writes to another project is never deleted: it may serve a live
-integration there. The script prints the command to delete it by hand.
+These resources are only leftovers if nothing else manages them: a project integrated
+with plain Terraform, or by a deployment in another project, shows the same table.
+Check the hints before deleting. A leftover sink that writes to another project is
+never deleted (it may serve a live integration there); the script prints the command
+to delete it by hand.
 
 To check a project without changing anything:
 
@@ -193,8 +199,10 @@ To check a project without changing anything:
 ./setup-prerequisites.sh --project-only --project-id my-gcp-project --region us-central1 --check-leftovers
 ```
 
-It exits non-zero when it finds leftovers, or when the project's deployments can't be
-read or one of them is still applying.
+It exits non-zero when it finds leftovers, when it can't tell whether a resource
+exists, or when the project's deployments can't be read or one of them is still
+applying. `--skip-leftover-check` skips the check, e.g. while an unrelated deployment
+is stuck.
 
 ### After the script completes
 

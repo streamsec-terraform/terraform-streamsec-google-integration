@@ -181,9 +181,13 @@ else
 fi
 
 # The resources the module creates under fixed names, for the leftover check.
-IR_LIB="$(dirname "${BASH_SOURCE[0]:-}")/lib/integration-resources.sh"
+# Piped in, there is no script directory: never fall back to the current one.
+IR_LIB=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  IR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/integration-resources.sh"
+fi
 IR_LIB_LOADED=false
-if [[ -f "$IR_LIB" ]]; then
+if [[ -n "$IR_LIB" && -f "$IR_LIB" ]]; then
   # The apply always uses the module's names, so the environment mustn't change them here.
   unset SA_ACCOUNT_ID FUNCTION_SA_ACCOUNT_ID FUNCTION_NAME PUBSUB_TOPIC LOGGING_SINK REGIONAL_SECRET GLOBAL_SECRET
   # shellcheck source=lib/integration-resources.sh
@@ -219,7 +223,8 @@ ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
 CHECK_LEFTOVERS="${CHECK_LEFTOVERS:-false}"
-CLEANUP_LEFTOVERS="${CLEANUP_LEFTOVERS:-false}"
+CLEANUP_LEFTOVERS=false   # deletes, so only the flag turns it on
+SKIP_LEFTOVER_CHECK=false
 HAS_POLICY_SET=false
 SKIP_PERMISSION_CHECK="${SKIP_PERMISSION_CHECK:-false}"
 
@@ -269,6 +274,7 @@ Leftovers of an earlier integration (checked before step 6):
                           (unless --project-only)
   --cleanup-leftovers     Delete the leftovers the check finds, after a confirmation,
                           then go on
+  --skip-leftover-check   Don't run the check (e.g. while an unrelated deployment is stuck)
 
   -h, --help                  Show this help message and exit
   -y, --yes                   Skip confirmation prompts
@@ -302,6 +308,7 @@ while [[ $# -gt 0 ]]; do
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
     --check-leftovers)      CHECK_LEFTOVERS=true;       shift   ;;
     --cleanup-leftovers)    CLEANUP_LEFTOVERS=true;     shift   ;;
+    --skip-leftover-check)  SKIP_LEFTOVER_CHECK=true;   shift   ;;
     -y|--yes)               AUTO_CONFIRM=true;          shift   ;;
     -h|--help)              usage ;;
     *) log_error "Unknown option: $1"; usage ;;
@@ -343,6 +350,12 @@ if [[ -n "$GIT_REF" && "$GIT_REF" == */* ]]; then
   exit 1
 fi
 
+# REGION ends up in an API endpoint's host name.
+if [[ ! "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]]; then
+  log_error "Invalid --region '$REGION' (expected e.g. us-central1)."
+  exit 1
+fi
+
 # Validate START_FROM_STEP
 if [[ ! "$START_FROM_STEP" =~ ^[1-6]$ ]]; then
   log_error "Invalid --start-from-step value: $START_FROM_STEP (must be 1-6)"
@@ -356,7 +369,7 @@ if [[ "$START_FROM_STEP" -gt 1 ]]; then
 fi
 
 if [[ "$IR_LIB_LOADED" != true && ( "$CHECK_LEFTOVERS" == true || "$CLEANUP_LEFTOVERS" == true ) ]]; then
-  log_error "$IR_LIB not found. Run this script from a clone of the repository."
+  log_error "lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
   exit 1
 fi
 
@@ -366,6 +379,7 @@ fi
 LEFTOVER_KINDS=()   # deletable leftovers, in deletion order
 BLOCKED=()          # leftovers this script won't delete
 NOT_OURS=()         # resources owned by a deployment other than $DEPLOYMENT_NAME
+IN_USE=()           # leftovers that look in use: --yes alone won't delete them
 
 # Prints the state rows ("<type>\t<id>\t<intent>\t<state>") of the newest revision of
 # deployment $1, from $2 back, that lists any: one that failed before planning lists none.
@@ -391,19 +405,23 @@ revision_rows() {
 # every Infrastructure Manager deployment in the project to $TMP_OWNED. Any of them
 # may be the integration: the user names the deployment in the Console.
 read_owned_state() {
-  local deployments name location state latest rows
+  local deployments name location state latest rows list_format
+  list_format="csv[no-heading](name.segment(-1),name.segment(3),state,latestRevision)"
   : >"$TMP_OWNED"
-  if ! deployments=$(gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- \
-      --format="value(name.segment(-1),name.segment(3),state,latestRevision)" 2>"$TMP_GCLOUD_ERR"); then
+  # --location=- skips unreachable locations without an error, so $REGION is also listed on its own.
+  if ! deployments=$( { gcloud infra-manager deployments list --project="$PROJECT_ID" --location=- --format="$list_format" &&
+      gcloud infra-manager deployments list --project="$PROJECT_ID" --location="$REGION" --format="$list_format"; } \
+      2>"$TMP_GCLOUD_ERR" | sort -u); then
     cat "$TMP_GCLOUD_ERR"
     return 1
   fi
-  while IFS=$'\t' read -r name location state latest; do
+  while IFS=, read -r name location state latest; do
     [[ -n "$name" ]] || continue
     case "$state" in
       CREATING|UPDATING|DELETING)
         log_error "Deployment '$name' ($location) is $state. Re-run when it has finished."
         return 1 ;;
+      DELETED) continue ;;
     esac
     [[ -n "$latest" ]] || continue
     if ! rows=$(revision_rows "projects/$PROJECT_ID/locations/$location/deployments/$name" "${latest##*/}" 2>"$TMP_GCLOUD_ERR"); then
@@ -426,14 +444,16 @@ owner_of() {
 
 # Prints a table of the fixed-name resources the apply creates, and sorts the ones no
 # deployment owns into LEFTOVER_KINDS and BLOCKED. Returns 1 if there are any, 2 if
-# ownership can't be read.
+# ownership or existence can't be read.
 check_leftovers() {
-  local kind label exists owner hints destination row width=8 owner_width=8
-  local rows
+  local kind label exists exists_rc owner hints destination reason row width=8 owner_width=8
+  local rows unknown
   rows=()
+  unknown=()
   LEFTOVER_KINDS=()
   BLOCKED=()
   NOT_OURS=()
+  IN_USE=()
   if ! read_owned_state; then
     log_error "Could not read the Infrastructure Manager deployments in '$PROJECT_ID', so their resources can't be told apart from leftovers."
     return 2
@@ -447,9 +467,14 @@ check_leftovers() {
     esac
     label=$(ir_label "$kind")
     exists=no owner=- hints=""
-    if ir_exists "$kind"; then
+    exists_rc=0
+    ir_exists "$kind" || exists_rc=$?
+    if [[ $exists_rc -eq 2 ]]; then
+      exists="?"
+      unknown+=("$label")
+    elif [[ $exists_rc -eq 0 ]]; then
       exists=yes
-      owner=$(owner_of "$kind")
+      owner=$(owner_of "$kind") || return 2
       if [[ -n "$owner" ]]; then
         if [[ "$owner" != "$DEPLOYMENT_NAME ($REGION)" ]]; then
           NOT_OURS+=("$label: $owner")
@@ -466,6 +491,8 @@ check_leftovers() {
           BLOCKED+=("$label writes to $destination")
         else
           LEFTOVER_KINDS+=("$kind")
+          reason=$(ir_in_use "$kind")
+          if [[ -n "$reason" ]]; then IN_USE+=("$label ($reason)"); fi
         fi
       fi
     fi
@@ -481,6 +508,11 @@ check_leftovers() {
     printf "  %-${width}s  %-6s  %-${owner_width}s  %s\n" "$label" "$exists" "$owner" "$hints"
   done
   echo ""
+  if [[ ${#unknown[@]} -gt 0 ]]; then
+    log_error "Could not tell whether these exist (see the errors above):"
+    printf '    %s\n' "${unknown[@]}"
+    return 2
+  fi
   if [[ ${#LEFTOVER_KINDS[@]} -gt 0 || ${#BLOCKED[@]} -gt 0 ]]; then
     return 1
   fi
@@ -505,10 +537,14 @@ delete_leftovers() {
 
 # Returns non-zero, after saying why, when the apply would fail on leftovers.
 run_leftover_check() {
-  local rc=0 response kinds cmd sink_scope
+  local rc=0 response kind kinds cmd sink_scope
   log_step "Checking for resources left over from an earlier integration..."
+  if [[ "$SKIP_LEFTOVER_CHECK" == true ]]; then
+    log_warn "Skipping the check (--skip-leftover-check)."
+    return 0
+  fi
   if [[ "$IR_LIB_LOADED" != true ]]; then
-    log_warn "Skipping the check: $IR_LIB not found. Run this script from a clone of the repository."
+    log_warn "Skipping the check: lib/integration-resources.sh not found next to this script. Run it from a clone of the repository."
     return 0
   fi
   check_leftovers || rc=$?
@@ -526,10 +562,11 @@ run_leftover_check() {
     return 1
   fi
 
-  log_warn "No Infrastructure Manager deployment in '$PROJECT_ID' owns the resources marked 'no' above:"
-  echo "  they are left over from an earlier integration. The apply would fail on them with 409"
-  echo "  \"already exists\", and Infrastructure Manager can't adopt them (--import-existing-resources"
-  echo "  fails with \"found unsupported type for importing\")."
+  log_warn "No Infrastructure Manager deployment in '$PROJECT_ID' manages the resources marked 'no' above."
+  echo "  They are left over from an earlier integration, unless this project is integrated some other"
+  echo "  way (plain Terraform, or a deployment in another project): check the hints before deleting."
+  echo "  The apply would fail on them with 409 \"already exists\", and Infrastructure Manager can't"
+  echo "  adopt them (--import-existing-resources fails with \"found unsupported type for importing\")."
   echo ""
   if [[ ${#BLOCKED[@]} -gt 0 ]]; then
     sink_scope="--project=$PROJECT_ID"
@@ -542,22 +579,30 @@ run_leftover_check() {
   if [[ ${#LEFTOVER_KINDS[@]} -eq 0 ]]; then
     return 1
   fi
+  if [[ ${#IN_USE[@]} -gt 0 ]]; then
+    log_warn "These look in use:"
+    printf '    %s\n' "${IN_USE[@]}"
+    echo ""
+  fi
 
   if [[ "$CLEANUP_LEFTOVERS" == true ]]; then
-    if [[ "$AUTO_CONFIRM" != true ]]; then
-      if [[ " ${LEFTOVER_KINDS[*]} " == *" org-sink "* ]]; then
-        read -r -p "This deletes an organization-level sink. Type 'DELETE-ORG-RESOURCES' to confirm: " response
-        if [[ "$response" != DELETE-ORG-RESOURCES ]]; then
-          log_warn "Aborted."
-          return 1
-        fi
-      else
-        read -r -p "Delete the ${#LEFTOVER_KINDS[@]} leftover resource(s) above? [y/N] " response
-        case "$response" in
-          [yY][eE][sS]|[yY]) ;;
-          *) log_warn "Aborted."; return 1 ;;
-        esac
+    if [[ "$AUTO_CONFIRM" == true ]]; then
+      if [[ ${#IN_USE[@]} -gt 0 ]]; then
+        log_error "--yes doesn't delete resources that look in use. Re-run without --yes to confirm, or delete them with cleanup-abandoned-deployment.sh."
+        return 1
       fi
+    elif [[ " ${LEFTOVER_KINDS[*]} " == *" org-sink "* ]]; then
+      read -r -p "This deletes an organization-level sink. Type 'DELETE-ORG-RESOURCES' to confirm: " response
+      if [[ "$response" != DELETE-ORG-RESOURCES ]]; then
+        log_warn "Aborted."
+        return 1
+      fi
+    else
+      read -r -p "Delete the ${#LEFTOVER_KINDS[@]} leftover resource(s) above? [y/N] " response
+      case "$response" in
+        [yY][eE][sS]|[yY]) ;;
+        *) log_warn "Aborted."; return 1 ;;
+      esac
     fi
     delete_leftovers || return 1
     [[ ${#BLOCKED[@]} -eq 0 ]]
@@ -570,11 +615,14 @@ run_leftover_check() {
     cmd+=" --org-id $ORGANIZATION_ID"
   fi
   cmd+=" --only $kinds"
+  for kind in "${LEFTOVER_KINDS[@]}"; do
+    cmd+=" $(ir_name_flag "$kind")"
+  done
   echo "Two ways forward:"
   echo "  a) Delete them with the cleanup script, then re-run this script (with --start-from-step 6 if steps 1-5 are done):"
   echo "       $cmd"
   echo "  b) Re-run this script with --cleanup-leftovers: it deletes the same resources after a confirmation"
-  echo "     (--yes skips it)."
+  echo "     (--yes skips it, but not for resources that look in use)."
   echo ""
   return 1
 }

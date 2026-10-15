@@ -78,3 +78,18 @@ setup() { setup_fakes; }
   [ "$status" -ne 0 ]
   refute_called ' delete '
 }
+
+@test "--only tolerates spaces after the commas" {
+  exist topic:stream-security-events-topic "sa:$FN_SA"
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --only "topic, function-sa" --yes
+  [ "$status" -eq 0 ]
+  assert_mutations 'pubsub topics delete stream-security-events-topic' "service-accounts delete $FN_SA"
+}
+
+@test "a resource whose existence can't be read is reported, not deleted" {
+  exist topic:stream-security-events-topic
+  echo topic:stream-security-events-topic >"$FAKE_DIR/describe-errors"
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --only topic --yes
+  [[ "$output" == *"Could not check: Pub/Sub topic: stream-security-events-topic"* ]]
+  refute_called ' delete '
+}

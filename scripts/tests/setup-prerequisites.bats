@@ -49,7 +49,7 @@ run_check() {
   [[ "$output" == *"Function service account: $FN_SA"* ]]
   [[ "$output" == *"0 subscriptions, 0 IAM bindings"* ]]
   [[ "$output" == *"0 user-managed keys, 0 project roles"* ]]
-  [[ "$output" == *"cleanup-abandoned-deployment.sh --project-id p1 --region us-central1 --only topic,function-sa"* ]]
+  [[ "$output" == *"cleanup-abandoned-deployment.sh --project-id p1 --region us-central1 --only topic,function-sa --pubsub-topic stream-security-events-topic --function-sa-id stream-security-function-sa"* ]]
   [[ "$output" == *"--cleanup-leftovers"* ]]
   [[ "$output" != *"Step 6/6"* ]]
   [ ! -s "$FAKE_DIR/curl.log" ]
@@ -64,6 +64,8 @@ run_check() {
   [[ "$output" == *"No leftovers"* ]]
   [[ "$output" == *"Step 6/6"* ]]
   called 'resources list --revision=projects/p1/locations/us-central1/deployments/streamsec-integration/revisions/r-1'
+  called 'deployments list --project=p1 --location=- '
+  called 'deployments list --project=p1 --location=us-central1 '
 }
 
 @test "(d) --cleanup-leftovers --yes deletes in dependency order, then continues" {
@@ -104,7 +106,7 @@ run_check() {
     $'google_service_account\tprojects/p1/serviceAccounts/'"$SA"$'\tCREATE\tRECONCILED'
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"--only topic,function-sa"* ]]
+  [[ "$output" == *"--only topic,function-sa --"* ]]
 }
 
 @test "a latest revision that lists nothing falls back to the newest one that does" {
@@ -122,7 +124,7 @@ run_check() {
   deployment streamsec-integration ACTIVE "$TOPIC_ROW"$'\tDELETE\tRECONCILED'
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"--only topic"* ]]
+  [[ "$output" == *"--only topic --"* ]]
 }
 
 @test "any deployment mid-apply stops the check rather than guess" {
@@ -198,7 +200,7 @@ run_check() {
   run_check --org-id 123
   [ "$status" -eq 1 ]
   [[ "$output" == *"Org logging sink: stream-security-events-sink"* ]]
-  [[ "$output" == *"--region us-central1 --org-id 123 --only org-sink"* ]]
+  [[ "$output" == *"--region us-central1 --org-id 123 --only org-sink --logging-sink stream-security-events-sink"* ]]
   refute_called 'sinks describe stream-security-events-sink --project='
 }
 
@@ -242,11 +244,74 @@ run_check() {
   [[ "$output" == *"not found"* ]]
 }
 
-@test "piped into bash, setup still runs (no BASH_SOURCE)" {
+@test "piped into bash, setup runs without the check and never sources ./lib" {
   cd "$BATS_TEST_TMPDIR"
+  mkdir -p lib && echo 'echo PLANTED-LIB-SOURCED' >lib/integration-resources.sh
   run bash -s -- --project-only --project-id p1 --region us-central1 \
     --streamsec-host h.example --workspace-id w --api-token t \
     --git-ref v0.0.0 --skip-permission-check --start-from-step 6 --yes <"$SETUP"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping the check"* ]]
+  [[ "$output" != *PLANTED-LIB-SOURCED* ]]
   [[ "$output" == *"Step 6/6"* ]]
+}
+
+@test "a deleted deployment owns nothing" {
+  exist topic:stream-security-events-topic
+  deployment streamsec-integration DELETED "$TOPIC_ROW"$'	UNCHANGED	RECONCILED'
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--only topic --"* ]]
+}
+
+@test "a resource whose existence can't be read stops the check" {
+  exist "sa:$FN_SA"
+  echo topic:stream-security-events-topic >"$FAKE_DIR/describe-errors"
+  run_setup --cleanup-leftovers
+  [ "$status" -eq 1 ]
+  [[ "$output" == *PERMISSION_DENIED* ]]
+  [[ "$output" == *"Could not tell whether these exist"* ]]
+  refute_called ' delete '
+  [ ! -s "$FAKE_DIR/curl.log" ]
+}
+
+@test "--yes doesn't delete leftovers that look in use" {
+  exist topic:stream-security-events-topic "sa:$FN_SA"
+  echo projects/p1/subscriptions/eventarc-sub >"$FAKE_DIR/subscriptions"
+  run_setup --cleanup-leftovers
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Pub/Sub topic: stream-security-events-topic (subscriptions: 1)"* ]]
+  [[ "$output" == *"--yes doesn't delete resources that look in use"* ]]
+  refute_called ' delete '
+}
+
+@test "leftovers that look in use are deleted after an interactive yes" {
+  exist topic:stream-security-events-topic
+  echo projects/p1/subscriptions/eventarc-sub >"$FAKE_DIR/subscriptions"
+  run bash -c 'echo y | bash "$0" --project-only --project-id p1 --region us-central1 --check-leftovers --cleanup-leftovers' "$SETUP"
+  [ "$status" -eq 0 ]
+  called 'pubsub topics delete stream-security-events-topic'
+}
+
+@test "CLEANUP_LEFTOVERS in the environment doesn't turn on deletion" {
+  exist topic:stream-security-events-topic
+  CLEANUP_LEFTOVERS=true run_setup
+  [ "$status" -eq 1 ]
+  refute_called ' delete '
+}
+
+@test "--skip-leftover-check goes straight on to the preview" {
+  exist topic:stream-security-events-topic
+  run_setup --skip-leftover-check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping the check (--skip-leftover-check)"* ]]
+  [[ "$output" == *"Step 6/6"* ]]
+  refute_called 'deployments list'
+}
+
+@test "a region that isn't a region is rejected before any call" {
+  run_check --project-only --region 'evil.example/x'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid --region"* ]]
+  [ ! -s "$FAKE_DIR/gcloud.log" ]
 }
