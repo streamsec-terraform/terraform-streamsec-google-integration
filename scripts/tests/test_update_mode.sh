@@ -65,7 +65,7 @@ run_case() {
   OUTPUT=$(PATH="$dir:$PATH" bash "$SCRIPT" \
     --project-id test-proj --org-id 123456789 --region us-central1 \
     --streamsec-host tenant.streamsec.io --workspace-id ws --api-token tok \
-    --git-ref v9.9.9 --start-from-step 6 --skip-permission-check --yes "$@" 2>&1)
+    --git-ref v9.9.9 --start-from-step 6 --skip-permission-check --skip-leftover-check --yes "$@" 2>&1)
   CALLS=$(cat "$STUB_LOG")
   BODY=$(cat "$CURL_BODY")
   CASE="$name"

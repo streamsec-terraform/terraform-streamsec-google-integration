@@ -79,6 +79,16 @@ variable "scan_ai_workloads" {
   }
 }
 
+variable "scan_data_volumes" {
+  type        = string
+  description = "Also snapshot and scan each VM's attached data disks, not just its boot disk (COLLECTOR_SCAN_DATA_VOLUMES). Each data disk keeps one more scanner snapshot and adds to the scan time. Always off on a suffixed instance, which has no disk permissions. \"true\" or \"false\" (case-insensitive)."
+  default     = "true"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_data_volumes))
+    error_message = "scan_data_volumes must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
 variable "scan_cloud_run" {
   type        = string
   description = "Scan the images of Cloud Run services, which include Cloud Run functions and gen2 Cloud Functions (workload kind cloudrun). \"true\" or \"false\" (case-insensitive)."
