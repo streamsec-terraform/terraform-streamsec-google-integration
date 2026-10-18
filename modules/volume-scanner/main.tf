@@ -12,6 +12,7 @@ locals {
   scan_cloud_run       = lower(var.scan_cloud_run) == "true"
   scan_cloud_run_jobs  = lower(var.scan_cloud_run_jobs) == "true"
   scan_cloud_functions = lower(var.scan_cloud_functions) == "true"
+  scan_gke_images      = lower(var.scan_gke_images) == "true"
   scan_data_volumes    = var.name_suffix == "" && lower(var.scan_data_volumes) == "true"
 
   # The scanner's names for the kinds turned on. Sent as "none" when every one
@@ -20,13 +21,16 @@ locals {
     local.scan_cloud_run ? "cloudrun" : "",
     local.scan_cloud_run_jobs ? "cloudrunjobs" : "",
     local.scan_cloud_functions ? "cloudfunctions" : "",
+    local.scan_gke_images ? "gkeimages" : "",
   ])
 
   # Granted per kind, so turning a kind off also takes its access away; in
   # particular sourceCodeGet reads every function's source.
   workload_permissions = distinct(concat(
-    local.scan_cloud_run || local.scan_cloud_run_jobs ? [
-      "run.locations.list",
+    local.scan_cloud_run || local.scan_cloud_run_jobs ? ["run.locations.list"] : [],
+    # GKE images are listed by the Stream inventory, not a GCP API: pulling
+    # them is all that kind needs.
+    local.scan_cloud_run || local.scan_cloud_run_jobs || local.scan_gke_images ? [
       "artifactregistry.repositories.downloadArtifacts",
     ] : [],
     local.scan_cloud_run ? ["run.services.list", "run.revisions.get"] : [],
@@ -111,7 +115,7 @@ resource "google_project_iam_custom_role" "scanner" {
   project     = var.project_id
   role_id     = "streamsecVolumeScanner${replace(var.name_suffix, "-", "_")}"
   title       = "Stream Security Volume Scanner${var.name_suffix == "" ? "" : " (${var.name_suffix})"}"
-  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
+  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read or pull the workloads whose kinds are on."
   permissions = concat(
     local.runtime_permissions,
     var.name_suffix == "" ? local.disk_permissions : [],
@@ -424,7 +428,7 @@ resource "google_cloud_run_v2_job" "orchestrator" {
   lifecycle {
     precondition {
       condition     = !(lower(var.scan_workload_only) == "true" && length(local.workload_kinds) == 0)
-      error_message = "scan_workload_only skips VM disks, so it needs at least one of scan_cloud_run, scan_cloud_run_jobs or scan_cloud_functions; otherwise the scanner scans nothing."
+      error_message = "scan_workload_only skips VM disks, so it needs at least one of scan_cloud_run, scan_cloud_run_jobs, scan_cloud_functions or scan_gke_images; otherwise the scanner scans nothing."
     }
     precondition {
       condition     = var.name_suffix == "" || lower(var.scan_workload_only) == "true"
