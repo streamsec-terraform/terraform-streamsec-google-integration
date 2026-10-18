@@ -12,6 +12,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -o) echo '{}' >"$2"; to_file=true; shift 2 ;;
     -w) printf 200; shift 2 ;;
+    --data-binary) [[ "$2" == @- ]] && cat >>"$FAKE_DIR/curl.body"; shift 2 ;;
     *) shift ;;
   esac
 done

@@ -81,13 +81,13 @@ case "$*" in
   "infra-manager deployments list"*)
     if [[ -f "$FAKE_DIR/list-error" ]]; then cat "$FAKE_DIR/list-error" >&2; exit 1; fi
     [[ -f "$FAKE_DIR/deployments" ]] && cat "$FAKE_DIR/deployments" ;;
-  # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
   "infra-manager deployments describe "*)
     if ! grep -q "^$4," "$FAKE_DIR/deployments" 2>/dev/null; then
       echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource '$4' was not found" >&2
       exit 1
     fi
     [[ "$*" == *inputValues* ]] && printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n' ;;
+  # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
   "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
   # revisions: "<deployment path>\t<revision id>", newest first
   "infra-manager revisions list"*) rows_for revisions "$(flag deployment "$@")" ;;
