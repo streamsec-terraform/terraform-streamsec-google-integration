@@ -190,7 +190,7 @@ run "keeps_the_disk_scanning_permissions" {
   }
 
   assert {
-    condition     = length(google_project_iam_custom_role.scanner.permissions) == 25 + 7
-    error_message = "By default the role holds the 25 disk-scanning permissions plus the 7 workload ones."
+    condition     = length(google_project_iam_custom_role.scanner.permissions) == 26 + 7
+    error_message = "By default the role holds the 26 disk-scanning and runtime permissions plus the 7 workload ones."
   }
 }
