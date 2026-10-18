@@ -103,6 +103,7 @@ run "suffixed_instance_gets_no_disk_permissions" {
       "compute.subnetworks.use",
       "batch.jobs.create",
       "batch.jobs.get",
+      "batch.tasks.list",
       "logging.logEntries.create",
       "run.services.list",
       "cloudfunctions.functions.sourceCodeGet",
