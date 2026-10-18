@@ -65,6 +65,7 @@ run_check() {
   [[ "$output" == *"Step 6/6"* ]]
   called 'resources list --revision=projects/p1/locations/us-central1/deployments/streamsec-integration/revisions/r-1'
   called 'deployments list --project=p1 --location=- '
+  grep -q '"deployment": "projects/p1/locations/us-central1/deployments/streamsec-integration"' "$FAKE_DIR/curl.body"
 }
 
 @test "(d) --cleanup-leftovers --yes deletes in dependency order, then continues" {
