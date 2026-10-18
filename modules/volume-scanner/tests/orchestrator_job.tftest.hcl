@@ -48,3 +48,15 @@ run "orchestrator_can_be_deleted" {
     error_message = "The orchestrator job must not be deletion-protected, or deleting the deployment fails."
   }
 }
+
+# A failed worker job's tasks say why it failed, such as its exit code. The
+# scanner lists them (from v0.5.35); without the permission its reason says
+# "task reason unavailable: HTTP 403" instead.
+run "orchestrator_can_read_why_a_worker_failed" {
+  command = plan
+
+  assert {
+    condition     = contains(google_project_iam_custom_role.scanner.permissions, "batch.tasks.list")
+    error_message = "The scanner's role must hold batch.tasks.list to read a failed worker job's tasks."
+  }
+}

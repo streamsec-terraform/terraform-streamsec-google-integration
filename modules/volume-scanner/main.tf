@@ -41,12 +41,14 @@ locals {
     ] : [],
   ))
 
-  # Launching and logging the Batch jobs every instance runs.
+  # Launching and logging the Batch jobs every instance runs. batch.tasks.list
+  # reads a failed job's tasks, which say why it failed.
   runtime_permissions = [
     "compute.subnetworks.use",
     "batch.jobs.create",
     "batch.jobs.get",
     "batch.jobs.delete",
+    "batch.tasks.list",
     "logging.logEntries.create",
   ]
 
