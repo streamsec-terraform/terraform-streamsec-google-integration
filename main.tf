@@ -88,6 +88,13 @@ resource "google_project_service" "scan_quota_apis" {
   project            = try(regex("@([^.]+)\\.iam\\.gserviceaccount\\.com$", local.sa_email)[0], var.project_for_sa)
   service            = each.value
   disable_on_destroy = false
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("@([^.]+)\\.iam\\.gserviceaccount\\.com$", local.sa_email)) || var.project_for_sa != null
+      error_message = "Cannot tell the service account's project from its email (${local.sa_email}). Set `project_for_sa` to the project that holds it."
+    }
+  }
 }
 
 resource "google_organization_iam_member" "this" {
