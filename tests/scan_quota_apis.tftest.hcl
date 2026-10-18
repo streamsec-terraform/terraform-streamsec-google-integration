@@ -95,3 +95,21 @@ run "non_standard_email_falls_back_to_project_for_sa" {
     error_message = "An email without a project domain must fall back to project_for_sa."
   }
 }
+
+run "non_standard_email_without_project_for_sa_fails" {
+  command = plan
+
+  variables {
+    create_sa = true
+  }
+
+  override_resource {
+    target          = google_service_account.org
+    override_during = plan
+    values = {
+      email = "123456789-compute@developer.gserviceaccount.com"
+    }
+  }
+
+  expect_failures = [google_project_service.scan_quota_apis]
+}

@@ -1348,6 +1348,10 @@ else
     --description="This service account is used for stream-security infrastructure manager deployment" \
     --quiet || SA_EXIT_CODE=$?
   log_ok "Service account '$SA_EMAIL' created."
+  if [[ $SA_EXIT_CODE -eq 0 ]]; then
+    log_info "Waiting 30s for the new service account to propagate before granting it roles..."
+    sleep 30
+  fi
 fi
 
   confirm_step "Create service account" $SA_EXIT_CODE
