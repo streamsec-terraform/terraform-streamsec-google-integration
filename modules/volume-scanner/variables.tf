@@ -131,7 +131,7 @@ variable "scan_gke_images" {
 
 variable "scan_workload_only" {
   type        = string
-  description = "Scan only the workloads selected above, and no VM disks (COLLECTOR_WORKLOAD_ONLY). Needs at least one workload kind on, and a scanner image that has it: GCP workload scanning is newer than v0.5.21, and gkeimages needs SCANNER_VERSION_TBD or later; with an older image a workload-only run scans nothing or fails. \"true\" or \"false\" (case-insensitive)."
+  description = "Scan only the workloads selected above, and no VM disks (COLLECTOR_WORKLOAD_ONLY). Needs at least one workload kind on, and a scanner image that has it: GCP workload scanning is newer than v0.5.21, and gkeimages needs v0.5.38 or later; with an older image a workload-only run scans nothing or fails. \"true\" or \"false\" (case-insensitive)."
   default     = "false"
   validation {
     condition     = contains(["true", "false"], lower(var.scan_workload_only))
