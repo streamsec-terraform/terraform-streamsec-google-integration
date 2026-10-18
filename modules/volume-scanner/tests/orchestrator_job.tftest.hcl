@@ -50,8 +50,8 @@ run "orchestrator_can_be_deleted" {
 }
 
 # A failed worker job's tasks say why it failed, such as its exit code. The
-# scanner lists them (from v0.5.35); without the permission its reason ends
-# "task reason unavailable".
+# scanner lists them (from v0.5.35); without the permission its reason says
+# "task reason unavailable: HTTP 403" instead.
 run "orchestrator_can_read_why_a_worker_failed" {
   command = plan
 
