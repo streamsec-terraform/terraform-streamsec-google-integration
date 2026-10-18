@@ -74,7 +74,7 @@ deployment's version as *unknown* rather than as a version it does not have.
 
 A VM's disk is read only by a Batch worker in the VM's own region, so the module builds a worker subnet, router and Cloud NAT in `region` and in every region of `worker_regions`. The scanner skips VMs in any other region, with a warning that names it. The apply command Stream's console renders lists the regions that have VMs each time it runs, so re-running it covers new ones. Scanner images before v0.5.34 use the subnet in `region` for every worker, so their workers outside `region` still fail to start.
 
-Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour while a scan runs, per GiB it processes (the SBOM uploads to Stream; Google APIs go through Private Google Access), plus any NAT IP it holds.
+Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour while a scan runs, per GiB it processes (the SBOM uploads to Stream; Google APIs and registries, `mirror.gcr.io` included, go through Private Google Access), plus any NAT IP it holds. The NAT in `region` also carries the workload scan's image pulls from registries outside Google, such as Docker Hub when `mirror.gcr.io` lacks an image, `quay.io` or `ghcr.io`, most of which `scan_gke_images` adds.
 
 ### Scan feature toggles
 
@@ -97,13 +97,14 @@ A suffixed instance never scans disks, so it is always off there.
 
 ### Workload scanning
 
-Besides VM disks, the scanner scans the images of the project's serverless workloads. Each kind has its own toggle, and its permissions are granted only while it is on.
+Besides VM disks, the scanner scans the images of the project's serverless workloads and GKE pods. Each kind has its own toggle, and its permissions are granted only while it is on.
 
 | input | default | scans | permissions it adds |
 |---|---|---|---|
 | `scan_cloud_run` | `true` | Cloud Run services, including Cloud Run functions and gen2 Cloud Functions: the image of every revision serving traffic | `run.locations.list`, `run.services.list`, `run.revisions.get`, `artifactregistry.repositories.downloadArtifacts` |
 | `scan_cloud_run_jobs` | `true` | Cloud Run jobs | `run.locations.list`, `run.jobs.list`, `artifactregistry.repositories.downloadArtifacts` |
 | `scan_cloud_functions` | `true` | gen1 Cloud Functions, from their deployed source | `cloudfunctions.functions.list`, `cloudfunctions.functions.sourceCodeGet` |
+| `scan_gke_images` | `true` | the images of the project's GKE pods, jobs and cron jobs, from the Stream inventory (needs the Stream Kubernetes agent on the cluster); covers pods no disk scan reaches, such as GKE Autopilot's | `artifactregistry.repositories.downloadArtifacts` |
 | `scan_workload_only` | `false` | only the kinds above, no VM disks; needs at least one of them on | none |
 
 They reach the scanner as `COLLECTOR_WORKLOAD_KINDS` (`none` when every kind is off) and `COLLECTOR_WORKLOAD_ONLY`. An image in another project's Artifact Registry also needs `roles/artifactregistry.reader` for the scanner's service account in that project.
@@ -114,7 +115,8 @@ What the workload permissions reach, so you can decide which kinds to leave on:
 - `artifactregistry.repositories.downloadArtifacts` is granted on the project, so it covers every repository and format in it, remote repositories included. IAM can't narrow it by format.
 - Images still in legacy Container Registry storage, never migrated to Artifact Registry, also need `storage.objects.get` on `artifacts.<project>.appspot.com`. Without it those images fail to pull, and the rest of the scan continues.
 - The workload scan runs as one Batch job in `region`, pulling images and source from every region of the project into that one.
-- Re-applying a deployment from an older release turns the three kinds on, since they default to `true`. Set them to `false` first if you don't want that access.
+- Re-applying a deployment from an older release turns the kinds on, since they default to `true`; `scan_gke_images` was added in v2.19.0. Set them to `false` first if you don't want that access. If you turned off `scan_cloud_run` and `scan_cloud_run_jobs` to withhold registry access, also set `scan_gke_images` to `false`: on its own it grants `artifactregistry.repositories.downloadArtifacts` again.
+- `scan_gke_images` asks Stream, not GCP, for the images, at most 2,000 per run, the most-run first. The images are whatever the clusters' pod specs name. Docker Hub images are pulled through `mirror.gcr.io`, falling back to Docker Hub, whose anonymous pull limit applies to the NAT's IP; images from other registries outside Google are pulled anonymously, so private ones fail, and the rest of the scan continues. It needs scanner v0.5.38 or later; older images skip it with a warning, so with `scan_workload_only` and no other kind on, every run's workload scan fails.
 - `scan_workload_only` skips the disk scan but keeps its permissions for now, since the snapshot sweep still runs in that mode.
 - The kinds need a scanner image with GCP workload scanning, newer than v0.5.21. Older images ignore them, and with `scan_workload_only` an older image scans nothing.
 
