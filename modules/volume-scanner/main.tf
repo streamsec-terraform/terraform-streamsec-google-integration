@@ -113,7 +113,7 @@ resource "google_project_iam_custom_role" "scanner" {
   project     = var.project_id
   role_id     = "streamsecVolumeScanner${replace(var.name_suffix, "-", "_")}"
   title       = "Stream Security Volume Scanner${var.name_suffix == "" ? "" : " (${var.name_suffix})"}"
-  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read the Cloud Run and Cloud Functions workloads whose kinds are on."
+  description = "Agentless scanning: discover VMs, snapshot/attach disks, run Batch workers, and read or pull the workloads whose kinds are on."
   permissions = concat(
     local.runtime_permissions,
     var.name_suffix == "" ? local.disk_permissions : [],
