@@ -9,9 +9,8 @@ variables {
   stream_collection_token = "test-collection-token"
 }
 
-# The console passes these as Infra Manager input values. A test can't read
-# the module's resources from here; modules/volume-scanner's tests check the
-# env they set.
+# Infra Manager input values. A test can't read the module's resources from
+# here; modules/volume-scanner's tests check the env they set.
 run "data_disk_toggles_are_accepted" {
   command = plan
 

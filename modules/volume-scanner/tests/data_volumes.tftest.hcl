@@ -108,3 +108,17 @@ run "suffixed_instance_never_scans_kubernetes_volumes" {
     error_message = "A suffixed instance must get COLLECTOR_SCAN_KUBERNETES_VOLUMES=false."
   }
 }
+
+run "kubernetes_volumes_off_without_data_volumes" {
+  command = plan
+
+  variables {
+    scan_data_volumes       = "false"
+    scan_kubernetes_volumes = "true"
+  }
+
+  assert {
+    condition     = one([for e in google_cloud_run_v2_job.orchestrator.template[0].template[0].containers[0].env : e.value if e.name == "COLLECTOR_SCAN_KUBERNETES_VOLUMES"]) == "false"
+    error_message = "With scan_data_volumes off, COLLECTOR_SCAN_KUBERNETES_VOLUMES must be false."
+  }
+}
