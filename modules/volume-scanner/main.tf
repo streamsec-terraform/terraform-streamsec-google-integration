@@ -14,6 +14,7 @@ locals {
   scan_cloud_functions = lower(var.scan_cloud_functions) == "true"
   scan_gke_images      = lower(var.scan_gke_images) == "true"
   scan_data_volumes    = var.name_suffix == "" && lower(var.scan_data_volumes) == "true"
+  scan_k8s_volumes     = local.scan_data_volumes && lower(var.scan_kubernetes_volumes) == "true"
 
   # The scanner's names for the kinds turned on. Sent as "none" when every one
   # is off: an unset COLLECTOR_WORKLOAD_KINDS means the scanner's defaults.
@@ -368,6 +369,10 @@ resource "google_cloud_run_v2_job" "orchestrator" {
         env {
           name  = "COLLECTOR_SCAN_DATA_VOLUMES"
           value = tostring(local.scan_data_volumes)
+        }
+        env {
+          name  = "COLLECTOR_SCAN_KUBERNETES_VOLUMES"
+          value = tostring(local.scan_k8s_volumes)
         }
         env {
           name  = "COLLECTOR_WORKLOAD_KINDS"

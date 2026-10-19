@@ -84,16 +84,18 @@ Each extra region adds a Cloud NAT gateway. It is billed per worker VM hour whil
 | `scan_secrets` | `false` | `COLLECTOR_SCAN_SECRETS` |
 | `scan_ai_workloads` | `false` | `COLLECTOR_SCAN_AI_WORKLOADS` |
 | `scan_data_volumes` | `true` | `COLLECTOR_SCAN_DATA_VOLUMES` |
+| `scan_kubernetes_volumes` | `false` | `COLLECTOR_SCAN_KUBERNETES_VOLUMES` |
 
-`scan_data_volumes` scans each VM's attached data disks as well as its boot disk. On GKE nodes those include the persistent volumes attached to them. Before leaving it on:
+`scan_data_volumes` scans each VM's attached data disks as well as its boot disk. Before leaving it on:
 
 - Each data disk keeps one more scanner snapshot, the next scan's differential base. Like the boot disk's, it is a restorable copy of the disk, readable by anyone with snapshot access in the project. Turning the input off keeps each disk's last snapshot until the disk is deleted; [Uninstalling](#uninstalling) has the command that deletes the scanner's snapshots.
 - A VM with large data disks takes longer to scan.
-- A data disk's packages are reported at the paths where the VM's `/etc/fstab` mounts it. A disk that `/etc/fstab` doesn't mount, such as a Kubernetes volume, is still scanned for containers, but its packages are not counted as the VM's.
+- A data disk's packages are reported at the paths where the VM's `/etc/fstab` mounts it. A disk that `/etc/fstab` doesn't mount is still scanned for containers, but its packages are not counted as the VM's.
+- On GKE nodes it skips the disks Kubernetes created for persistent volume claims, recognised by the description the PD CSI driver writes on them: a pod's volume follows the pod, so it isn't the node's. `scan_kubernetes_volumes = "true"` scans them too, with their findings on each node a disk is attached to. It needs scanner v0.5.43 or later; older images always scan them.
 - It is a scanner setting, not a permission: the role can read every disk either way.
 - Re-applying a deployment from an older release turns it on, since it defaults to `true`. Set it to `false` first if you don't want that.
 
-A suffixed instance never scans disks, so it is always off there.
+A suffixed instance never scans disks, so both are always off there.
 
 ### Workload scanning
 
