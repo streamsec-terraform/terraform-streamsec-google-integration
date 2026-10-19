@@ -88,6 +88,16 @@ variable "scan_data_volumes" {
   }
 }
 
+variable "scan_kubernetes_volumes" {
+  type        = string
+  description = "Also scan the disks Kubernetes created for persistent volume claims on GKE nodes, which the data-disk scan skips by default (COLLECTOR_SCAN_KUBERNETES_VOLUMES). Their findings land on each node a disk is attached to when scanned, and the scanner doesn't report their packages. Takes effect only with scan_data_volumes. \"true\" or \"false\" (case-insensitive)."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], lower(var.scan_kubernetes_volumes))
+    error_message = "scan_kubernetes_volumes must be \"true\" or \"false\" (case-insensitive)."
+  }
+}
+
 variable "scan_cloud_run" {
   type        = string
   description = "Scan the images of Cloud Run services, which include Cloud Run functions and gen2 Cloud Functions (workload kind cloudrun). \"true\" or \"false\" (case-insensitive)."
