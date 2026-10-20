@@ -89,6 +89,19 @@ module "streamsec_google_projects" {
 > needs a `provider "restapi" { uri = "https://<region>-aiplatform.googleapis.com" }`
 > block (see `examples/basic`). No request is made unless Vertex AI logging is enabled.
 
+## Scan APIs on the service account's project
+
+Some GCP APIs are checked against the scanning service account's own project, not the
+project being scanned. The module therefore enables these APIs on the service account's
+project: sqladmin, cloudkms, bigtableadmin, apikeys, appengine, cloudidentity,
+accesscontextmanager, orgpolicy, serviceusage, firebaserules and bigquery. They are never
+disabled on destroy.
+
+The identity that applies the module needs `serviceusage.services.enable`,
+`serviceusage.services.get` and `serviceusage.services.list` on that project.
+When `existing_sa_json_file_path` points to a service account from another project, grant
+the permission on that project too.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -126,6 +139,7 @@ module "streamsec_google_projects" {
 | [google_organization_iam_member.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_project_iam_member.project_security_reviewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.project_viewer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_service.scan_quota_apis](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
 | [google_service_account.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_key.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_key) | resource |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
