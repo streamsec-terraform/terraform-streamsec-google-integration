@@ -57,7 +57,8 @@ class AzureCloud:
 
         vault_uri = f"https://{ref.split('/vaults/')[1]}.vault.azure.net"
         log.info("Retrieving secret '%s' from Azure Key Vault...", name)
-        return SecretClient(vault_url=vault_uri, credential=DefaultAzureCredential()).get_secret(name).value or ""
+        # JSON parsed as on AWS and GCP: an F5 {"username", "password"} secret is a dict
+        return _json_or_text(SecretClient(vault_url=vault_uri, credential=DefaultAzureCredential()).get_secret(name).value or "")
 
     def instance_id_for_ip(self, ip):
         return None

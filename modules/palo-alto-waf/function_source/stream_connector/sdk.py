@@ -40,10 +40,11 @@ class CredentialError(Exception):
 
 
 class HttpError(Exception):
-    """The device answered with an HTTP error status."""
+    """The device answered with an HTTP error status. The message carries the status only, so
+    logging or reporting it never carries device data; `body` is there for the adapter."""
 
     def __init__(self, status, body):
-        super().__init__(f"HTTP {status}: {body[:200]}")
+        super().__init__(f"HTTP {status}")
         self.status = status
         self.body = body
 
