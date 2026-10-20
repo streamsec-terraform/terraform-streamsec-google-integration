@@ -541,13 +541,16 @@ resource "terraform_data" "acknowledge" {
 }
 
 # One scan at install, as the AWS and Azure templates start one, instead of the
-# first waiting up to a day for the schedule.
-data "google_client_config" "current" {}
+# first waiting up to a day for the schedule. Read after the wait, so a token
+# read at plan time can't expire before the scan starts.
+data "google_client_config" "current" {
+  depends_on = [time_sleep.iam_propagation]
+}
 
-# Grants take about 2 minutes to take effect, and the scanner fails a run at its
-# first 403. The wait overlaps creating the job and the network.
+# Grants take typically 2 minutes to take effect, and the scanner fails a run
+# at its first 403. The wait overlaps creating the job and the network.
 resource "time_sleep" "iam_propagation" {
-  create_duration = "120s"
+  create_duration = "180s"
   triggers = {
     service_account = google_service_account.scanner.unique_id
   }

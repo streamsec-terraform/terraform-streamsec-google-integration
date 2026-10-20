@@ -15,8 +15,9 @@ setup() {
   export RUN_JOB_URL="$JOB" RUN_ACCESS_TOKEN="$TOKEN"
 }
 
+# Pretty-printed, as the API returns it.
 last_execution() {
-  printf '{"name":"%s","latestCreatedExecution":{"name":"%s/executions/x","completionStatus":"%s"}}\n' \
+  printf '{\n  "name": "%s",\n  "latestCreatedExecution": {\n    "name": "%s/executions/x",\n    "createTime": "2026-10-20T02:00:07.490661Z",\n    "completionStatus": "%s"\n  },\n  "executionCount": 3\n}\n' \
     "$JOB" "$JOB" "$1" >"$FAKE_DIR/job.json"
 }
 

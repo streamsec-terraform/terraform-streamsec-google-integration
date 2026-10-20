@@ -1,6 +1,6 @@
 # The install starts one scan instead of leaving the first to the schedule.
-# Applied against the mock provider, so the trigger's curl really runs; it
-# reaches nothing and must not fail the apply.
+# Applied against the mock provider, so the trigger's curl really runs: with a
+# network, Cloud Run rejects the mock token. Either way the apply must succeed.
 
 mock_provider "google" {
   mock_resource "google_service_account" {
@@ -44,8 +44,8 @@ run "starts_this_install_s_job_once" {
   }
 
   assert {
-    condition     = time_sleep.iam_propagation.create_duration == "120s"
-    error_message = "The initial scan must wait about 2 minutes for the scanner's IAM grants to take effect."
+    condition     = time_sleep.iam_propagation.create_duration == "180s"
+    error_message = "The initial scan must wait 3 minutes for the scanner's IAM grants to take effect."
   }
 
   # A recreated service account has new grants, so the wait must run again.

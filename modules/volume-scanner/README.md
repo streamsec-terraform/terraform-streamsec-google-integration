@@ -65,12 +65,20 @@ credentials and acknowledges on its first run, so the deployment shows as
 all.
 
 The first scan is started the same way, once per orchestrator job, so a new
-install scans right away and a re-apply doesn't scan again. It waits two minutes
-for the scanner's IAM grants to take effect, then calls the Cloud Run API
+install scans right away and a re-apply doesn't scan again. It waits three
+minutes for the scanner's IAM grants to take effect, then calls the Cloud Run API
 (`run.googleapis.com`) with the runner's own Google credentials, which need
 `run.jobs.get` and `run.jobs.run` on the job. It doesn't start a run while one
 is in progress. If it can't start one, the first scan runs on `scan_schedule`.
 An existing install updated to this version scans once at that update.
+
+- **Its output is hidden,** since it carries the runner's access token, which
+  Terraform treats as sensitive. To see whether it started, run
+  `gcloud run jobs executions list --job=streamsec-volume-scanner-orchestrator --region=<REGION> --project=<PROJECT_ID>`.
+- **The token is kept in the Terraform state** with the data source that reads
+  it, as any use of `google_client_config` keeps it. It expires within an hour.
+- **An install shortly before `scan_schedule`** can overlap that night's
+  scheduled run once, since the schedule doesn't wait for the first scan.
 
 ### Versions and updates
 
@@ -165,7 +173,7 @@ gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> -
 ```
 
 - **An instance with a `name_suffix`** has its own deployment, and its job name ends in the suffix, for example `streamsec-volume-scanner-orchestrator-stg`. Use those names, or you delete the other instance.
-- **Delete outside the daily scan.** GCP doesn't delete the scanner's subnet while scan workers still run on it.
+- **Delete outside the daily scan, and after the first scan,** which starts at install or at an update to v2.21.0. GCP doesn't delete the scanner's subnet while scan workers still run on it.
 - **From your own root,** bump `version` past v2.15.0 and apply before `terraform destroy`.
 - **A change that replaces the job,** such as a new `region`, fails the same way on those deployments. Re-apply from a newer release with no other change first.
 
