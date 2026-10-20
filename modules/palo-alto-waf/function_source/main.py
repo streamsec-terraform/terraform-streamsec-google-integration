@@ -1,8 +1,5 @@
-"""Stream Security WAF/NGFW poller for GCP (Cloud Functions 2nd gen).
-
-Same `waf` package as the Azure Function (azure/functions/waf-azure); only the
-trigger (HTTP, invoked by Cloud Scheduler every 5 minutes) and the secret
-backend (Secret Manager, see waf/utils.py) differ.
+"""Stream Security WAF/NGFW poller for GCP (Cloud Functions 2nd gen), invoked over HTTP by
+Cloud Scheduler.
 
 Runtime env:
   API_URL    Stream tenant base URL, e.g. https://app.streamsec.io
@@ -10,23 +7,24 @@ Runtime env:
 """
 
 import logging
+import os
 
 # Cloud Functions gen2 leaves the root logger at WARNING (functions-framework only
 # calls setup_logging() for the legacy ENTRY_POINT runtime), so every logging.info
-# below and in waf/ would be dropped. Raise it first, as the Azure worker does.
+# would be dropped. Raise it first, as the Azure worker does.
 logging.basicConfig(level=logging.INFO)
 
-import functions_framework
-from waf.waf_collector import collect_fw_list
+import functions_framework  # noqa: E402
+from stream_connector.clouds import GcpCloud  # noqa: E402
+from stream_connector.runner import run  # noqa: E402
+from stream_connector.stream_api import StreamApi  # noqa: E402
 
 
 @functions_framework.http
 def poll(request):
     logging.info("Starting WAF poll")
-    try:
-        collect_fw_list()
-    except Exception as e:
-        logging.error(f"Error collecting firewall list: {str(e)}")
-        raise
+    cloud = GcpCloud()
+    run(StreamApi(os.environ["API_URL"], cloud.stream_token()), cloud,
+        updates_enabled=os.environ.get("ADAPTER_UPDATES", "on") != "off")
     logging.info("WAF poll finished")
     return "ok", 200

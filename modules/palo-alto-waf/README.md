@@ -292,23 +292,24 @@ the generated deployment fail while installing `secretAccessor`.
 
 ## Function-source synchronization
 
-`function_source/` is copied without behavioral or dependency changes from:
+`function_source/` is the GCP build of the Palo Alto connector, generated from:
 
 ```text
-lightlytics/lightlytics@76e5e26420f7a1518b7d7524418de03ae0067c00:gcp/functions/waf-gcp/
+lightlytics/lightlytics@25d47f4948761737a097bec09f6af23d13655b46:lambda_functions/waf/
+python lambda_functions/waf/build.py --cloud gcp --vendor palo-alto --out <dir>
 ```
 
-When the upstream collector changes, replace the complete directory from an
-immutable commit, compare all files, update the commit above, and validate both
-Python import/compilation and Terraform packaging. Do not patch only one copy:
-the Lightlytics source directory explicitly identifies this module as its
-deployment copy.
+When the connector changes, rebuild from an immutable lightlytics commit, replace the complete
+directory with the build output, update the reference above to that commit, and validate both
+Python import/compilation and Terraform packaging. Do not edit `function_source/` here: the
+code lives in `lambda_functions/waf` (the GCP entry point `main.py`, the shared
+`stream_connector/` library and the `adapters/palo_alto.py` vendor adapter).
 
-The synchronized collector intentionally retains two upstream behaviors that
-are outside this deployment module's scope: firewall TLS certificate checking
-is disabled, and Palo/Stream HTTP calls do not set socket-level timeouts. The
-Cloud Function timeout remains the outer bound. These should be addressed in
-the canonical Lightlytics source first and then synchronized here.
+The connector intentionally keeps one upstream behavior that is outside this deployment
+module's scope: firewall TLS certificate checking is disabled (appliances use self-signed
+certificates). Palo/Stream HTTP calls time out after 30 seconds each; the Cloud Function
+timeout remains the outer bound. Address these in the canonical Lightlytics source first and
+then synchronize here.
 
 ## Direct module usage
 
