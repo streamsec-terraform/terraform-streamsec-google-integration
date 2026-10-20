@@ -295,7 +295,7 @@ the generated deployment fail while installing `secretAccessor`.
 `function_source/` is the GCP build of the Palo Alto connector, generated from:
 
 ```text
-lightlytics/lightlytics@25d47f4948761737a097bec09f6af23d13655b46:lambda_functions/waf/
+lightlytics/lightlytics@5a336d547f29ff2cdac0c2885467abcf284c12f4:lambda_functions/waf/
 python lambda_functions/waf/build.py --cloud gcp --vendor palo-alto --out <dir>
 ```
 

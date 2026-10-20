@@ -4,7 +4,7 @@ vendor's adapter, send the payload."""
 import logging
 import traceback
 
-from stream_connector.loader import select_adapter
+from stream_connector.loader import AdapterRejected, select_adapter
 from stream_connector.sdk import Sdk, Target
 
 log = logging.getLogger("stream_connector")
@@ -18,7 +18,12 @@ def run(api, cloud, updates_enabled=True):
     if not vendor:
         return
 
-    adapter = select_adapter(vendor, api, updates_enabled)()
+    try:
+        adapter = select_adapter(vendor, api, updates_enabled)()
+    except AdapterRejected as e:
+        log.error("No adapter to run: %s", e)
+        api.report_error(f"No adapter to run: {e}")
+        return
     log.info("Collecting %d %s firewalls with adapter v%s", len(entries), vendor, adapter.VERSION)
     elements = []
     for entry in entries:

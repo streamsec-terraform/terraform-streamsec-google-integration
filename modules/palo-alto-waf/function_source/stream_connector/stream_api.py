@@ -1,9 +1,14 @@
 """The Stream backend, as the connector sees it: which firewalls to collect, the current
-adapter release, where errors and the payload go."""
+adapter release, where errors and the payload go.
+
+Best effort, as the connectors before it: a failing call is logged (and reported where it can
+be), never raised, so a run, or a CloudFormation stack delete, does not fail on it.
+"""
 
 import gzip
 import json
 import logging
+import traceback
 import urllib.error
 import urllib.request
 
@@ -25,8 +30,13 @@ class StreamApi:
             return json.loads(response.read() or b"null")
 
     def get_firewalls(self):
-        """(vendor, entries): the integration's type and its firewalls."""
-        data = (self._call("GET", "/api/accounts/waf/firewalls") or {}).get("data") or {}
+        """(vendor, entries): the integration's type and its firewalls; ("", []) if unavailable."""
+        try:
+            data = (self._call("GET", "/api/accounts/waf/firewalls") or {}).get("data") or {}
+        except Exception as e:
+            log.error("Error fetching firewall list: %s", e)
+            self.report_error(traceback.format_exc())
+            return "", []
         return data.get("type", ""), data.get("firewalls", [])
 
     def get_adapter_release(self, vendor):
@@ -55,4 +65,7 @@ class StreamApi:
             body = gzip.compress(body)
             headers["Content-Encoding"] = "gzip"
         log.info("Sending firewall details: %d bytes%s", len(body), " (gzip)" if "Content-Encoding" in headers else "")
-        self._call("POST", "/api/v1/collection/waf-audit", body, headers)
+        try:
+            self._call("POST", "/api/v1/collection/waf-audit", body, headers)
+        except Exception as e:
+            log.error("Error sending firewall details to the stream: %s", e)

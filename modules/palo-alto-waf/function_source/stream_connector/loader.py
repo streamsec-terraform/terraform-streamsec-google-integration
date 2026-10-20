@@ -4,10 +4,13 @@ built into this package.
 A release is the adapter's source file plus an Ed25519 signature over it, made in CI. The
 host runs a release only when the signature verifies against a key pinned in this package
 (trust.PUBLIC_KEYS), the adapter is for the requested vendor and host contract, and it is
-not older than the bundled one (so a replayed old release cannot downgrade a fix). Anything
-else is reported and the bundled adapter runs.
+not older than the bundled one. That stops a replayed release older than this deploy; a
+replayed release between the bundled version and the latest one is still accepted. Vendor,
+host API and version are read from the source before it runs. Anything else is reported and
+the bundled adapter runs.
 """
 
+import ast
 import base64
 import hashlib
 import importlib
@@ -56,6 +59,7 @@ def load_release(vendor, source_b64, signature_b64, min_version):
     current = _current.get(vendor)
     if current and current[0] == digest:
         return current[1]
+    _check_declared(source, vendor, min_version)
 
     # A module name per release, so a new release never mixes with the previous one's
     # module state; registered in sys.modules because dataclasses and typing look it up there.
@@ -79,6 +83,25 @@ def load_release(vendor, source_b64, signature_b64, min_version):
     _current[vendor] = (digest, adapter)
     log.info("Loaded adapter release %s v%s (sha256 %s)", vendor, adapter.VERSION, digest[:16])
     return adapter
+
+
+def _check_declared(source, vendor, min_version):
+    """VENDOR, HOST_API and VERSION of the ADAPTER class, read without running the source."""
+    try:
+        tree = ast.parse(source)
+        name = next(n.value.id for n in tree.body if isinstance(n, ast.Assign) and isinstance(n.value, ast.Name)
+                    and any(isinstance(t, ast.Name) and t.id == "ADAPTER" for t in n.targets))
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == name)
+        declared = {t.id: ast.literal_eval(n.value) for n in cls.body if isinstance(n, ast.Assign)
+                    for t in n.targets if isinstance(t, ast.Name) and t.id in ("VENDOR", "HOST_API", "VERSION")}
+    except (StopIteration, SyntaxError, ValueError):
+        raise AdapterRejected("the release declares no ADAPTER class with literal constants") from None
+    if declared.get("VENDOR") != vendor:
+        raise AdapterRejected(f"adapter is for {declared.get('VENDOR')!r}, not {vendor!r}")
+    if declared.get("HOST_API") not in SUPPORTED_HOST_APIS:
+        raise AdapterRejected(f"adapter needs host API {declared.get('HOST_API')}, this host has {sorted(SUPPORTED_HOST_APIS)}")
+    if not isinstance(declared.get("VERSION"), int) or declared["VERSION"] < min_version:
+        raise AdapterRejected(f"release v{declared.get('VERSION')} is older than the bundled v{min_version}")
 
 
 def _bundled(vendor):
