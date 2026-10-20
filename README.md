@@ -94,10 +94,8 @@ module "streamsec_google_projects" {
 Some GCP APIs are checked against the scanning service account's own project, not the
 project being scanned. The module therefore enables these APIs on the service account's
 project: sqladmin, cloudkms, bigtableadmin, apikeys, appengine, cloudidentity,
-accesscontextmanager, orgpolicy, serviceusage, firebaserules and bigquery. Enabling them is free
-(they turn on without a billing account) and they are never disabled on destroy. Spanner
-and Dataflow are not enabled: both need billing, and Dataflow also turns on the Compute
-Engine API. Enable them on that project yourself to scan Spanner instances or Dataflow jobs.
+accesscontextmanager, orgpolicy, serviceusage, firebaserules and bigquery. They are never
+disabled on destroy.
 
 The identity that applies the module needs `serviceusage.services.enable`,
 `serviceusage.services.get` and `serviceusage.services.list` on that project.
