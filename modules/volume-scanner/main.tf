@@ -541,10 +541,10 @@ resource "terraform_data" "acknowledge" {
 }
 
 # One scan at install, as the AWS and Azure templates start one, instead of the
-# first waiting up to a day for the schedule. Read after the wait, so a token
-# read at plan time can't expire before the scan starts.
+# first waiting up to a day for the schedule. Read at apply time whenever the
+# wait or the job changes, so a token read at plan time can't expire unused.
 data "google_client_config" "current" {
-  depends_on = [time_sleep.iam_propagation]
+  depends_on = [time_sleep.iam_propagation, google_cloud_run_v2_job.orchestrator]
 }
 
 # Grants take typically 2 minutes to take effect, and the scanner fails a run
@@ -582,12 +582,14 @@ resource "terraform_data" "initial_scan" {
     }
   }
 
-  # After the ack, so Stream has the install before its first report, and after
-  # the NATs the workers reach Stream through.
+  # Last: after the ack, so Stream has the install before its first report, and
+  # after the rest, so a failed apply leaves no scan running on its subnet.
   depends_on = [
     time_sleep.iam_propagation,
     terraform_data.acknowledge,
     google_compute_router_nat.scanner,
     google_compute_router_nat.regional,
+    google_cloud_scheduler_job.cron,
+    google_cloud_run_v2_job_iam_member.scanner_invoker,
   ]
 }

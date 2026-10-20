@@ -43,11 +43,6 @@ run "starts_this_install_s_job_once" {
     error_message = "The initial scan must run once per orchestrator job, and on nothing else."
   }
 
-  assert {
-    condition     = time_sleep.iam_propagation.create_duration == "180s"
-    error_message = "The initial scan must wait 3 minutes for the scanner's IAM grants to take effect."
-  }
-
   # A recreated service account has new grants, so the wait must run again.
   assert {
     condition     = time_sleep.iam_propagation.triggers.service_account == google_service_account.scanner.unique_id

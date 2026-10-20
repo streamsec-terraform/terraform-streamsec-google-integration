@@ -74,7 +74,8 @@ An existing install updated to this version scans once at that update.
 
 - **Its output is hidden,** since it carries the runner's access token, which
   Terraform treats as sensitive. To see whether it started, run
-  `gcloud run jobs executions list --job=streamsec-volume-scanner-orchestrator --region=<REGION> --project=<PROJECT_ID>`.
+  `gcloud run jobs executions list --job=streamsec-volume-scanner-orchestrator<NAME_SUFFIX> --region=<REGION> --project=<PROJECT_ID>`,
+  where `<NAME_SUFFIX>` is the `name_suffix` input, empty by default.
 - **The token is kept in the Terraform state** with the data source that reads
   it, as any use of `google_client_config` keeps it. It expires within an hour.
 - **An install shortly before `scan_schedule`** can overlap that night's
