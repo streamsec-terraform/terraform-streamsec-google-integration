@@ -267,7 +267,8 @@ Infrastructure Manager options:
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
                           --org-id becomes optional; project Owner is sufficient)
-  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true)
+  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true,
+                          also on an existing deployment)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
 Leftovers of an earlier integration (checked before step 6):
@@ -1466,6 +1467,33 @@ fi
 
 run_leftover_check || exit 1
 
+# Sets input KEY to {"inputValue": "VALUE"} in the inputValues JSON object on stdin:
+# drops any existing KEY member (split at top-level commas, outside strings) and appends it.
+set_input_value() {
+  awk -v key="$1" -v val="$2" '
+    { s = s $0 "\n" }
+    END {
+      member = "^[ \t\n]*\"" key "\"[ \t\n]*:"
+      for (i = index(s, "{") + 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (esc) esc = 0
+        else if (c == "\\") esc = instr
+        else if (c == "\"") instr = !instr
+        else if (!instr && (c == "{" || c == "[")) depth++
+        else if (!instr && depth > 0 && (c == "}" || c == "]")) depth--
+        else if (!instr && depth == 0 && (c == "," || c == "}")) {
+          sub(/[ \t\n]+$/, "", m)
+          if (m != "" && m !~ member) out = out (n++ ? "," : "") m
+          m = ""
+          if (c == "}") break
+          continue
+        }
+        m = m c
+      }
+      print "{" out (n ? "," : "") "\n  \"" key "\": {\"inputValue\": \"" val "\"}\n}"
+    }'
+}
+
 ###############################################################################
 # Step 6 — Create Infrastructure Manager Preview
 ###############################################################################
@@ -1497,9 +1525,6 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
-    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
-      log_warn "--enable-gke-logs only applies to new deployments. The existing deployment's inputs are kept; set enable_gke_logs = true in its inputs to turn GKE on."
-    fi
     DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
         --project="$PROJECT_ID" --location="$REGION" --quiet \
         --format="json(terraformBlueprint.inputValues)" | awk '
@@ -1519,6 +1544,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     if [[ -z "$DEPLOYMENT_INPUTS_JSON" ]]; then
       log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
       exit 1
+    fi
+    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+      log_info "Setting enable_gke_logs = true in the deployment's inputs."
+      DEPLOYMENT_INPUTS_JSON=$(printf '%s\n' "$DEPLOYMENT_INPUTS_JSON" | set_input_value enable_gke_logs true)
     fi
   elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
     log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"

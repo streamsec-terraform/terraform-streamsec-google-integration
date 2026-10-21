@@ -59,6 +59,7 @@ override_data {
 }
 
 variables {
+  acked_project_ids     = { p1 = "p1", p2 = "p2" }
   org_level_sink        = true
   organization_id       = "123456789"
   project_for_resources = "p1"
@@ -80,6 +81,10 @@ run "org_mode" {
     error_message = "Org mode deploys only in project_for_resources."
   }
   assert {
+    condition     = keys(time_sleep.api_propagation) == ["p1"]
+    error_message = "Org mode needs one API wait, in project_for_resources."
+  }
+  assert {
     condition     = google_cloudfunctions2_function.this["p1"].build_config[0].entry_point == "PubSubGKELogsCollection"
     error_message = "Wrong entry point."
   }
@@ -99,6 +104,10 @@ run "org_mode" {
     condition     = google_pubsub_topic_iam_member.sink_publisher["p1"].member == google_logging_organization_sink.this[0].writer_identity
     error_message = "Topic publisher must be the org sink writer identity."
   }
+  assert {
+    condition     = toset(keys(output.sink_names)) == toset(["p1"]) && output.sink_names["p1"] == "streamsec-gke-audit-logs-pubsub" && toset(keys(output.secret_ids)) == toset(["p1"])
+    error_message = "Org mode outputs one sink name and one secret, keyed by project_for_resources."
+  }
 }
 
 run "project_mode" {
@@ -117,6 +126,10 @@ run "project_mode" {
     error_message = "Project mode needs a topic and function per project."
   }
   assert {
+    condition     = keys(time_sleep.api_propagation) == ["p1", "p2"] && length(split(",", time_sleep.api_propagation["p2"].triggers.apis)) == 9
+    error_message = "Project mode needs an API wait per project, on that project's APIs only."
+  }
+  assert {
     condition     = nonsensitive(google_secret_manager_secret_version.this["p2"].secret_data) == "tok-p2"
     error_message = "Secret p2 must hold the p2 token."
   }
@@ -128,10 +141,18 @@ run "project_mode" {
     condition     = google_logging_project_sink.this["p1"].destination == "pubsub.googleapis.com/projects/p1/topics/streamsec-gke-audit-logs" && google_logging_project_sink.this["p2"].destination == "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs"
     error_message = "Each project sink must target its own topic."
   }
+  assert {
+    condition     = toset(keys(output.sink_names)) == toset(["p1", "p2"]) && toset(keys(output.secret_ids)) == toset(["p1", "p2"]) && output.sink_writer_identities["p2"] == "serviceAccount:sink-p2"
+    error_message = "Project mode outputs a sink name, secret and writer identity per project."
+  }
 }
 
 run "function_config" {
   command = plan
+
+  variables {
+    build_service_account = "projects/p1/serviceAccounts/builder@p1.iam.gserviceaccount.com"
+  }
 
   assert {
     condition     = google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.API_URL == data.streamsec_host.this.host && data.streamsec_host.this.host == "api.example.test"
@@ -144,6 +165,10 @@ run "function_config" {
   assert {
     condition     = google_cloudfunctions2_function.this["p1"].service_config[0].ingress_settings == "ALLOW_INTERNAL_ONLY"
     error_message = "Function ingress must be internal only."
+  }
+  assert {
+    condition     = google_cloudfunctions2_function.this["p1"].build_config[0].service_account == "projects/p1/serviceAccounts/builder@p1.iam.gserviceaccount.com"
+    error_message = "build_service_account must set the build service account."
   }
 }
 
