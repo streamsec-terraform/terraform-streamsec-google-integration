@@ -216,12 +216,13 @@ If the preview succeeded, create the deployment from the preview in the
 
 Re-run the script with the same flags used at onboarding. When the deployment
 (`--deployment-name`, default `streamsec-integration`) already exists, the script updates the
-IAM roles, previews an update of that deployment to the latest release, and prints the Console
-steps to apply it: open the deployment, click **Edit**, set the Git ref to the new release, keep
-all other values, and click **Update**.
+IAM roles, previews an update of that deployment to the latest release with the deployment's own
+inputs, and asks whether to apply it. Review the preview, answer `y`, and the script applies the
+update and waits for it to finish.
 
-A Console update alone is not enough when a release adds deployer permissions; re-running the
-script applies them first.
+Don't update from the GCP Console: its Edit form drops inputs set to `false` (such as
+`org_level_sink` in project-only and single-project mode), so the update would run with the
+module defaults instead.
 
 ### Troubleshooting
 
