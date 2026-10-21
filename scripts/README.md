@@ -218,11 +218,8 @@ Re-run the script with the same flags used at onboarding. When the deployment
 (`--deployment-name`, default `streamsec-integration`) already exists, the script updates the
 IAM roles, previews an update of that deployment to the latest release with the deployment's own
 inputs, and asks whether to apply it. Review the preview, answer `y`, and the script applies the
-update and waits for it to finish.
-
-Don't update from the GCP Console: its Edit form drops inputs set to `false` (such as
-`org_level_sink` in project-only and single-project mode), so the update would run with the
-module defaults instead.
+update and waits for it to finish. With `--yes` it applies without asking. Run the update from the
+script, for example in Cloud Shell.
 
 ### Troubleshooting
 

@@ -1478,6 +1478,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     if [[ -z "$GIT_REF" ]]; then
       log_warn "Could not determine latest release tag. Falling back to 'main' branch."
       GIT_REF="main"
+      GIT_REF_FALLBACK=true
     else
       log_ok "Using latest release tag: $GIT_REF"
     fi
@@ -1671,8 +1672,11 @@ JSONEOF
         echo ""
         if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
           echo "  2. If the preview looks correct, apply it to the existing deployment below."
-          echo "     Don't update from the GCP Console: its Edit form drops inputs set to false."
           echo ""
+          if [[ "${GIT_REF_FALLBACK:-false}" == true ]]; then
+            log_warn "Not applying an update to the 'main' branch. Re-run with --git-ref <release tag>."
+            break
+          fi
           APPLY_RESPONSE="y"
           if [[ "$AUTO_CONFIRM" != true ]]; then
             read -r -p "Apply this update to deployment '$DEPLOYMENT_NAME' now? [y/N] " APPLY_RESPONSE
@@ -1688,6 +1692,10 @@ JSONEOF
           REVISION_BEFORE=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
             --project="$PROJECT_ID" --location="$REGION" --quiet \
             --format="value(latestRevision)" 2>/dev/null || true)
+          if [[ -z "$REVISION_BEFORE" ]]; then
+            log_error "Could not read the current revision of deployment '$DEPLOYMENT_NAME'."
+            exit 1
+          fi
           ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
           if [[ -z "$ACCESS_TOKEN" ]]; then
             log_error "Could not obtain access token. Make sure you are authenticated with gcloud."
@@ -1717,15 +1725,13 @@ JSONEOF
           log_info "Applying the update to '$DEPLOYMENT_NAME'..."
           APPLY_ELAPSED=0
           DEPLOYMENT_STATE=UPDATING
+          REVISION_NOW="$REVISION_BEFORE"
           while [[ $APPLY_ELAPSED -lt $MAX_WAIT_TIME ]]; do
             sleep $POLL_INTERVAL
             APPLY_ELAPSED=$((APPLY_ELAPSED + POLL_INTERVAL))
-            DEPLOYMENT_STATE=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+            read -r DEPLOYMENT_STATE REVISION_NOW < <(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
               --project="$PROJECT_ID" --location="$REGION" --quiet \
-              --format="value(state)" 2>/dev/null || echo "UNKNOWN")
-            REVISION_NOW=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
-              --project="$PROJECT_ID" --location="$REGION" --quiet \
-              --format="value(latestRevision)" 2>/dev/null || true)
+              --format="value(state,latestRevision)" 2>/dev/null || echo "UNKNOWN $REVISION_BEFORE")
             if [[ "$REVISION_NOW" != "$REVISION_BEFORE" ]] && \
                [[ "$DEPLOYMENT_STATE" == ACTIVE || "$DEPLOYMENT_STATE" == FAILED ]]; then
               break
@@ -1733,6 +1739,7 @@ JSONEOF
             echo -ne "\r  Deployment state: $DEPLOYMENT_STATE... (${APPLY_ELAPSED}s elapsed)"
           done
           echo ""
+          [[ "$REVISION_NOW" == "$REVISION_BEFORE" ]] && DEPLOYMENT_STATE="NO NEW REVISION"
           case "$DEPLOYMENT_STATE" in
             ACTIVE)
               log_ok "Deployment '$DEPLOYMENT_NAME' updated to $GIT_REF."

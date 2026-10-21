@@ -36,8 +36,9 @@ case "$*" in
 }
 JSON
         fi
-        [[ "$*" == *"value(state)"* ]] && echo "ACTIVE"
-        [[ "$*" == *"value(latestRevision)"* ]] && { [[ -s "$PATCH_BODY" ]] && echo "r-2" || echo "r-1"; }
+        rev="r-1"; [[ -s "$PATCH_BODY" && "${NEW_REVISION:-true}" == true ]] && rev="r-2"
+        [[ "$*" == *"value(state,latestRevision)"* ]] && echo "${STATE:-ACTIVE} $rev"
+        [[ "$*" == *"value(latestRevision)"* ]] && echo "$rev"
         exit 0 ;;
       false) echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource not found" >&2; exit 1 ;;
       *) echo "ERROR: (gcloud.infra-manager.deployments.describe) PERMISSION_DENIED: Permission denied" >&2; exit 1 ;;
@@ -50,11 +51,11 @@ STUB
   cat > "$dir/curl" <<'STUB'
 #!/usr/bin/env bash
 echo "curl $*" >> "$STUB_LOG"
-out="$CURL_BODY"; [[ " $* " == *" PATCH "* ]] && out="$PATCH_BODY"
+out="$CURL_BODY"; code=200; [[ " $* " == *" PATCH "* ]] && { out="$PATCH_BODY"; code="${PATCH_HTTP:-200}"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --data-binary) [[ "$2" == @- ]] && cat > "$out"; shift 2 ;;
-    -w) printf '200'; shift 2 ;;
+    -w) printf '%s' "$code"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -99,7 +100,8 @@ check '[[ "$(grep "^curl" <<< "$CALLS")" == curl* && "$(grep "^curl" <<< "$CALLS
 check '[[ "$CALLS" == *"-X PATCH https://config.googleapis.com/v1/$DEPLOYMENT_PATH?updateMask=terraformBlueprint"* ]]' "applies the update to the existing deployment"
 check '[[ "$PATCH" == *"\"ref\": \"v9.9.9\""* && "$PATCH" == *"\"custom-sa\""* ]]' "the update uses the new ref and the deployment's own inputs"
 check 'python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"terraformBlueprint\"][\"inputValues\"][\"org_level_sink\"][\"inputValue\"] is False" <<< "$PATCH"' "the update keeps an input set to false"
-check '[[ "$OUTPUT" == *"updated to v9.9.9"* && "$OUTPUT" == *"Don'"'"'t update from the GCP Console"* ]]' "reports the applied update and warns against the Console"
+check '[[ "$OUTPUT" == *"updated to v9.9.9"* ]]' "reports the applied update"
+check '[[ "$PATCH" != *serviceAccount* && "$PATCH" != *labels* ]]' "the update changes only the blueprint"
 check '[[ "$OUTPUT" != *"create the deployment"* ]]' "does not tell the customer to create a new deployment"
 
 run_case "org mode, new deployment" false --yes
@@ -123,6 +125,15 @@ check '[[ "$CALLS" != *"previews create"* ]]' "does not create any preview"
 ANSWERS=$'y\nn\n' run_case "existing deployment, update declined" true
 check '[[ -n "$BODY" && -z "$PATCH" && "$CALLS" != *PATCH* ]]' "previews but does not apply"
 check '[[ "$OUTPUT" == *"Update not applied"* ]]' "says the update was not applied"
+
+STATE=FAILED run_case "existing deployment, update fails" true --yes
+check '[[ "$OUTPUT" == *"The update of"*"failed"* && "$OUTPUT" != *"updated to v9.9.9"* ]]' "reports a failed update"
+
+PATCH_HTTP=400 run_case "existing deployment, update request rejected" true --yes
+check '[[ "$OUTPUT" == *"REST API returned HTTP 400"* && "$OUTPUT" != *"updated to v9.9.9"* ]]' "reports a rejected update request"
+
+NEW_REVISION=false run_case "existing deployment, no new revision" true --yes
+check '[[ "$OUTPUT" == *"still running"* && "$OUTPUT" != *"updated to v9.9.9"* ]]' "does not report success without a new revision"
 
 if [[ $FAILURES -gt 0 ]]; then
   echo "$FAILURES check(s) failed"
