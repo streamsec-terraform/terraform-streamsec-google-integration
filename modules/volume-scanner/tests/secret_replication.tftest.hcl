@@ -1,5 +1,5 @@
 # Automatic replication needs "global", which gcp.resourceLocations can
-# disallow (DEV-23760).
+# disallow.
 
 mock_provider "google" {}
 

@@ -164,7 +164,7 @@ resource "google_secret_manager_secret" "collection_token" {
   project   = var.project_id
   secret_id = "streamsec-volume-scanner${var.name_suffix}-collection-token"
   # In var.region: automatic means "global", which gcp.resourceLocations can
-  # disallow. Existing secrets keep theirs; it can't change in place (DEV-23760).
+  # disallow. Existing secrets keep theirs; it can't change in place.
   replication {
     user_managed {
       replicas {
@@ -293,7 +293,7 @@ resource "google_cloud_run_v2_job" "orchestrator" {
   project  = var.project_id
 
   # The provider defaults this to true, which fails `deployments delete` and
-  # any change that replaces the job (DEV-23759).
+  # any change that replaces the job.
   deletion_protection = false
 
   template {
@@ -301,8 +301,8 @@ resource "google_cloud_run_v2_job" "orchestrator" {
       service_account = google_service_account.scanner.email
 
       # The orchestrator waits while its Batch workers scan, and Cloud Run's
-      # default of 600s per attempt killed it mid-wait on every run
-      # (DEV-22980). 23h is the most a daily job can allow without one run's
+      # default of 600s per attempt killed it mid-wait on every run. 23h is
+      # the most a daily job can allow without one run's
       # orchestrator overlapping the next. It covers a first wave of shards
       # plus a retry each, since the scanner caps a worker at no more than
       # 11h. Fleets with more shards than run at once can still reach it, and
@@ -483,17 +483,10 @@ resource "google_cloud_scheduler_job" "cron" {
 # template_version is omitted when unset so the wire format matches what the
 # variable documents — absent reads as unknown, never as a wrong version.
 locals {
-  # Served by ms_api, not the /api gateway. The gateway has no auth bypass for
-  # this path, so it answered 500 "No authorized" and no GCP project ever
-  # recorded a status or template version; the gateway is also being retired,
-  # so the route was added to ms_api rather than another bypass being carved
-  # into it.
-  #
-  # RELEASE ORDER: this route ships in lightlytics#22455. Do not cut a tag
-  # carrying this URL until that is deployed to the target environment. The ack
-  # below is intentionally non-fatal, so pointing at a route that does not exist
-  # yet does not fail the apply - it just silently goes back to recording
-  # nothing, which is the exact failure this change exists to fix.
+  # Stream's scanner-callback route; the acknowledge token in the body is what
+  # authenticates it. The ack below is intentionally non-fatal, so a URL that
+  # doesn't answer leaves the apply green while Stream records nothing: the
+  # acknowledgement test pins it.
   # trimsuffix, as the palo-alto-waf module does: stream_api_url legitimately
   # arrives with a trailing slash, and "//scanner-callback/..." would 404 —
   # silently, because the ack is non-fatal.

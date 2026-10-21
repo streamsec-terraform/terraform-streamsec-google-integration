@@ -1,6 +1,6 @@
 # Stream Security Palo Alto NGFW collector (GCP)
 
-Deploys the Lightlytics/Stream Security NGFW collector as an IAM-protected
+Deploys the Stream Security NGFW collector as an IAM-protected
 second-generation Cloud Function. Cloud Scheduler invokes the function with
 OIDC, the function reaches private firewall management addresses through
 Serverless VPC Access, and public Stream API traffic continues over the
@@ -34,7 +34,7 @@ cross-project network links rather than creating a connector that cannot work.
 
 ## Infrastructure Manager
 
-The Lightlytics wizard applies `infrastructure-manager/palo-alto-waf`, a thin
+The Stream Security console's wizard applies `infrastructure-manager/palo-alto-waf`, a thin
 root around this module. Its generated command supplies these scalar values:
 
 | Input | Representation |
@@ -54,8 +54,8 @@ root around this module. Its generated command supplies these scalar values:
 boundary because the wizard passes it as one comma-delimited scalar inside
 `--input-values`.
 
-`integration_id` is required and must be supplied by the Lightlytics #22440
-wizard/backend. It must be stable for the lifetime of an integration and must
+`integration_id` is required and must be supplied by the Stream Security
+console. It must be stable for the lifetime of an integration and must
 not contain a token, credential, or other secret. The module lowercases and
 replaces non-alphanumeric runs with `-`, keeps up to the first six readable
 characters, trims a trailing `-` at that truncation boundary, and appends the
@@ -264,7 +264,7 @@ as the typical propagation time for allow-policy changes, and the Cloud
 Functions provider does not retry a build that starts before the permissions
 become effective.
 
-The #22440 setup gives the Infra Manager runner `roles/editor`,
+The console's setup gives the Infra Manager runner `roles/editor`,
 `roles/iam.roleAdmin`, `roles/resourcemanager.projectIamAdmin`, and
 `roles/config.agent`. Editor includes `iam.serviceAccounts.actAs`, but those
 roles do not include `artifactregistry.repositories.setIamPolicy`,
@@ -286,36 +286,31 @@ the grant, must restore it as a project prerequisite or authenticated Scheduler
 requests return `403`.
 
 Firewall secrets must belong to `project_id` (the project ID or numeric project
-number is accepted in each version name). The #22440 runner receives IAM
+number is accepted in each version name). The console's runner receives IAM
 authority only in that project, so accepting cross-project secrets would make
 the generated deployment fail while installing `secretAccessor`.
 
 ## Function-source synchronization
 
-`function_source/` is copied without behavioral or dependency changes from:
+`function_source/` is a copy of Stream Security's NGFW collector, without
+behavioral or dependency changes.
 
-```text
-lightlytics/lightlytics@76e5e26420f7a1518b7d7524418de03ae0067c00:gcp/functions/waf-gcp/
-```
+When the collector changes, replace the complete directory from an immutable
+commit, compare all files, and validate both Python import/compilation and
+Terraform packaging. Do not patch only this copy.
 
-When the upstream collector changes, replace the complete directory from an
-immutable commit, compare all files, update the commit above, and validate both
-Python import/compilation and Terraform packaging. Do not patch only one copy:
-the Lightlytics source directory explicitly identifies this module as its
-deployment copy.
-
-The synchronized collector intentionally retains two upstream behaviors that
-are outside this deployment module's scope: firewall TLS certificate checking
-is disabled, and Palo/Stream HTTP calls do not set socket-level timeouts. The
-Cloud Function timeout remains the outer bound. These should be addressed in
-the canonical Lightlytics source first and then synchronized here.
+The collector intentionally retains two behaviors that are outside this
+deployment module's scope: firewall TLS certificate checking is disabled, and
+Palo/Stream HTTP calls do not set socket-level timeouts. The Cloud Function
+timeout remains the outer bound. These are addressed in the collector's own
+source first and then synchronized here.
 
 ## Direct module usage
 
 ```hcl
 module "palo_alto_waf" {
   source  = "streamsec-terraform/google-integration/streamsec//modules/palo-alto-waf"
-  version = "<release containing DEV-22491>"
+  version = "<version>"
 
   project_id               = "my-project"
   integration_id           = "018f2f1b-7c6a-7d89-9abc-1234567890ab"
@@ -395,9 +390,9 @@ No modules.
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_connector_cidr"></a> [connector\_cidr](#input\_connector\_cidr) | Unused /28 IPv4 range allocated to the Serverless VPC Access connector. | `string` | `"10.10.9.0/28"` | no |
 | <a name="input_deployment_service_account_email"></a> [deployment\_service\_account\_email](#input\_deployment\_service\_account\_email) | Optional Terraform deployment service account. When set, the module grants it a custom role containing only Artifact Registry repository, Cloud Run, and Secret Manager get/set IAM policy so it can install resource-level bindings. Infrastructure Manager supplies its runner account. | `string` | `""` | no |
-| <a name="input_firewall_secret_names"></a> [firewall\_secret\_names](#input\_firewall\_secret\_names) | Comma-delimited Secret Manager version resource names for firewall API keys, as emitted by the Lightlytics wizard. | `string` | `""` | no |
+| <a name="input_firewall_secret_names"></a> [firewall\_secret\_names](#input\_firewall\_secret\_names) | Comma-delimited Secret Manager version resource names for firewall API keys, as emitted by the Stream Security console. | `string` | `""` | no |
 | <a name="input_function_timeout_seconds"></a> [function\_timeout\_seconds](#input\_function\_timeout\_seconds) | Cloud Function timeout. Scheduler allows 30 additional seconds so function failures surface directly. | `number` | `300` | no |
-| <a name="input_integration_id"></a> [integration\_id](#input\_integration\_id) | Stable, non-secret integration identifier supplied by the Lightlytics wizard/backend. It is sanitized and hashed to make module-owned resource names unique within a project. | `string` | n/a | yes |
+| <a name="input_integration_id"></a> [integration\_id](#input\_integration\_id) | Stable, non-secret integration identifier supplied by the Stream Security console. It is sanitized and hashed to make module-owned resource names unique within a project. | `string` | n/a | yes |
 | <a name="input_labels"></a> [labels](#input\_labels) | Additional labels to apply to supported resources. | `map(string)` | `{}` | no |
 | <a name="input_manage_apis"></a> [manage\_apis](#input\_manage\_apis) | Whether to enable the Google APIs required by this deployment. | `bool` | `true` | no |
 | <a name="input_poll_schedule"></a> [poll\_schedule](#input\_poll\_schedule) | Cloud Scheduler cron expression. The deliberate three-minute default leaves processing headroom within the five-minute UI objective; AWS and Azure poll every five minutes. | `string` | `"*/3 * * * *"` | no |
@@ -416,10 +411,10 @@ No modules.
 | <a name="output_build_repository_id"></a> [build\_repository\_id](#output\_build\_repository\_id) | Dedicated Artifact Registry repository used for Cloud Function builds. |
 | <a name="output_build_service_account_email"></a> [build\_service\_account\_email](#output\_build\_service\_account\_email) | Dedicated service account used to build the Cloud Function image. |
 | <a name="output_deployer_role_id"></a> [deployer\_role\_id](#output\_deployer\_role\_id) | Per-integration custom role granted to the deployment service account, or null when bootstrapping is disabled. |
-| <a name="output_deployment_id"></a> [deployment\_id](#output\_deployment\_id) | Infrastructure Manager deployment identifier used by the Lightlytics wizard. |
+| <a name="output_deployment_id"></a> [deployment\_id](#output\_deployment\_id) | Infrastructure Manager deployment identifier used by the Stream Security console. |
 | <a name="output_function_name"></a> [function\_name](#output\_function\_name) | Name of the deployed Cloud Function. |
 | <a name="output_function_uri"></a> [function\_uri](#output\_function\_uri) | IAM-protected URI invoked by Cloud Scheduler. |
-| <a name="output_integration_id"></a> [integration\_id](#output\_integration\_id) | Stable integration identifier supplied by the Lightlytics wizard/backend. |
+| <a name="output_integration_id"></a> [integration\_id](#output\_integration\_id) | Stable integration identifier supplied by the Stream Security console. |
 | <a name="output_integration_secret_id"></a> [integration\_secret\_id](#output\_integration\_secret\_id) | Secret Manager secret containing the Stream integration token. |
 | <a name="output_project_id"></a> [project\_id](#output\_project\_id) | GCP project hosting the deployment. |
 | <a name="output_region"></a> [region](#output\_region) | GCP region hosting the deployment. |

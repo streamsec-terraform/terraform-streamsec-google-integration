@@ -1,4 +1,4 @@
-# The token secrets as releases before DEV-23760 created them.
+# The token secrets as older releases created them.
 terraform {
   required_version = ">= 1.4"
 

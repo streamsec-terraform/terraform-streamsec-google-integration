@@ -1,10 +1,10 @@
 output "deployment_id" {
-  description = "Infrastructure Manager deployment identifier used by the Lightlytics wizard."
+  description = "Infrastructure Manager deployment identifier used by the Stream Security console."
   value       = module.palo_alto_waf.deployment_id
 }
 
 output "integration_id" {
-  description = "Stable integration identifier supplied by the Lightlytics wizard/backend."
+  description = "Stable integration identifier supplied by the Stream Security console."
   value       = module.palo_alto_waf.integration_id
 }
 
