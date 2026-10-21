@@ -71,7 +71,25 @@ run "gke_secret_name_collision" {
     org_level_sink          = true
     enable_real_time_events = true
     gke_secret_name         = "stream-security-collection-token"
+    regional_secret         = false
   }
 
   expect_failures = [terraform_data.gke_inputs]
+}
+
+run "gke_secret_name_same_regional" {
+  command = plan
+
+  variables {
+    org_id                  = "123456789"
+    org_level_sink          = true
+    enable_real_time_events = true
+    gke_secret_name         = "stream-security-collection-token"
+    regional_secret         = true
+  }
+
+  assert {
+    condition     = length(terraform_data.gke_inputs) == 1
+    error_message = "A regional real-time secret of the same name must not clash with the GKE global secret."
+  }
 }
