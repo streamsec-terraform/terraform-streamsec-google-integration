@@ -104,9 +104,18 @@ be granted outside it. IDs are bare: `111111111111`, not
 `folders/111111111111`. `gcloud projects get-ancestors <HUB_PROJECT_ID>` shows
 the organization's ID.
 
+Hub project IDs, service account emails, and folder and project IDs must be
+known at plan time, since each one keys a binding. One taken from a resource
+created in the same apply, such as a new folder's `folder_id`, fails with
+"Invalid for_each argument": create that resource in an earlier apply, or pass
+the ID itself.
+
 A scanner deployed with a `name_suffix` has its own service account, such as
 `streamsec-volume-scanner-stg@<hub project>.iam.gserviceaccount.com`. Pass it in
-`scanner_service_account_emails`.
+`scanner_service_account_emails`. Such a scanner is workload-only, so it never
+uses the role's VM and disk permissions, the `compute.*` ones, but it gets them
+all the same: the role is one fixed set, shared with the console's command and
+by every hub, and can't be trimmed for one of them.
 
 ### Who can run it
 
@@ -137,13 +146,28 @@ None of them creates or deletes anything in the scanned projects. Everything
 that does, such as the scan disks and the snapshot cleanup, is in the hub's own
 project role, created by `modules/volume-scanner`.
 
-**Security.** A grant on the organization makes the hub project as sensitive
-as the organization. Anyone who can act as the hub's scanner service account,
-or change what runs as it in the hub, can snapshot any disk in the
-organization into the hub, read every gen1 Cloud Function's source, and pull
-every Artifact Registry image. Folders or projects narrow that reach. The
-projects you select in Stream decide what the scanner scans, but they do not
-limit what IAM allows; grant on projects when the two must match.
+**Security.** A grant on the organization makes each hub project as sensitive
+as the organization:
+
+- Anyone who can act as a hub's scanner service account, or change what runs
+  as it in the hub, can snapshot any disk in the organization into the hub,
+  read every gen1 Cloud Function's source, and download everything in Artifact
+  Registry: `artifactregistry.repositories.downloadArtifacts` covers every
+  repository and every format, not only container images.
+- The list and get permissions return more than names. Cloud Run services and
+  jobs and Cloud Functions come with their environment variables in plain
+  text, except those referencing Secret Manager, and VMs with their metadata,
+  such as startup scripts. The scanner uses only names, images and source, but
+  anyone acting as its account can read the rest.
+- The hub keeps a snapshot of every disk it scans, as the next scan's base.
+  Anyone in the hub who can read snapshots and create disks from them, such as
+  the hub's Owners, Editors and Compute Admins, can read the data of every
+  scanned disk without acting as the scanner's account. Grant roles in the hub
+  as carefully as in the organization.
+
+Folders or projects narrow that reach. The projects you select in Stream
+decide what the scanner scans, but they do not limit what IAM allows; grant on
+projects when the two must match.
 
 **Not covered by this module:**
 
@@ -241,7 +265,7 @@ No modules.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_create_role"></a> [create\_role](#input\_create\_role) | Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place. | `bool` | `true` | no |
-| <a name="input_grant_on"></a> [grant\_on](#input\_grant\_on) | Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder\_ids = [...] } for the projects under those folders; or { project\_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly. | <pre>object({<br>    organization = optional(bool, false)<br>    folder_ids   = optional(list(string), [])<br>    project_ids  = optional(list(string), [])<br>  })</pre> | <pre>{<br>  "organization": true<br>}</pre> | no |
+| <a name="input_grant_on"></a> [grant\_on](#input\_grant\_on) | Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder\_ids = [...] } for the projects under those folders; or { project\_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly. Omit it for the organization; null is refused. IDs must be known at plan time: one from a resource created in the same apply fails with "Invalid for\_each argument". | <pre>object({<br>    organization = optional(bool, false)<br>    folder_ids   = optional(list(string), [])<br>    project_ids  = optional(list(string), [])<br>  })</pre> | <pre>{<br>  "organization": true<br>}</pre> | no |
 | <a name="input_hub_project_ids"></a> [hub\_project\_ids](#input\_hub\_project\_ids) | The hubs: projects whose volume scanner, deployed by Stream with modules/volume-scanner, also scans other projects of the organization. Each one's streamsec-volume-scanner@<project>.iam.gserviceaccount.com is granted the role. Every hub of the organization shares the one role, so list them all in one instance of this module. IDs must be known at plan time. | `set(string)` | `[]` | no |
 | <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The organization's numeric ID. The custom role is defined there, and the folders and projects in grant\_on must belong to it. | `string` | n/a | yes |
 | <a name="input_scanner_service_account_emails"></a> [scanner\_service\_account\_emails](#input\_scanner\_service\_account\_emails) | More scanner service accounts to grant the role to, besides those of hub\_project\_ids, such as a scanner deployed with a name\_suffix, whose account ends in the suffix. Emails must be known at plan time. | `set(string)` | `[]` | no |
