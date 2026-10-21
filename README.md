@@ -117,9 +117,9 @@ the permission on that project too.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_google"></a> [google](#provider\_google) | 8.7.0 |
-| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | 1.13.3 |
-| <a name="provider_time"></a> [time](#provider\_time) | 0.14.2 |
+| <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
+| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.13 |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
 
 ## Modules
 
@@ -177,7 +177,7 @@ the permission on that project too.
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
-| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create\_sa without sa\_project\_level\_permissions), org-wide project discovery (empty include\_projects), an org-level log sink, GKE logs, or org-level response permissions. | `string` | `null` | no |
+| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create\_sa without sa\_project\_level\_permissions), org-wide project discovery (empty include\_projects), an org-level log sink, an org-level GKE log sink, or org-level response permissions. | `string` | `null` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_project_for_sa"></a> [project\_for\_sa](#input\_project\_for\_sa) | The project to create the Service Account in (if not set and create\_sa is true, will take provider project id). | `string` | `null` | no |

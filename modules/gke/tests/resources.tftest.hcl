@@ -5,7 +5,44 @@ mock_provider "google" {
     }
   }
 }
-mock_provider "streamsec" {}
+mock_provider "streamsec" {
+  mock_data "streamsec_host" {
+    defaults = {
+      host = "api.example.test"
+    }
+  }
+}
+mock_provider "time" {}
+
+override_resource {
+  target          = google_pubsub_topic.this["p1"]
+  override_during = plan
+  values          = { id = "projects/p1/topics/streamsec-gke-audit-logs" }
+}
+
+override_resource {
+  target          = google_pubsub_topic.this["p2"]
+  override_during = plan
+  values          = { id = "projects/p2/topics/streamsec-gke-audit-logs" }
+}
+
+override_resource {
+  target          = google_logging_organization_sink.this[0]
+  override_during = plan
+  values          = { writer_identity = "serviceAccount:org-sink" }
+}
+
+override_resource {
+  target          = google_logging_project_sink.this["p1"]
+  override_during = plan
+  values          = { writer_identity = "serviceAccount:sink-p1" }
+}
+
+override_resource {
+  target          = google_logging_project_sink.this["p2"]
+  override_during = plan
+  values          = { writer_identity = "serviceAccount:sink-p2" }
+}
 
 override_data {
   target = data.streamsec_gcp_project.this["p1"]
@@ -58,6 +95,10 @@ run "org_mode" {
     condition     = nonsensitive(google_secret_manager_secret_version.this["p1"].secret_data) == "tok-p1"
     error_message = "Secret must hold the project token."
   }
+  assert {
+    condition     = google_pubsub_topic_iam_member.sink_publisher["p1"].member == google_logging_organization_sink.this[0].writer_identity
+    error_message = "Topic publisher must be the org sink writer identity."
+  }
 }
 
 run "project_mode" {
@@ -78,6 +119,31 @@ run "project_mode" {
   assert {
     condition     = nonsensitive(google_secret_manager_secret_version.this["p2"].secret_data) == "tok-p2"
     error_message = "Secret p2 must hold the p2 token."
+  }
+  assert {
+    condition     = google_pubsub_topic_iam_member.sink_publisher["p1"].member == "serviceAccount:sink-p1" && google_pubsub_topic_iam_member.sink_publisher["p2"].member == "serviceAccount:sink-p2"
+    error_message = "Each topic publisher must be its own sink writer identity."
+  }
+  assert {
+    condition     = google_logging_project_sink.this["p1"].destination == "pubsub.googleapis.com/projects/p1/topics/streamsec-gke-audit-logs" && google_logging_project_sink.this["p2"].destination == "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs"
+    error_message = "Each project sink must target its own topic."
+  }
+}
+
+run "function_config" {
+  command = plan
+
+  assert {
+    condition     = google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.API_URL == data.streamsec_host.this.host && data.streamsec_host.this.host == "api.example.test"
+    error_message = "API_URL must be the bare Stream Security host."
+  }
+  assert {
+    condition     = google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.SECRET_NAME == "projects/p1/secrets/streamsec-gke-logs-token/versions/latest"
+    error_message = "Wrong SECRET_NAME."
+  }
+  assert {
+    condition     = google_cloudfunctions2_function.this["p1"].service_config[0].ingress_settings == "ALLOW_INTERNAL_ONLY"
+    error_message = "Function ingress must be internal only."
   }
 }
 

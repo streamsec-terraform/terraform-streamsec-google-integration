@@ -451,3 +451,18 @@ abandoned_integration() {
   [ -s "$FAKE_DIR/curl.body" ]
   ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
 }
+
+@test "--enable-gke-logs on an existing deployment warns that its inputs are kept" {
+  deployment streamsec-integration ACTIVE
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--enable-gke-logs only applies to new deployments"* ]]
+  [[ "$output" == *"enable_gke_logs = true"* ]]
+}
+
+@test "no GKE warning on an existing deployment without --enable-gke-logs" {
+  deployment streamsec-integration ACTIVE
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"only applies to new deployments"* ]]
+}

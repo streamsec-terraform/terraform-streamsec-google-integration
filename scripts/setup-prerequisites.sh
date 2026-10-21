@@ -1497,6 +1497,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
+    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+      log_warn "--enable-gke-logs only applies to new deployments. The existing deployment's inputs are kept; set enable_gke_logs = true in its inputs to turn GKE on."
+    fi
     DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
         --project="$PROJECT_ID" --location="$REGION" --quiet \
         --format="json(terraformBlueprint.inputValues)" | awk '
