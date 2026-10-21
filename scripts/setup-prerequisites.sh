@@ -1478,7 +1478,6 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     if [[ -z "$GIT_REF" ]]; then
       log_warn "Could not determine latest release tag. Falling back to 'main' branch."
       GIT_REF="main"
-      GIT_REF_FALLBACK=true
     else
       log_ok "Using latest release tag: $GIT_REF"
     fi
@@ -1676,10 +1675,6 @@ JSONEOF
         if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
           echo "  2. If the preview looks correct, apply it to the existing deployment below."
           echo ""
-          if [[ "${GIT_REF_FALLBACK:-false}" == true ]]; then
-            log_warn "Not applying an update to the 'main' branch. Re-run with --git-ref <release tag>."
-            break
-          fi
           APPLY_RESPONSE="y"
           if [[ "$AUTO_CONFIRM" != true ]]; then
             read -r -p "Apply this update to deployment '$DEPLOYMENT_NAME' now? [y/N] " APPLY_RESPONSE
