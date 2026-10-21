@@ -23,3 +23,5 @@ Two modes, set by `org_level_sink`:
 If you set up GKE audit logs with `setup-realtime.sh` in a project, remove it first: `bash setup-realtime.sh --project <PROJECT_ID> --uninstall --delete-secret`.
 
 Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
+
+Org mode collects every project in the organization (also projects excluded from the integration) unless `gke_include_projects` is set; cluster names match in every project.

@@ -49,8 +49,9 @@ at any time.
 - Use this mode when the person running the script cannot get organization-level access.
   To cover more projects, run the script once per project.
 
-**GKE audit logs (`--enable-gke-logs`):** sets `enable_gke_logs=true` in the deployment inputs for new deployments, and the project role gets the `run.services.*` permissions it needs.
 - When resuming with `--start-from-step`, pass `--project-only` again.
+
+**GKE audit logs (`--enable-gke-logs`):** the project role always includes the `run.services.*` permissions. The flag sets `enable_gke_logs=true` for new deployments only.
 
 ### Prerequisites
 

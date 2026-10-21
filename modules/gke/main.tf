@@ -96,6 +96,11 @@ resource "google_project_service" "this" {
   depends_on         = [terraform_data.inputs]
 }
 
+resource "time_sleep" "api_propagation" {
+  create_duration = "30s"
+  depends_on      = [google_project_service.this]
+}
+
 resource "google_secret_manager_secret" "this" {
   for_each  = local.deploy_projects
   project   = each.value.project_id
@@ -103,7 +108,7 @@ resource "google_secret_manager_secret" "this" {
   replication {
     auto {}
   }
-  depends_on = [terraform_data.inputs, google_project_service.this]
+  depends_on = [terraform_data.inputs, time_sleep.api_propagation]
 }
 
 resource "google_secret_manager_secret_version" "this" {
@@ -117,7 +122,7 @@ resource "google_service_account" "this" {
   project      = each.value.project_id
   account_id   = "streamsec-gke-audit"
   display_name = "Stream Security GKE audit logs"
-  depends_on   = [terraform_data.inputs, google_project_service.this]
+  depends_on   = [terraform_data.inputs, time_sleep.api_propagation]
 }
 
 resource "google_secret_manager_secret_iam_member" "this" {
@@ -132,7 +137,7 @@ resource "google_pubsub_topic" "this" {
   for_each   = local.deploy_projects
   project    = each.value.project_id
   name       = "streamsec-gke-audit-logs"
-  depends_on = [terraform_data.inputs, google_project_service.this]
+  depends_on = [terraform_data.inputs, time_sleep.api_propagation]
 }
 
 resource "google_logging_organization_sink" "this" {
@@ -182,6 +187,7 @@ resource "google_cloudfunctions2_function" "this" {
 
   service_config {
     service_account_email = google_service_account.this[each.key].email
+    ingress_settings      = "ALLOW_INTERNAL_ONLY"
     environment_variables = {
       API_URL     = data.streamsec_host.this.host
       SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
@@ -203,7 +209,7 @@ resource "google_cloud_run_v2_service_iam_member" "invoker" {
   for_each = local.deploy_projects
   project  = each.value.project_id
   location = var.region
-  name     = google_cloudfunctions2_function.this[each.key].name
+  name     = google_cloudfunctions2_function.this[each.key].service_config[0].service
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.this[each.key].email}"
 }

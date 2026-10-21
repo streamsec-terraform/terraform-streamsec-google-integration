@@ -61,6 +61,26 @@ run "clusters" {
   }
 }
 
+run "org_full_scoping_exact" {
+  command = plan
+
+  variables {
+    include_projects = ["p1", "p2"]
+    include_clusters = ["a", "b"]
+    exclude_clusters = ["c"]
+  }
+
+  assert {
+    condition = local.sink_filter == join("\n", [
+      trimspace(file("log_filter.txt")),
+      "(resource.labels.project_id=\"p1\" OR resource.labels.project_id=\"p2\")",
+      "(resource.labels.cluster_name=\"a\" OR resource.labels.cluster_name=\"b\")",
+      "-(resource.labels.cluster_name=\"c\")",
+    ])
+    error_message = "The filter must join base, project, include and exclude clauses with newlines."
+  }
+}
+
 run "project_mode_projects" {
   command = plan
 
