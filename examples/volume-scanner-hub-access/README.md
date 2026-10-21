@@ -17,8 +17,30 @@ terraform apply -var='hub_project_ids=["<HUB_PROJECT_ID>"]' -var=org_id=<ORG_ID>
 ```
 
 `gcloud projects get-ancestors <HUB_PROJECT_ID>` shows the organization's ID.
+List every hub of the organization in `hub_project_ids`: they share one role.
 To grant on folders or projects instead of the whole organization, set
 `grant_on` in `main.tf`.
+
+If the console's command already created the role, the apply fails with
+"already exists and must be imported". Either leave the role to the command,
+and only grant it:
+
+```sh
+terraform apply -var='hub_project_ids=["<HUB_PROJECT_ID>"]' -var=org_id=<ORG_ID> -var=create_role=false
+```
+
+or import it first, so this configuration owns it. `terraform import` needs
+the same variables as the apply:
+
+```sh
+terraform import -var='hub_project_ids=["<HUB_PROJECT_ID>"]' -var=org_id=<ORG_ID> \
+  'module.scanner_hub_access.google_organization_iam_custom_role.target[0]' \
+  organizations/<ORG_ID>/roles/streamsecVolumeScannerTarget
+terraform apply -var='hub_project_ids=["<HUB_PROJECT_ID>"]' -var=org_id=<ORG_ID>
+```
+
+Destroying this configuration with the role it created deletes the role, and
+so the access of every hub in the organization.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

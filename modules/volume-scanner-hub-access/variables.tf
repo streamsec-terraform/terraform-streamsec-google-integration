@@ -44,7 +44,7 @@ variable "grant_on" {
     folder_ids   = optional(list(string), [])
     project_ids  = optional(list(string), [])
   })
-  description = "Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder_ids = [...] } for the projects under those folders; or { project_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly."
+  description = "Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder_ids = [...] } for the projects under those folders; or { project_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly. Omit it for the organization; null is refused. IDs must be known at plan time: one from a resource created in the same apply fails with \"Invalid for_each argument\"."
   default     = { organization = true }
 
   # Neither a null nor an empty list is read as the organization: one computed
