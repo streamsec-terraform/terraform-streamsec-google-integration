@@ -1491,6 +1491,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   if DESCRIBE_ERR=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
       --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
+    REVISION_PREVIEWED=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+        --project="$PROJECT_ID" --location="$REGION" --quiet \
+        --format="value(latestRevision)" 2>/dev/null || true)
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
     DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
         --project="$PROJECT_ID" --location="$REGION" --quiet \
@@ -1694,6 +1697,10 @@ JSONEOF
             --format="value(latestRevision)" 2>/dev/null || true)
           if [[ -z "$REVISION_BEFORE" ]]; then
             log_error "Could not read the current revision of deployment '$DEPLOYMENT_NAME'."
+            exit 1
+          fi
+          if [[ "$REVISION_BEFORE" != "$REVISION_PREVIEWED" ]]; then
+            log_error "Deployment '$DEPLOYMENT_NAME' changed since the preview. Re-run the script to preview it again."
             exit 1
           fi
           ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
