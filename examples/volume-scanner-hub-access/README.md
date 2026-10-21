@@ -8,12 +8,12 @@ console's command already ran in the organization.
 
 ## Run
 
-After the hub's volume scanner is deployed, as an organization admin:
+After the hubs' volume scanners are deployed, as an organization admin:
 
 ```sh
 gcloud auth application-default login
 terraform init
-terraform apply -var=hub_project_id=<HUB_PROJECT_ID> -var=org_id=<ORG_ID>
+terraform apply -var='hub_project_ids=["<HUB_PROJECT_ID>"]' -var=org_id=<ORG_ID>
 ```
 
 `gcloud projects get-ancestors <HUB_PROJECT_ID>` shows the organization's ID.
@@ -46,7 +46,8 @@ No resources.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_hub_project_id"></a> [hub\_project\_id](#input\_hub\_project\_id) | The project whose volume scanner also scans the other projects of the organization. | `string` | n/a | yes |
+| <a name="input_create_role"></a> [create\_role](#input\_create\_role) | Create and manage the organization's streamsecVolumeScannerTarget role. False when Stream's console command created it, or another stack manages it. | `bool` | `true` | no |
+| <a name="input_hub_project_ids"></a> [hub\_project\_ids](#input\_hub\_project\_ids) | The projects whose volume scanner also scans the other projects of the organization. | `set(string)` | n/a | yes |
 | <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The organization's numeric ID. | `string` | n/a | yes |
 
 ## Outputs
@@ -54,6 +55,6 @@ No resources.
 | Name | Description |
 |------|-------------|
 | <a name="output_granted_on"></a> [granted\_on](#output\_granted\_on) | Where the role is granted. |
-| <a name="output_role_name"></a> [role\_name](#output\_role\_name) | The organization custom role granted to the hub's scanner. |
-| <a name="output_scanner_service_account_email"></a> [scanner\_service\_account\_email](#output\_scanner\_service\_account\_email) | The hub scanner's service account the role is granted to. |
+| <a name="output_role_name"></a> [role\_name](#output\_role\_name) | The organization custom role granted to the hubs' scanners. |
+| <a name="output_scanner_service_account_emails"></a> [scanner\_service\_account\_emails](#output\_scanner\_service\_account\_emails) | The hubs' scanner service accounts the role is granted to. |
 <!-- END_TF_DOCS -->
