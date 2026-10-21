@@ -51,7 +51,7 @@ at any time.
 
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
-**GKE audit logs (`--enable-gke-logs`):** the project role always includes the `run.services.*` permissions. The flag sets `enable_gke_logs=true` for new deployments only.
+**GKE audit logs (`--enable-gke-logs`):** the project role always includes the `run.services.*` permissions. The flag sets `enable_gke_logs=true` on new and existing deployments (other inputs are kept).
 
 ### Prerequisites
 

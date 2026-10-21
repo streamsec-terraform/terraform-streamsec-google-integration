@@ -23,6 +23,11 @@ variable "projects" {
   description = "Integrated projects."
 }
 
+variable "acked_project_ids" {
+  type        = map(string)
+  description = "Project ID per integrated project, unknown until its Stream Security ack exists (defers the token lookup of new projects only)."
+}
+
 variable "include_projects" {
   type        = list(string)
   default     = []
@@ -45,6 +50,12 @@ variable "region" {
   type        = string
   default     = "us-central1"
   description = "Function and trigger region."
+}
+
+variable "build_service_account" {
+  type        = string
+  default     = null
+  description = "Service account that builds the function (projects/<project>/serviceAccounts/<email>). Null uses the project default."
 }
 
 variable "secret_name" {

@@ -210,9 +210,15 @@ variable "gke_exclude_clusters" {
 }
 
 variable "gke_region" {
-  description = "Region for the GKE logs Cloud Function."
+  description = "Region for the GKE logs Cloud Function. Null uses google_region, then us-central1."
   type        = string
-  default     = "us-central1"
+  default     = null
+}
+
+variable "gke_build_service_account" {
+  description = "Service account that builds the GKE logs function (projects/<project>/serviceAccounts/<email>). Null uses the project default."
+  type        = string
+  default     = null
 }
 
 variable "gke_secret_name" {

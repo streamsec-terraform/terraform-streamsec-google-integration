@@ -452,17 +452,36 @@ abandoned_integration() {
   ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
 }
 
-@test "--enable-gke-logs on an existing deployment warns that its inputs are kept" {
+@test "--enable-gke-logs on an existing deployment adds the input and keeps the others" {
   deployment streamsec-integration ACTIVE
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
-  [[ "$output" == *"--enable-gke-logs only applies to new deployments"* ]]
-  [[ "$output" == *"enable_gke_logs = true"* ]]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
 }
 
-@test "no GKE warning on an existing deployment without --enable-gke-logs" {
+@test "--enable-gke-logs on an existing deployment replaces an enable_gke_logs input" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "false"\n  },\n  "include_projects": {\n    "inputValue": ["p1", "p,2"]\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 1 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+  grep -q '"inputValue": \["p1", "p,2"\]' "$FAKE_DIR/curl.body"
+}
+
+@test "an existing deployment without --enable-gke-logs keeps its inputs as they are" {
   deployment streamsec-integration ACTIVE
   run_setup
   [ "$status" -eq 0 ]
-  [[ "$output" != *"only applies to new deployments"* ]]
+  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
+  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
+}
+
+@test "org mode passes --enable-gke-logs to the preview's --input-values" {
+  run bash "$SETUP" --project-id p1 --org-id 123 --region us-central1 \
+    --streamsec-host h.example --workspace-id w --api-token t \
+    --git-ref v0.0.0 --skip-permission-check --start-from-step 6 --yes --enable-gke-logs
+  [ "$status" -eq 0 ]
+  called 'infra-manager previews create .*--input-values=[^ ]*enable_gke_logs=true'
 }

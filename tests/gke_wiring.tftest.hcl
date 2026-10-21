@@ -62,3 +62,16 @@ run "gke_override_project_mode" {
     error_message = "gke_org_level_sink = false must give one project sink and no organization sink."
   }
 }
+
+run "gke_secret_name_collision" {
+  command = plan
+
+  variables {
+    org_id                  = "123456789"
+    org_level_sink          = true
+    enable_real_time_events = true
+    gke_secret_name         = "stream-security-collection-token"
+  }
+
+  expect_failures = [terraform_data.gke_inputs]
+}

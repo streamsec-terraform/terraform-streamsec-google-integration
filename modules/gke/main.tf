@@ -12,7 +12,8 @@ locals {
     for k, p in var.projects : k => p if contains(local.include_projects, p.project_id)
   }
 
-  # Keyed by project id; the fallback keeps the precondition (not a lookup error) as the failure.
+  # Keyed by project id. The fallback lets the precondition report a project_for_resources
+  # outside projects; real providers may still add lookup or argument errors.
   deploy_projects = var.org_level_sink ? {
     (var.project_for_resources) = try(var.projects[var.project_for_resources], { project_id = var.project_for_resources, name = var.project_for_resources })
   } : local.gke_projects
@@ -41,6 +42,12 @@ locals {
   ])
 
   sink_filter = join("\n", concat([local.base_filter], local.filter_clauses))
+
+  sink_writer_identities = var.org_level_sink ? {
+    for k in keys(local.deploy_projects) : k => google_logging_organization_sink.this[0].writer_identity
+    } : {
+    for k, s in google_logging_project_sink.this : k => s.writer_identity
+  }
 }
 
 resource "terraform_data" "inputs" {
@@ -85,7 +92,7 @@ data "google_project" "this" {
 
 data "streamsec_gcp_project" "this" {
   for_each   = local.deploy_projects
-  project_id = each.value.project_id
+  project_id = try(var.acked_project_ids[each.key], each.value.project_id)
 }
 
 resource "google_project_service" "this" {
@@ -96,9 +103,13 @@ resource "google_project_service" "this" {
   depends_on         = [terraform_data.inputs]
 }
 
+# One wait per project, so a project added later also waits for its own APIs.
 resource "time_sleep" "api_propagation" {
+  for_each        = local.deploy_projects
   create_duration = "30s"
-  depends_on      = [google_project_service.this]
+  triggers = {
+    apis = join(",", [for s in google_project_service.this : s.service if s.project == each.value.project_id])
+  }
 }
 
 resource "google_secret_manager_secret" "this" {
@@ -165,7 +176,7 @@ resource "google_pubsub_topic_iam_member" "sink_publisher" {
   project  = each.value.project_id
   topic    = google_pubsub_topic.this[each.key].name
   role     = "roles/pubsub.publisher"
-  member   = var.org_level_sink ? google_logging_organization_sink.this[0].writer_identity : google_logging_project_sink.this[each.key].writer_identity
+  member   = local.sink_writer_identities[each.key]
 }
 
 resource "google_cloudfunctions2_function" "this" {
@@ -175,8 +186,9 @@ resource "google_cloudfunctions2_function" "this" {
   location = var.region
 
   build_config {
-    runtime     = "nodejs22"
-    entry_point = "PubSubGKELogsCollection"
+    runtime         = "nodejs22"
+    entry_point     = "PubSubGKELogsCollection"
+    service_account = var.build_service_account
     source {
       storage_source {
         bucket = var.source_bucket
@@ -202,7 +214,7 @@ resource "google_cloudfunctions2_function" "this" {
     service_account_email = google_service_account.this[each.key].email
   }
 
-  depends_on = [terraform_data.inputs, google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
+  depends_on = [terraform_data.inputs, time_sleep.api_propagation, google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
@@ -219,4 +231,6 @@ resource "google_service_account_iam_member" "pubsub_token_creator" {
   service_account_id = google_service_account.this[each.key].name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:service-${data.google_project.this[each.key].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  # The Pub/Sub service agent appears once the API is on; wait for the API and the topic.
+  depends_on = [time_sleep.api_propagation, google_pubsub_topic.this]
 }

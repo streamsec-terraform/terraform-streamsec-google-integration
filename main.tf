@@ -228,6 +228,17 @@ check "response_region" {
   }
 }
 
+# Both modules would create a global secret of the same name in the same project.
+resource "terraform_data" "gke_inputs" {
+  count = var.enable_gke_logs ? 1 : 0
+  lifecycle {
+    precondition {
+      condition     = !(var.enable_real_time_events && var.use_secret_manager && var.gke_secret_name == var.secret_name)
+      error_message = "gke_secret_name must differ from secret_name when real-time events use Secret Manager."
+    }
+  }
+}
+
 module "gke" {
   count                 = var.enable_gke_logs ? 1 : 0
   source                = "./modules/gke"
@@ -238,12 +249,13 @@ module "gke" {
   include_projects      = var.gke_include_projects
   include_clusters      = var.gke_include_clusters
   exclude_clusters      = var.gke_exclude_clusters
-  region                = var.gke_region
+  region                = coalesce(var.gke_region, var.region, "us-central1")
+  build_service_account = var.gke_build_service_account
   secret_name           = var.gke_secret_name
   source_bucket         = var.gke_source_bucket
   source_object         = var.gke_source_object
-
-  depends_on = [streamsec_gcp_project_ack.this]
+  # Unknown until a project's ack exists: only new projects defer their token lookup.
+  acked_project_ids = { for k, a in streamsec_gcp_project_ack.this : k => a.id == null ? null : a.project_id }
 }
 
 module "vertex_ai_logging" {

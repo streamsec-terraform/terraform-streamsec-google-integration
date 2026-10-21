@@ -2,6 +2,7 @@ mock_provider "google" {}
 mock_provider "streamsec" {}
 
 variables {
+  acked_project_ids     = { p1 = "p1", p2 = "p2" }
   org_level_sink        = true
   organization_id       = "123456789"
   project_for_resources = "p1"
@@ -15,7 +16,7 @@ run "base_filter_matches_script" {
   command = plan
 
   assert {
-    condition     = startswith(local.sink_filter, file("tests/fixtures/script_log_filter.txt"))
+    condition     = trimspace(local.base_filter) == trimspace(file("tests/fixtures/script_log_filter.txt"))
     error_message = "The base filter must match the script LOG_FILTER."
   }
 }
@@ -26,6 +27,11 @@ run "org_no_scoping" {
   assert {
     condition     = local.sink_filter == trimspace(file("log_filter.txt"))
     error_message = "Without scoping the filter must be the base filter only."
+  }
+
+  assert {
+    condition     = !endswith(local.sink_filter, "\n")
+    error_message = "The filter must not end with a newline."
   }
 }
 
