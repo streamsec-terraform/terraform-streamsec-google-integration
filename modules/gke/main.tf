@@ -12,9 +12,27 @@ locals {
     for k, p in var.projects : k => p if contains(local.include_projects, p.project_id)
   }
 
+  # Keyed by project id; the fallback keeps the precondition (not a lookup error) as the failure.
   deploy_projects = var.org_level_sink ? {
-    (var.project_for_resources) = { project_for_resources = var.project_for_resources }
+    (var.project_for_resources) = try(var.projects[var.project_for_resources], { project_id = var.project_for_resources, name = var.project_for_resources })
   } : local.gke_projects
+
+  apis = [
+    "cloudfunctions.googleapis.com",
+    "run.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "eventarc.googleapis.com",
+    "pubsub.googleapis.com",
+    "logging.googleapis.com",
+    "secretmanager.googleapis.com",
+    "iam.googleapis.com",
+  ]
+
+  project_apis = {
+    for pair in setproduct(keys(local.deploy_projects), local.apis) :
+    "${pair[0]}/${pair[1]}" => { project = local.deploy_projects[pair[0]].project_id, api = pair[1] }
+  }
 
   filter_clauses = compact([
     var.org_level_sink && length(local.include_projects) > 0 ? "(${join(" OR ", [for p in local.include_projects : "resource.labels.project_id=\"${p}\""])})" : "",
@@ -56,4 +74,143 @@ resource "terraform_data" "inputs" {
       error_message = "The sink filter is longer than 20,000 characters. Use fewer cluster names."
     }
   }
+}
+
+data "streamsec_host" "this" {}
+
+data "google_project" "this" {
+  for_each   = local.deploy_projects
+  project_id = each.value.project_id
+}
+
+data "streamsec_gcp_project" "this" {
+  for_each   = local.deploy_projects
+  project_id = each.value.project_id
+}
+
+resource "google_project_service" "this" {
+  for_each           = local.project_apis
+  project            = each.value.project
+  service            = each.value.api
+  disable_on_destroy = false
+  depends_on         = [terraform_data.inputs]
+}
+
+resource "google_secret_manager_secret" "this" {
+  for_each  = local.deploy_projects
+  project   = each.value.project_id
+  secret_id = var.secret_name
+  replication {
+    auto {}
+  }
+  depends_on = [terraform_data.inputs, google_project_service.this]
+}
+
+resource "google_secret_manager_secret_version" "this" {
+  for_each    = local.deploy_projects
+  secret      = google_secret_manager_secret.this[each.key].id
+  secret_data = data.streamsec_gcp_project.this[each.key].account_token
+}
+
+resource "google_service_account" "this" {
+  for_each     = local.deploy_projects
+  project      = each.value.project_id
+  account_id   = "streamsec-gke-audit"
+  display_name = "Stream Security GKE audit logs"
+  depends_on   = [terraform_data.inputs, google_project_service.this]
+}
+
+resource "google_secret_manager_secret_iam_member" "this" {
+  for_each  = local.deploy_projects
+  project   = each.value.project_id
+  secret_id = google_secret_manager_secret.this[each.key].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.this[each.key].email}"
+}
+
+resource "google_pubsub_topic" "this" {
+  for_each   = local.deploy_projects
+  project    = each.value.project_id
+  name       = "streamsec-gke-audit-logs"
+  depends_on = [terraform_data.inputs, google_project_service.this]
+}
+
+resource "google_logging_organization_sink" "this" {
+  count            = var.org_level_sink ? 1 : 0
+  name             = "streamsec-gke-audit-logs-pubsub"
+  org_id           = var.organization_id
+  destination      = "pubsub.googleapis.com/${google_pubsub_topic.this[var.project_for_resources].id}"
+  filter           = local.sink_filter
+  include_children = true
+  depends_on       = [terraform_data.inputs]
+}
+
+resource "google_logging_project_sink" "this" {
+  for_each               = var.org_level_sink ? {} : local.gke_projects
+  project                = each.value.project_id
+  name                   = "streamsec-gke-audit-logs-pubsub"
+  destination            = "pubsub.googleapis.com/${google_pubsub_topic.this[each.key].id}"
+  filter                 = local.sink_filter
+  unique_writer_identity = true
+  depends_on             = [terraform_data.inputs]
+}
+
+resource "google_pubsub_topic_iam_member" "sink_publisher" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  topic    = google_pubsub_topic.this[each.key].name
+  role     = "roles/pubsub.publisher"
+  member   = var.org_level_sink ? google_logging_organization_sink.this[0].writer_identity : google_logging_project_sink.this[each.key].writer_identity
+}
+
+resource "google_cloudfunctions2_function" "this" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  name     = "stream-sec-gke-logs-pubsub"
+  location = var.region
+
+  build_config {
+    runtime     = "nodejs22"
+    entry_point = "PubSubGKELogsCollection"
+    source {
+      storage_source {
+        bucket = var.source_bucket
+        object = var.source_object
+      }
+    }
+  }
+
+  service_config {
+    service_account_email = google_service_account.this[each.key].email
+    environment_variables = {
+      API_URL     = data.streamsec_host.this.host
+      SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
+    }
+  }
+
+  event_trigger {
+    trigger_region        = var.region
+    event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic          = google_pubsub_topic.this[each.key].id
+    retry_policy          = "RETRY_POLICY_DO_NOT_RETRY"
+    service_account_email = google_service_account.this[each.key].email
+  }
+
+  depends_on = [terraform_data.inputs, google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  location = var.region
+  name     = google_cloudfunctions2_function.this[each.key].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.this[each.key].email}"
+}
+
+resource "google_service_account_iam_member" "pubsub_token_creator" {
+  for_each           = local.deploy_projects
+  service_account_id = google_service_account.this[each.key].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.this[each.key].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
