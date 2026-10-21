@@ -8,7 +8,7 @@ authenticated by tokens minted for this deployment.
 
 ### What this module creates
 
-- **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager, Resource Manager). A scanner that also scans other projects of the organization reads each one with Resource Manager, which counts the call against the scanner's own project, so the API must be enabled there
+- **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager, Resource Manager). A scanner that also scans other projects of the organization reads each one with Resource Manager, which counts the call against the scanner's own project, so the API must be enabled there; see [Scanning other projects](#scanning-other-projects-hub)
 - **Service account** shared by the orchestrator and its workers
 - **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers, plus read access for each workload kind left on (see [Workload scanning](#workload-scanning)); no data-plane read beyond the disks and workloads it scans
 - **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var
@@ -147,6 +147,16 @@ Under a `constraints/gcp.resourceLocations` org policy, the policy must allow `r
 - **Secrets:** both are created with one replica in `region`, and stay there if `region` later changes. A deployment created on an older release keeps its secrets' automatic replication, in `global`. Replication can't change in place, so the module leaves it rather than replacing the secrets, and a location policy doesn't apply to resources that already exist.
 - **Snapshots:** scanner images v0.5.31 and later store each disk's snapshot in that disk's region. Older images leave the location to the project's snapshot settings, by default the nearest multi-region (`us` for `us-central1`), so a policy without it fails every disk scan while the apply succeeds.
 
+### Scanning other projects (hub)
+
+A scanner can also scan other projects of the organization, the ones chosen in Stream, which makes its project the organization's hub. Its snapshots and scan disks stay in the hub, and nothing is created in the projects it scans. Beyond this module, a hub needs:
+
+- **Access to those projects:** one organization custom role, `streamsecVolumeScannerTarget`, granted to the scanner's service account on the organization, on folders, or on projects. Stream's console renders a gcloud command that creates and grants it; [`modules/volume-scanner-hub-access`](../volume-scanner-hub-access) does the same with your own Terraform, and lists the rights either needs.
+- **Worker regions:** `worker_regions` must cover the regions of the VMs in every project it scans. The apply command Stream's console renders for a hub lists them.
+- **Customer-managed keys:** to scan a disk encrypted with one, the hub's Compute Engine service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key.
+
+Before scanning a project, the scanner reads it through Resource Manager, which checks its access and gives the project number. A project it can't read is reported as *No access* in Stream and skipped; the others are scanned. Resource Manager counts the call against the scanner's own project, so the module enables that API in it.
+
 ### A second instance in the same project
 
 Every resource name is fixed, so one deployment per project is the default, and a second apply with other inputs takes the scanner over. To run a second scanner beside it, for example one reporting to a staging workspace, give it a `name_suffix` such as `-stg`. Every project-unique name then carries the suffix: the service account, the custom role, the orchestrator job and its scheduler, both secrets, and the network, subnet, router and NAT.
@@ -176,6 +186,7 @@ gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> -
 - **An instance with a `name_suffix`** has its own deployment, and its job name ends in the suffix, for example `streamsec-volume-scanner-orchestrator-stg`. Use those names, or you delete the other instance.
 - **Delete outside the daily scan, and after the first scan,** which starts at install or at an update to v2.21.0. GCP doesn't delete the scanner's subnet while scan workers still run on it.
 - **From your own root,** bump `version` past v2.15.0 and apply before `terraform destroy`.
+- **A hub** keeps its access to the other projects after its deployment is deleted, since the role and its binding are not part of it. Run `terraform destroy` where you applied [`modules/volume-scanner-hub-access`](../volume-scanner-hub-access), or, if you used the console's command, remove the binding and the role with gcloud.
 - **A change that replaces the job,** such as a new `region`, fails the same way on those deployments. Re-apply from a newer release with no other change first.
 
 Then delete the scanner's snapshots. It keeps one per scanned disk as the next scan's base, and Terraform doesn't track them. gcloud lists them and asks before deleting. Skip this when removing only a suffixed instance: it makes none, so these belong to the other instance.
