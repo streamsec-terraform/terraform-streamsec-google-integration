@@ -15,6 +15,7 @@ authenticated by tokens minted for this deployment.
 - **Isolated VPC** with a subnet, router and Cloud NAT in `region` and in each of `worker_regions`, so scan workers run with no external IP
 - **Orchestrator Cloud Run Job** on a daily **Cloud Scheduler** trigger; workers are created at runtime as **Batch** jobs
 - A post-apply acknowledgement to Stream, best-effort and non-fatal
+- One scan started at install, so the first doesn't wait for the schedule; best-effort and non-fatal (see below)
 
 The orchestrator also gets `COLLECTOR_STREAM_SCAN_TOKEN_SECRET`, the collection token's exact secret version: a resource name, not a secret. Scanner images that read it pass the token to their Batch workers from Secret Manager; older images pass it as a plain job variable, which anyone with the basic Viewer role can read.
 
@@ -50,7 +51,7 @@ If you manage Stream as code, call this module from your own root instead and
 pin `version` — then the scanner updates when you bump the pin, like every
 other submodule here.
 
-### The install acknowledgement runs on your Terraform runner
+### The install acknowledgement and first scan run on your Terraform runner
 
 The module posts an install acknowledgement to Stream through a `local-exec`
 provisioner, so it runs wherever `terraform apply` runs — **not** inside GCP.
@@ -60,8 +61,25 @@ and is swallowed deliberately: it must never fail your apply.
 
 Nothing is lost when that happens. The orchestrator carries the same
 credentials and acknowledges on its first run, so the deployment shows as
-*pending* in the console until the first scheduled scan rather than never
-registering at all.
+*pending* in the console until its first scan rather than never registering at
+all.
+
+The first scan is started the same way, once per orchestrator job, so a new
+install scans right away and a re-apply doesn't scan again. It waits three
+minutes for the scanner's IAM grants to take effect, then calls the Cloud Run API
+(`run.googleapis.com`) with the runner's own Google credentials, which need
+`run.jobs.get` and `run.jobs.run` on the job. It doesn't start a run while one
+is in progress. If it can't start one, the first scan runs on `scan_schedule`.
+An existing install updated to this version scans once at that update.
+
+- **Its output is hidden,** since it carries the runner's access token, which
+  Terraform treats as sensitive. To see whether it started, run
+  `gcloud run jobs executions list --job=streamsec-volume-scanner-orchestrator<NAME_SUFFIX> --region=<REGION> --project=<PROJECT_ID>`,
+  where `<NAME_SUFFIX>` is the `name_suffix` input, empty by default.
+- **The token is kept in the Terraform state** with the data source that reads
+  it, as any use of `google_client_config` keeps it. It expires within an hour.
+- **An install shortly before `scan_schedule`** can overlap that night's
+  scheduled run once, since the schedule doesn't wait for the first scan.
 
 ### Versions and updates
 
@@ -156,7 +174,7 @@ gcloud run jobs delete streamsec-volume-scanner-orchestrator --region=<REGION> -
 ```
 
 - **An instance with a `name_suffix`** has its own deployment, and its job name ends in the suffix, for example `streamsec-volume-scanner-orchestrator-stg`. Use those names, or you delete the other instance.
-- **Delete outside the daily scan.** GCP doesn't delete the scanner's subnet while scan workers still run on it.
+- **Delete outside the daily scan, and after the first scan,** which starts at install or at an update to v2.21.0. GCP doesn't delete the scanner's subnet while scan workers still run on it.
 - **From your own root,** bump `version` past v2.15.0 and apply before `terraform destroy`.
 - **A change that replaces the job,** such as a new `region`, fails the same way on those deployments. Re-apply from a newer release with no other change first.
 

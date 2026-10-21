@@ -28,6 +28,8 @@ mock_provider "google" {
   }
 }
 
+mock_provider "time" {}
+
 # The ack token's version gets a name of its own, so wiring the variable to it
 # fails here.
 override_resource {

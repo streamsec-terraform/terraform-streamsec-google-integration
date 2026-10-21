@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Test double for curl: logs its arguments and the config read with -K -.
+# A :run URL is the start call, anything else reads the job: $FAKE_DIR/job.json
+# is the job, and $FAKE_DIR/get-fail or run-fail makes that call fail like -f.
+set -u
+echo "curl $*" >>"$FAKE_DIR/curl.log"
+cat >>"$FAKE_DIR/curl.stdin"
+case "$*" in
+  *:run*)
+    [[ -f "$FAKE_DIR/run-fail" ]] && { echo "curl: (22) The requested URL returned error: 403" >&2; exit 22; }
+    echo '{"name":"operations/1"}'
+    ;;
+  *)
+    [[ -f "$FAKE_DIR/get-fail" ]] && { echo "curl: (22) The requested URL returned error: 503" >&2; exit 22; }
+    cat "$FAKE_DIR/job.json"
+    ;;
+esac
