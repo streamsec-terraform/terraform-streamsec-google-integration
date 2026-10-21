@@ -42,8 +42,12 @@ whether this module or the console's command granted it. So:
   grants the role, and never changes or deletes it.
 - **Destroying an instance with `create_role = true` deletes the role, and so
   cuts every hub's access in the organization,** including the access granted
-  by the console's command or by instances with `create_role = false`. To stop
-  one hub, remove it from `hub_project_ids` and apply.
+  by the console's command or by instances with `create_role = false`.
+- **To stop a hub, remove it from `hub_project_ids` and apply.** This revokes
+  its bindings and nothing else. It works for the last hub too: an instance
+  with `create_role = true` may list none, and then keeps the role with no
+  bindings of its own, for the hubs granted elsewhere. An instance with
+  `create_role = false` must list at least one.
 
 ### Usage
 
@@ -224,10 +228,15 @@ takes the same `--member` and `--role`.
 
 ### Removing the access
 
-`terraform destroy` removes this instance's bindings. With `create_role = true`
-it also deletes the role, which ends the access of **every** hub in the
-organization, however it was granted. A hub without access reports each
-project it covers as *No access*, and scans only its own project.
+To remove one hub's access, or the last hub's, take it out of
+`hub_project_ids` and apply; the role stays.
+
+To remove the role too, `terraform destroy` the instance that created it. That
+removes its bindings and deletes the role, which ends the access of **every**
+hub in the organization, however it was granted, the console's command
+included. With `create_role = false`, a destroy removes only that instance's
+bindings. A hub without access reports each project it covers as *No access*,
+and scans only its own project.
 
 GCP keeps a deleted role for 7 days; an apply in that time undeletes it. After
 that, the role's ID stays reserved for up to 30 more days, and creating it,
@@ -277,5 +286,5 @@ No modules.
 | <a name="output_granted_on"></a> [granted\_on](#output\_granted\_on) | Where the role is granted: scope is organization, folders or projects, and ids the organization ID, folder IDs or project IDs. |
 | <a name="output_role_id"></a> [role\_id](#output\_role\_id) | ID of the organization custom role granted to the hubs' scanners: streamsecVolumeScannerTarget. |
 | <a name="output_role_name"></a> [role\_name](#output\_role\_name) | Full name of the custom role, organizations/<org\_id>/roles/streamsecVolumeScannerTarget, as IAM bindings name it. |
-| <a name="output_scanner_service_account_emails"></a> [scanner\_service\_account\_emails](#output\_scanner\_service\_account\_emails) | The scanner service accounts the role is granted to: those of hub\_project\_ids, and scanner\_service\_account\_emails. |
+| <a name="output_scanner_service_account_emails"></a> [scanner\_service\_account\_emails](#output\_scanner\_service\_account\_emails) | The scanner service accounts the role is granted to: those of hub\_project\_ids, and scanner\_service\_account\_emails. Empty when an instance that creates the role lists no scanner. |
 <!-- END_TF_DOCS -->

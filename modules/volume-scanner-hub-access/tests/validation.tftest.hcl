@@ -55,12 +55,15 @@ run "service_account_emails_must_be_service_accounts" {
   expect_failures = [var.scanner_service_account_emails]
 }
 
-# Neither a hub nor a service account: nothing to grant the role to.
-run "at_least_one_principal" {
+# An instance that neither owns the role nor grants it to anyone does
+# nothing. One that owns the role may have no scanner left: see
+# grant_on's the_last_hub_removed_keeps_the_role.
+run "no_scanner_without_the_role_is_rejected" {
   command = plan
 
   variables {
     hub_project_ids = []
+    create_role     = false
   }
 
   expect_failures = [output.scanner_service_account_emails]
