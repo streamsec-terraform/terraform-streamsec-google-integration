@@ -428,3 +428,26 @@ abandoned_integration() {
   [[ "$output" == *"can't reach some locations"* ]]
   refute_called ' delete '
 }
+
+@test "the project role can bind an invoker on one Cloud Run service" {
+  run bash "$SETUP" --project-only --project-id p1 --region us-central1 \
+    --streamsec-host h.example --workspace-id w --api-token t \
+    --git-ref v0.0.0 --skip-permission-check --start-from-step 2 --yes
+  [ "$status" -eq 0 ]
+  called 'roles create .*run\.services\.get[,[:space:]]'
+  called 'roles create .*run\.services\.getIamPolicy'
+  called 'roles create .*run\.services\.setIamPolicy'
+}
+
+@test "--enable-gke-logs reaches the preview inputs" {
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+}
+
+@test "without --enable-gke-logs the inputs don't mention GKE" {
+  run_setup
+  [ "$status" -eq 0 ]
+  [ -s "$FAKE_DIR/curl.body" ]
+  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
+}

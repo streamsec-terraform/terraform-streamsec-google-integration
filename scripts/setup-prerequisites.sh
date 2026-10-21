@@ -222,6 +222,7 @@ GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (a tag, or a slash-f
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
+ENABLE_GKE_LOGS="${ENABLE_GKE_LOGS:-false}"
 CHECK_LEFTOVERS="${CHECK_LEFTOVERS:-false}"
 CLEANUP_LEFTOVERS=false   # deletes, so only the flag turns it on
 SKIP_LEFTOVER_CHECK=false
@@ -266,6 +267,7 @@ Infrastructure Manager options:
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
                           --org-id becomes optional; project Owner is sufficient)
+  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
 Leftovers of an earlier integration (checked before step 6):
@@ -305,6 +307,7 @@ while [[ $# -gt 0 ]]; do
     --start-from-step)      START_FROM_STEP="$2";       shift 2 ;;
     --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
     --project-only)         ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; PROJECT_ONLY=true; shift ;;
+    --enable-gke-logs)      ENABLE_GKE_LOGS=true;       shift   ;;
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
     --check-leftovers)      CHECK_LEFTOVERS=true;       shift   ;;
     --cleanup-leftovers)    CLEANUP_LEFTOVERS=true;     shift   ;;
@@ -1291,6 +1294,9 @@ cloudfunctions.functions.getIamPolicy,\
 cloudfunctions.functions.setIamPolicy,\
 cloudfunctions.functions.invoke,\
 cloudfunctions.operations.get,\
+run.services.get,\
+run.services.getIamPolicy,\
+run.services.setIamPolicy,\
 serviceusage.services.enable,\
 serviceusage.services.get,\
 serviceusage.services.list"
@@ -1536,6 +1542,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
   fi
 
+  if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+    IM_INPUT_VALUES="${IM_INPUT_VALUES},enable_gke_logs=true"
+  fi
+
   if [[ "$SINGLE_PROJECT" == true || "$EXISTING_DEPLOYMENT" == true ]]; then
     # IM --input-values wraps all values in quotes, which breaks list types.
     # Use the REST API directly to pass list inputs as proper HCL lists.
@@ -1557,7 +1567,7 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   "google_region": {"inputValue": "$REGION"},
   "streamsec_secret_name": {"inputValue": "$SECRET_NAME"},
   "org_level_sink": {"inputValue": "$ORG_LEVEL_SINK"},
-  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ "$PROJECT_ONLY" == true ]]; then echo ","; echo "  \"sa_project_level_permissions\": {\"inputValue\": \"true\"}"; fi)$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
+  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ "$PROJECT_ONLY" == true ]]; then echo ","; echo "  \"sa_project_level_permissions\": {\"inputValue\": \"true\"}"; fi)$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)$(if [[ "$ENABLE_GKE_LOGS" == true ]]; then echo ","; echo "  \"enable_gke_logs\": {\"inputValue\": \"true\"}"; fi)
 }
 JSONEOF
 )
