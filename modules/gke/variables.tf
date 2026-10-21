@@ -1,67 +1,66 @@
-variable "project_id" {
-  type        = string
-  description = "Target GCP project ID (where bucket, secret, function live)."
+variable "org_level_sink" {
+  type        = bool
+  description = "true: one organization sink and one deployment in project_for_resources. false: a sink and a deployment in each GKE project."
 }
 
-variable "org_id" {
+variable "organization_id" {
   type        = string
-  description = "GCP organization ID (numeric). Used for org-level logging sink."
+  default     = null
+  description = "GCP organization ID. Required when org_level_sink is true."
+}
+
+variable "project_for_resources" {
+  type        = string
+  default     = ""
+  description = "Org mode: integrated project that holds the topic, function and secret."
+}
+
+variable "projects" {
+  type = map(object({
+    project_id = string
+    name       = string
+  }))
+  description = "Integrated projects."
+}
+
+variable "include_projects" {
+  type        = list(string)
+  default     = []
+  description = "GKE projects (subset of projects). Empty means all integrated projects (org mode: the whole organization)."
+}
+
+variable "include_clusters" {
+  type        = list(string)
+  default     = []
+  description = "Cluster names to collect. Empty means all clusters."
+}
+
+variable "exclude_clusters" {
+  type        = list(string)
+  default     = []
+  description = "Cluster names to skip."
 }
 
 variable "region" {
   type        = string
   default     = "us-central1"
-  description = "Cloud Function region."
-}
-
-variable "bucket_name" {
-  type        = string
-  description = "Bucket name to store logs (must be globally unique)."
-}
-
-variable "bucket_location" {
-  type        = string
-  default     = "US"
-  description = "Bucket location/region or multi-region (e.g., US, EU, ASIA, us-central1)."
-}
-
-variable "api_url" {
-  type        = string
-  description = "Stream Security URL, e.g. https://YOUR_ENV.streamsec.io"
+  description = "Function and trigger region."
 }
 
 variable "secret_name" {
   type        = string
   default     = "streamsec-gke-logs-token"
-  description = "Secret Manager secret name holding the StreamSec token."
+  description = "Secret Manager secret name for the Stream Security token."
 }
 
-variable "streamsec_token" {
+variable "source_bucket" {
   type        = string
-  sensitive   = true
-  description = "StreamSec collection token (stored in Secret Manager)."
+  default     = "streamsec-production-public-artifacts"
+  description = "Bucket with the function source zip."
 }
 
-variable "log_sink_name" {
+variable "source_object" {
   type        = string
-  default     = "streamsec-gke-audit-logs"
-  description = "Log router sink name."
-}
-
-variable "function_name" {
-  type        = string
-  default     = "stream-sec-gke-logs-collection"
-  description = "Cloud Function name."
-}
-
-variable "function_runtime" {
-  type        = string
-  default     = "nodejs22"
-  description = "Cloud Function runtime (guide uses nodejs22)."
-}
-
-variable "source_artifact_bucket" {
-  type        = string
-  default     = "streamsec-public-artifacts"
-  description = "Public GCS bucket containing the StreamSec Cloud Function artifact."
+  default     = "gcp-gke-logs-collection.zip"
+  description = "Function source zip object name."
 }
