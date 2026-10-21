@@ -35,7 +35,10 @@ locals {
     "artifactregistry.repositories.downloadArtifacts",
   ]
 
-  role_name = var.create_role ? google_organization_iam_custom_role.target[0].id : "organizations/${var.org_id}/roles/${local.role_id}"
+  # Always the literal name, never the role resource's id: a binding's role is
+  # ForceNew, so switching create_role either way would otherwise replace every
+  # binding. depends_on still orders a created role before its bindings.
+  role_name = "organizations/${var.org_id}/roles/${local.role_id}"
 
   scanner_sa_emails = toset(concat(
     [for id in var.hub_project_ids : "streamsec-volume-scanner@${id}.iam.gserviceaccount.com"],
@@ -75,6 +78,8 @@ resource "google_organization_iam_member" "target" {
   org_id   = var.org_id
   role     = local.role_name
   member   = "serviceAccount:${each.value}"
+
+  depends_on = [google_organization_iam_custom_role.target]
 }
 
 resource "google_folder_iam_member" "target" {
@@ -82,6 +87,8 @@ resource "google_folder_iam_member" "target" {
   folder   = "folders/${each.value.folder_id}"
   role     = local.role_name
   member   = "serviceAccount:${each.value.email}"
+
+  depends_on = [google_organization_iam_custom_role.target]
 }
 
 resource "google_project_iam_member" "target" {
@@ -89,4 +96,6 @@ resource "google_project_iam_member" "target" {
   project  = each.value.project_id
   role     = local.role_name
   member   = "serviceAccount:${each.value.email}"
+
+  depends_on = [google_organization_iam_custom_role.target]
 }

@@ -24,7 +24,7 @@ variable "scanner_service_account_emails" {
 
 variable "create_role" {
   type        = bool
-  description = "Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place."
+  description = "Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place. To hand over a role this instance created, run terraform state rm on it before setting false, or the next apply deletes it."
   default     = true
   nullable    = false
 }
