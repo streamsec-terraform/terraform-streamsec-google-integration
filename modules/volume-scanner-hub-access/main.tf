@@ -1,5 +1,5 @@
 # Stream Security — lets hubs' volume scanners into the other projects of the
-# organization (DEV-23499).
+# organization.
 #
 # The Terraform form of the gcloud command Stream's console renders for a hub,
 # for organizations that manage this with their own Terraform. Not wired into
@@ -12,9 +12,8 @@
 # whose role the command created, sets create_role = false.
 
 locals {
-  # Must match lightlytics' _GCP_SCANNER_TARGET_ROLE_ID and
-  # _GCP_SCANNER_TARGET_PERMISSIONS (ms_accounts/account_handler.py): the
-  # console's command manages this same role, so the two must agree.
+  # Must match the role Stream's console command manages, its id and its
+  # permissions: both manage this same role, so the two must agree.
   role_id = "streamsecVolumeScannerTarget"
   permissions = [
     # VMs: find them, and snapshot their disks into the hub.

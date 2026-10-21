@@ -136,7 +136,7 @@ run "several_hubs_on_folders" {
   }
 }
 
-# Option C: IAM matches the projects selected in Stream exactly.
+# On projects: IAM matches the projects selected in Stream exactly.
 run "projects" {
   command = apply
 

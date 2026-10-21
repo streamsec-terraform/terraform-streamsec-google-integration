@@ -92,7 +92,7 @@ locals {
 
 # Required APIs. Resource Manager serves a hub scanner's projects.get on the
 # projects it covers, and is client-based: it counts against the caller's
-# project, this one, not the project read (DEV-23499).
+# project, this one, not the project read.
 resource "google_project_service" "apis" {
   for_each = toset([
     "compute.googleapis.com",
