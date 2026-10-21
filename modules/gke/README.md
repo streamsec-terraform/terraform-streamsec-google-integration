@@ -13,7 +13,7 @@ Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does no
 
 Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
 
-Upgrading from the old bucket-based GKE module: remove it first (`terraform destroy -target=module.gke`, then empty the logs bucket).
+Upgrading from the old bucket-based GKE module: remove the logs bucket's retention policy and empty the bucket, then run `terraform destroy -target=module.gke`.
 
 Org mode collects every project in the organization (also projects excluded from the integration) unless `include_projects` is set (root: `gke_include_projects`); cluster names match in every project.
 

@@ -228,13 +228,13 @@ check "response_region" {
   }
 }
 
-# Both modules would create a global secret of the same name in the same project.
+# A global real-time secret and the GKE global secret of the same name would clash in the same project.
 resource "terraform_data" "gke_inputs" {
   count = var.enable_gke_logs ? 1 : 0
   lifecycle {
     precondition {
-      condition     = !(var.enable_real_time_events && var.use_secret_manager && var.gke_secret_name == var.secret_name)
-      error_message = "gke_secret_name must differ from secret_name when real-time events use Secret Manager."
+      condition     = !(var.enable_real_time_events && var.use_secret_manager && !var.regional_secret && var.gke_secret_name == var.secret_name)
+      error_message = "gke_secret_name must differ from secret_name when real-time events use a global Secret Manager secret."
     }
   }
 }
