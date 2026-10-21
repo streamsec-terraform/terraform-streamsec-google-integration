@@ -86,6 +86,19 @@ run "project_ids_must_be_project_ids" {
   expect_failures = [var.grant_on]
 }
 
+# Omitted, grant_on means the organization. An explicit null is refused
+# rather than read the same way: a null computed by mistake would otherwise
+# widen the grant to every project.
+run "a_null_grant_on_is_rejected" {
+  command = plan
+
+  variables {
+    grant_on = null
+  }
+
+  expect_failures = [var.grant_on]
+}
+
 # Zero places. An empty list must not fall back to the organization: a list
 # computed empty by mistake would otherwise widen the grant to every project.
 run "nowhere_is_rejected" {

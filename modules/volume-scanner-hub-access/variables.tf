@@ -46,22 +46,28 @@ variable "grant_on" {
   })
   description = "Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder_ids = [...] } for the projects under those folders; or { project_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly."
   default     = { organization = true }
-  nullable    = false
 
-  # An empty list is not read as the organization: a list computed empty by
-  # mistake would widen the grant to every project.
+  # Neither a null nor an empty list is read as the organization: one computed
+  # by mistake would widen the grant to every project. The other validations
+  # guard against null with a conditional, since && doesn't short-circuit
+  # before Terraform 1.12.
   validation {
-    condition     = length([for on in [var.grant_on.organization, length(var.grant_on.folder_ids) > 0, length(var.grant_on.project_ids) > 0] : on if on]) == 1
+    condition     = var.grant_on != null
+    error_message = "grant_on can't be null. Omit it to grant on the organization."
+  }
+
+  validation {
+    condition     = var.grant_on == null ? true : length([for on in [var.grant_on.organization, length(var.grant_on.folder_ids) > 0, length(var.grant_on.project_ids) > 0] : on if on]) == 1
     error_message = "grant_on must name exactly one place: { organization = true }, { folder_ids = [...] } with at least one folder, or { project_ids = [...] } with at least one project."
   }
 
   validation {
-    condition     = alltrue([for id in var.grant_on.folder_ids : can(regex("^[0-9]{1,20}$", id))])
+    condition     = var.grant_on == null ? true : alltrue([for id in var.grant_on.folder_ids : can(regex("^[0-9]{1,20}$", id))])
     error_message = "grant_on.folder_ids must be numeric folder IDs, digits only, without \"folders/\"."
   }
 
   validation {
-    condition     = alltrue([for id in var.grant_on.project_ids : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", id))])
+    condition     = var.grant_on == null ? true : alltrue([for id in var.grant_on.project_ids : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", id))])
     error_message = "grant_on.project_ids must be GCP project IDs: 6 to 30 lowercase letters, digits or hyphens, starting with a letter and not ending with a hyphen."
   }
 }
