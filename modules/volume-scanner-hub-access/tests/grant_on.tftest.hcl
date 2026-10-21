@@ -199,6 +199,43 @@ run "service_accounts_without_hub_ids" {
   }
 }
 
+# The instance that owns the shared role, with its last hub removed: the
+# apply revokes that hub's binding and keeps the role, which other hubs and
+# the console's bindings still use. Destroying the instance instead would
+# delete the role.
+run "the_last_hub_removed_keeps_the_role" {
+  command = apply
+
+  variables {
+    hub_project_ids                = []
+    scanner_service_account_emails = []
+  }
+
+  assert {
+    condition     = length(google_organization_iam_custom_role.target) == 1
+    error_message = "With no scanner left, an instance with create_role = true must keep the role."
+  }
+
+  assert {
+    condition = (
+      length(google_organization_iam_member.target) == 0
+      && length(google_folder_iam_member.target) == 0
+      && length(google_project_iam_member.target) == 0
+    )
+    error_message = "With no scanner left, the instance must hold no binding."
+  }
+
+  assert {
+    condition     = length(output.scanner_service_account_emails) == 0 && length(output.granted_on.ids) == 0
+    error_message = "With no scanner left, the outputs must list no account and no place granted."
+  }
+
+  assert {
+    condition     = output.role_name == "organizations/123456789012/roles/streamsecVolumeScannerTarget"
+    error_message = "The outputs must still name the role."
+  }
+}
+
 # The role created by the console's command, or by another stack: bind it by
 # its name and leave it alone, so destroying this instance can't delete it.
 run "role_owned_elsewhere" {
