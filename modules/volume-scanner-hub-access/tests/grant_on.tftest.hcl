@@ -1,7 +1,7 @@
-# The role's name is computed, so a plan knows it only through the mock.
+# The role's name is computed, so these runs apply against the mock, which
+# sets it. Applying rather than overriding during plan keeps the tests valid on
+# Terraform 1.7, the version in the repo's pre-commit hook image.
 mock_provider "google" {
-  override_during = plan
-
   mock_resource "google_organization_iam_custom_role" {
     defaults = {
       id   = "organizations/123456789012/roles/streamsecVolumeScannerTarget"
@@ -18,7 +18,7 @@ variables {
 # As the console's command without folders: every project of the
 # organization, including ones created later.
 run "organization_by_default" {
-  command = plan
+  command = apply
 
   assert {
     condition = (
@@ -59,7 +59,7 @@ run "organization_by_default" {
 
 # A null grant_on is the default, not "nowhere".
 run "null_means_the_organization" {
-  command = plan
+  command = apply
 
   variables {
     grant_on = null
@@ -72,7 +72,7 @@ run "null_means_the_organization" {
 }
 
 run "folders" {
-  command = plan
+  command = apply
 
   variables {
     grant_on = { folder_ids = ["111111111111", "222222222222"] }
@@ -104,7 +104,7 @@ run "folders" {
 
 # Option C: IAM matches the projects selected in Stream exactly.
 run "projects" {
-  command = plan
+  command = apply
 
   variables {
     grant_on = { project_ids = ["app-prod-123", "app-staging-456"] }
@@ -137,7 +137,7 @@ run "projects" {
 # For a scanner whose service account isn't the default, such as a suffixed
 # instance's.
 run "service_account_override" {
-  command = plan
+  command = apply
 
   variables {
     scanner_service_account_email = "streamsec-volume-scanner-stg@scanner-hub-123.iam.gserviceaccount.com"
