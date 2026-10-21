@@ -66,10 +66,13 @@ module "streamsec_google_projects" {
   auto_grant_workflow_invoker    = var.auto_grant_workflow_invoker
 
   # GKE Module
-  enable_gke_logs     = var.enable_gke_logs
-  gke_bucket_name     = var.gke_bucket_name
-  gke_bucket_location = var.gke_bucket_location
-  gke_api_url         = var.gke_api_url
-  gke_secret_name     = var.gke_secret_name
-  gke_streamsec_token = var.gke_streamsec_token
+  enable_gke_logs      = var.enable_gke_logs
+  gke_org_level_sink   = var.gke_org_level_sink
+  gke_include_projects = var.gke_include_projects
+  gke_include_clusters = var.gke_include_clusters
+  gke_exclude_clusters = var.gke_exclude_clusters
+  gke_region           = var.gke_region
+  gke_secret_name      = var.gke_secret_name
+  gke_source_bucket    = var.gke_source_bucket
+  gke_source_object    = var.gke_source_object
 }

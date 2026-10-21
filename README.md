@@ -117,9 +117,9 @@ the permission on that project too.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
-| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.13 |
-| <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
+| <a name="provider_google"></a> [google](#provider\_google) | 8.7.0 |
+| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | 1.13.3 |
+| <a name="provider_time"></a> [time](#provider\_time) | 0.14.2 |
 
 ## Modules
 
@@ -166,11 +166,14 @@ the permission on that project too.
 | <a name="input_excluded_project_strings"></a> [excluded\_project\_strings](#input\_excluded\_project\_strings) | A list of substrings to exclude. Any project whose display name contains one of these strings will be excluded. | `list(string)` | `[]` | no |
 | <a name="input_existing_sa_json_file_path"></a> [existing\_sa\_json\_file\_path](#input\_existing\_sa\_json\_file\_path) | The path to the JSON file for the existing Service Account. | `string` | `null` | no |
 | <a name="input_function_service_account_id"></a> [function\_service\_account\_id](#input\_function\_service\_account\_id) | The account ID of the Service Account to be used for Stream Security Functions. | `string` | `null` | no |
-| <a name="input_gke_api_url"></a> [gke\_api\_url](#input\_gke\_api\_url) | Stream Security API URL for GKE logs collection, e.g. https://app.streamsec.io | `string` | `"https://app.streamsec.io"` | no |
-| <a name="input_gke_bucket_location"></a> [gke\_bucket\_location](#input\_gke\_bucket\_location) | Bucket location/region or multi-region for GKE logs (e.g., US, EU, ASIA, us-central1). | `string` | `"US"` | no |
-| <a name="input_gke_bucket_name"></a> [gke\_bucket\_name](#input\_gke\_bucket\_name) | Base bucket name for GKE audit logs storage (must be globally unique). | `string` | `"gke-audit-logs"` | no |
+| <a name="input_gke_exclude_clusters"></a> [gke\_exclude\_clusters](#input\_gke\_exclude\_clusters) | GKE cluster names to skip. | `list(string)` | `[]` | no |
+| <a name="input_gke_include_clusters"></a> [gke\_include\_clusters](#input\_gke\_include\_clusters) | GKE cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
+| <a name="input_gke_include_projects"></a> [gke\_include\_projects](#input\_gke\_include\_projects) | Projects to collect GKE logs from. Empty means all integrated projects (project mode) or no project filter (org mode). | `list(string)` | `[]` | no |
+| <a name="input_gke_org_level_sink"></a> [gke\_org\_level\_sink](#input\_gke\_org\_level\_sink) | Use an organization-level log sink for GKE. Null follows org\_level\_sink. Set false for project sinks (no org\_id needed). | `bool` | `null` | no |
+| <a name="input_gke_region"></a> [gke\_region](#input\_gke\_region) | Region for the GKE logs Cloud Function. | `string` | `"us-central1"` | no |
 | <a name="input_gke_secret_name"></a> [gke\_secret\_name](#input\_gke\_secret\_name) | Secret Manager secret name holding the StreamSec GKE collection token. | `string` | `"streamsec-gke-logs-token"` | no |
-| <a name="input_gke_streamsec_token"></a> [gke\_streamsec\_token](#input\_gke\_streamsec\_token) | StreamSec collection token for GKE logs (stored in Secret Manager). | `string` | `""` | no |
+| <a name="input_gke_source_bucket"></a> [gke\_source\_bucket](#input\_gke\_source\_bucket) | Bucket holding the GKE logs function source zip. | `string` | `"streamsec-production-public-artifacts"` | no |
+| <a name="input_gke_source_object"></a> [gke\_source\_object](#input\_gke\_source\_object) | Object name of the GKE logs function source zip. | `string` | `"gcp-gke-logs-collection.zip"` | no |
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
