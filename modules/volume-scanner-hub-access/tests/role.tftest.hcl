@@ -58,22 +58,31 @@ run "role_matches_the_console_command" {
 # waits for the role it names. Here, not in grant_on's tests: the role must be
 # created in this run for the override to apply, and those runs share a state
 # that already holds it.
-run "bindings_name_the_created_role" {
-  command = apply
+# A binding's role is ForceNew, so it must not depend on who owns the role:
+# switching create_role either way would otherwise replace every binding.
+run "bindings_name_the_role_whoever_owns_it" {
+  command = plan
 
   variables {
     grant_on = { folder_ids = ["111111111111"] }
   }
 
-  override_resource {
-    target = google_organization_iam_custom_role.target
-    values = {
-      id = "organizations/123456789012/roles/streamsecVolumeScannerTarget-as-created"
-    }
+  assert {
+    condition     = alltrue([for b in google_folder_iam_member.target : b.role == "organizations/123456789012/roles/streamsecVolumeScannerTarget"])
+    error_message = "With create_role = true the bindings must name the role literally."
+  }
+}
+
+run "bindings_name_the_same_role_when_it_is_owned_elsewhere" {
+  command = plan
+
+  variables {
+    grant_on    = { folder_ids = ["111111111111"] }
+    create_role = false
   }
 
   assert {
-    condition     = alltrue([for b in google_folder_iam_member.target : b.role == "organizations/123456789012/roles/streamsecVolumeScannerTarget-as-created"])
-    error_message = "With create_role = true the bindings must take the role's name from the role resource."
+    condition     = alltrue([for b in google_folder_iam_member.target : b.role == "organizations/123456789012/roles/streamsecVolumeScannerTarget"])
+    error_message = "With create_role = false the bindings must name the same role as with true."
   }
 }

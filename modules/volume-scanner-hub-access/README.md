@@ -39,15 +39,17 @@ whether this module or the console's command granted it. So:
   second instance that creates the role fails, because the role already exists.
 - **Set `create_role = false`** when the role exists and something else owns
   it: the console's command, or another instance or stack. The module then only
-  grants the role, and never changes or deletes it.
+  grants the role, and never changes or deletes it. **To hand over a role this
+  instance created,** take it out of the state first, or the apply that sets
+  `create_role = false` deletes it, and with it every hub's access:
+  `terraform state rm 'module.<name>.google_organization_iam_custom_role.target[0]'`.
 - **Destroying an instance with `create_role = true` deletes the role, and so
   cuts every hub's access in the organization,** including the access granted
   by the console's command or by instances with `create_role = false`.
 - **To stop a hub, remove it from `hub_project_ids` and apply.** This revokes
-  its bindings and nothing else. It works for the last hub too: an instance
-  with `create_role = true` may list none, and then keeps the role with no
-  bindings of its own, for the hubs granted elsewhere. An instance with
-  `create_role = false` must list at least one.
+  its bindings and nothing else. It works for the last hub too: an instance may
+  list none, and then holds no bindings; with `create_role = true` it keeps the
+  role for the hubs granted elsewhere.
 
 ### Usage
 
@@ -273,7 +275,7 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_create_role"></a> [create\_role](#input\_create\_role) | Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place. | `bool` | `true` | no |
+| <a name="input_create_role"></a> [create\_role](#input\_create\_role) | Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place. To hand over a role this instance created, run terraform state rm on it before setting false, or the next apply deletes it. | `bool` | `true` | no |
 | <a name="input_grant_on"></a> [grant\_on](#input\_grant\_on) | Where the role is granted, exactly one of: { organization = true }, the default, for every project of the organization, including ones created later; { folder\_ids = [...] } for the projects under those folders; or { project\_ids = [...] } for those projects only, so IAM matches the projects selected in Stream exactly. Omit it for the organization; null is refused. IDs must be known at plan time: one from a resource created in the same apply fails with "Invalid for\_each argument". | <pre>object({<br>    organization = optional(bool, false)<br>    folder_ids   = optional(list(string), [])<br>    project_ids  = optional(list(string), [])<br>  })</pre> | <pre>{<br>  "organization": true<br>}</pre> | no |
 | <a name="input_hub_project_ids"></a> [hub\_project\_ids](#input\_hub\_project\_ids) | The hubs: projects whose volume scanner, deployed by Stream with modules/volume-scanner, also scans other projects of the organization. Each one's streamsec-volume-scanner@<project>.iam.gserviceaccount.com is granted the role. Every hub of the organization shares the one role, so list them all in one instance of this module. IDs must be known at plan time. | `set(string)` | `[]` | no |
 | <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The organization's numeric ID. The custom role is defined there, and the folders and projects in grant\_on must belong to it. | `string` | n/a | yes |

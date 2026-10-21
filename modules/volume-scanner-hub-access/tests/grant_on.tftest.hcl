@@ -264,3 +264,22 @@ run "role_owned_elsewhere" {
     error_message = "The outputs must name the existing role."
   }
 }
+
+# Without the role, the last hub can leave too: the instance then holds nothing.
+run "the_last_hub_removed_without_the_role" {
+  command = plan
+
+  variables {
+    hub_project_ids = []
+    create_role     = false
+  }
+
+  assert {
+    condition     = length(google_organization_iam_custom_role.target) == 0 && length(google_organization_iam_member.target) == 0
+    error_message = "An instance without the role that lists no scanner must create nothing."
+  }
+  assert {
+    condition     = length(output.scanner_service_account_emails) == 0
+    error_message = "It lists no scanner."
+  }
+}
