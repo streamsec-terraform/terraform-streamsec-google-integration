@@ -1,11 +1,11 @@
 output "role_name" {
-  description = "The organization custom role granted to the hub's scanner."
+  description = "The organization custom role granted to the hubs' scanners."
   value       = module.scanner_hub_access.role_name
 }
 
-output "scanner_service_account_email" {
-  description = "The hub scanner's service account the role is granted to."
-  value       = module.scanner_hub_access.scanner_service_account_email
+output "scanner_service_account_emails" {
+  description = "The hubs' scanner service accounts the role is granted to."
+  value       = module.scanner_hub_access.scanner_service_account_emails
 }
 
 output "granted_on" {

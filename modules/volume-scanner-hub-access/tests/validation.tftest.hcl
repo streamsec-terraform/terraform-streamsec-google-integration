@@ -1,8 +1,8 @@
 mock_provider "google" {}
 
 variables {
-  hub_project_id = "scanner-hub-123"
-  org_id         = "123456789012"
+  hub_project_ids = ["scanner-hub-123"]
+  org_id          = "123456789012"
 }
 
 run "org_id_must_be_digits" {
@@ -25,34 +25,45 @@ run "org_id_must_not_be_empty" {
   expect_failures = [var.org_id]
 }
 
-run "hub_project_id_must_be_a_project_id" {
+run "hub_project_ids_must_be_project_ids" {
   command = plan
 
   variables {
-    hub_project_id = "Scanner_Hub"
+    hub_project_ids = ["scanner-hub-123", "Scanner_Hub"]
   }
 
-  expect_failures = [var.hub_project_id]
+  expect_failures = [var.hub_project_ids]
 }
 
-run "hub_project_id_must_not_be_too_short" {
+run "hub_project_ids_must_not_be_too_short" {
   command = plan
 
   variables {
-    hub_project_id = "hub"
+    hub_project_ids = ["hub"]
   }
 
-  expect_failures = [var.hub_project_id]
+  expect_failures = [var.hub_project_ids]
 }
 
-run "service_account_must_be_a_service_account" {
+run "service_account_emails_must_be_service_accounts" {
   command = plan
 
   variables {
-    scanner_service_account_email = "someone@example.com"
+    scanner_service_account_emails = ["streamsec-volume-scanner-stg@scanner-hub-123.iam.gserviceaccount.com", "someone@example.com"]
   }
 
-  expect_failures = [var.scanner_service_account_email]
+  expect_failures = [var.scanner_service_account_emails]
+}
+
+# Neither a hub nor a service account: nothing to grant the role to.
+run "at_least_one_principal" {
+  command = plan
+
+  variables {
+    hub_project_ids = []
+  }
+
+  expect_failures = [output.scanner_service_account_emails]
 }
 
 run "folder_ids_must_be_digits" {

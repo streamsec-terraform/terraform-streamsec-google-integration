@@ -1,8 +1,8 @@
 ###############################################################################
-# A hub volume scanner's access to the other projects of the organization
+# Hub volume scanners' access to the other projects of the organization
 #
-# Run by an organization admin once the hub's volume scanner is deployed: the
-# role is granted to the service account that deployment created.
+# Run by an organization admin once the hubs' volume scanners are deployed: the
+# role is granted to the service accounts those deployments created.
 ###############################################################################
 
 # The credentials of the person running this. Every resource names its
@@ -12,8 +12,9 @@ provider "google" {}
 module "scanner_hub_access" {
   source = "../../modules/volume-scanner-hub-access"
 
-  hub_project_id = var.hub_project_id
-  org_id         = var.org_id
+  hub_project_ids = var.hub_project_ids
+  org_id          = var.org_id
+  create_role     = var.create_role
 
   # The whole organization by default. To narrow the grant, name folders or
   # projects instead, one of the two:

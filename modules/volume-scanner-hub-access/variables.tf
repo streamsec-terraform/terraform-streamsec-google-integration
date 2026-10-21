@@ -1,22 +1,32 @@
 # Stream Security — GCP volume scanner hub access: module inputs.
 
-variable "hub_project_id" {
-  type        = string
-  description = "The hub: the project whose volume scanner, deployed by Stream with modules/volume-scanner, also scans other projects of the organization."
+variable "hub_project_ids" {
+  type        = set(string)
+  description = "The hubs: projects whose volume scanner, deployed by Stream with modules/volume-scanner, also scans other projects of the organization. Each one's streamsec-volume-scanner@<project>.iam.gserviceaccount.com is granted the role. Every hub of the organization shares the one role, so list them all in one instance of this module. IDs must be known at plan time."
+  default     = []
+  nullable    = false
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.hub_project_id))
-    error_message = "hub_project_id must be a GCP project ID: 6 to 30 lowercase letters, digits or hyphens, starting with a letter and not ending with a hyphen."
+    condition     = alltrue([for id in var.hub_project_ids : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", id))])
+    error_message = "hub_project_ids must be GCP project IDs: 6 to 30 lowercase letters, digits or hyphens, starting with a letter and not ending with a hyphen."
   }
 }
 
-variable "scanner_service_account_email" {
-  type        = string
-  description = "The hub scanner's service account. Null, the default, means streamsec-volume-scanner@<hub_project_id>.iam.gserviceaccount.com, the one modules/volume-scanner creates. Set it for a scanner deployed with a name_suffix, whose account ends in the suffix."
-  default     = null
+variable "scanner_service_account_emails" {
+  type        = set(string)
+  description = "More scanner service accounts to grant the role to, besides those of hub_project_ids, such as a scanner deployed with a name_suffix, whose account ends in the suffix. Emails must be known at plan time."
+  default     = []
+  nullable    = false
   validation {
-    condition     = var.scanner_service_account_email == null || can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$", var.scanner_service_account_email))
-    error_message = "scanner_service_account_email must be a service account's email, <account>@<project>.iam.gserviceaccount.com."
+    condition     = alltrue([for email in var.scanner_service_account_emails : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$", email))])
+    error_message = "scanner_service_account_emails must be service accounts' emails, <account>@<project>.iam.gserviceaccount.com."
   }
+}
+
+variable "create_role" {
+  type        = bool
+  description = "Create and manage the organization's streamsecVolumeScannerTarget role. Set it to false when the role already exists and something else owns it: Stream's console command, or another Terraform stack. The module then only grants it, and destroying the module leaves it in place."
+  default     = true
+  nullable    = false
 }
 
 variable "org_id" {

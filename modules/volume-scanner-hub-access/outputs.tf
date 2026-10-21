@@ -1,26 +1,31 @@
 output "role_id" {
-  description = "ID of the organization custom role granted to the hub's scanner: streamsecVolumeScannerTarget."
-  value       = google_organization_iam_custom_role.target.role_id
+  description = "ID of the organization custom role granted to the hubs' scanners: streamsecVolumeScannerTarget."
+  value       = local.role_id
 }
 
 output "role_name" {
   description = "Full name of the custom role, organizations/<org_id>/roles/streamsecVolumeScannerTarget, as IAM bindings name it."
-  value       = google_organization_iam_custom_role.target.name
+  value       = local.role_name
 }
 
-output "scanner_service_account_email" {
-  description = "The hub scanner's service account the role is granted to."
-  value       = local.scanner_sa_email
+output "scanner_service_account_emails" {
+  description = "The scanner service accounts the role is granted to: those of hub_project_ids, and scanner_service_account_emails."
+  value       = sort(local.scanner_sa_emails)
+
+  precondition {
+    condition     = length(local.scanner_sa_emails) > 0
+    error_message = "Name at least one scanner to grant the role to, in hub_project_ids or scanner_service_account_emails."
+  }
 }
 
 output "granted_on" {
   description = "Where the role is granted: scope is organization, folders or projects, and ids the organization ID, folder IDs or project IDs."
   value = {
     scope = local.scope
-    ids = concat(
+    ids = sort(distinct(concat(
       [for b in google_organization_iam_member.target : b.org_id],
-      keys(google_folder_iam_member.target),
-      keys(google_project_iam_member.target),
-    )
+      [for b in local.folder_bindings : b.folder_id],
+      [for b in local.project_bindings : b.project_id],
+    )))
   }
 }
