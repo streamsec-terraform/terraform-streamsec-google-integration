@@ -10,7 +10,7 @@ variables {
 }
 
 # A hub's scanner reads each project it covers with Resource Manager's
-# projects.get, which also gives the project number (DEV-23499). Resource
+# projects.get, which also gives the project number. Resource
 # Manager is a client-based API: it must be enabled in the project of the
 # caller's credentials, the hub, not in the project being read. The other
 # cross-project calls (Compute, Cloud Run, Cloud Functions, image pulls) are

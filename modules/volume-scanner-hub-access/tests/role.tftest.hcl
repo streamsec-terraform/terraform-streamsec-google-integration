@@ -5,8 +5,7 @@ variables {
   org_id          = "123456789012"
 }
 
-# Stream's console renders a gcloud command that creates this same role
-# (lightlytics ms_accounts/account_handler.py, _gcp_scanner_access_command). An
+# Stream's console renders a gcloud command that creates this same role. An
 # organization may use either, or both over time, so the role must be the
 # command's exactly: another id would be a second role, and another permission
 # set would flip back and forth each time one of them runs.
