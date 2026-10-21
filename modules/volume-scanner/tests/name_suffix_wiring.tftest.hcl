@@ -57,6 +57,8 @@ mock_provider "google" {
   }
 }
 
+mock_provider "time" {}
+
 override_resource {
   target = google_secret_manager_secret_version.ack_token
   values = {

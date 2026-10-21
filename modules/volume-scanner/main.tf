@@ -539,3 +539,57 @@ resource "terraform_data" "acknowledge" {
     EOT
   }
 }
+
+# One scan at install, as the AWS and Azure templates start one, instead of the
+# first waiting up to a day for the schedule. Read at apply time whenever the
+# wait or the job changes, so a token read at plan time can't expire unused.
+data "google_client_config" "current" {
+  depends_on = [time_sleep.iam_propagation, google_cloud_run_v2_job.orchestrator]
+}
+
+# Grants take typically 2 minutes to take effect, and the scanner fails a run
+# at its first 403. The wait overlaps creating the job and the network.
+resource "time_sleep" "iam_propagation" {
+  create_duration = "180s"
+  triggers = {
+    service_account = google_service_account.scanner.unique_id
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.scanner,
+    google_project_iam_member.scanner_agent_reporter,
+    google_service_account_iam_member.scanner_act_as_self,
+    google_secret_manager_secret_iam_member.collection_token_accessor,
+    google_secret_manager_secret_iam_member.ack_token_accessor,
+  ]
+}
+
+# Once per job: an Update scanner run keeps the job, so it doesn't scan again.
+resource "terraform_data" "initial_scan" {
+  triggers_replace = [google_cloud_run_v2_job.orchestrator.uid]
+  input            = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${local.job_name}"
+
+  # The token is sensitive, so Terraform suppresses the script's output.
+  provisioner "local-exec" {
+    interpreter = ["/bin/sh"]
+    command     = "${path.module}/initial-scan.sh"
+    on_failure  = continue
+
+    environment = {
+      RUN_JOB_URL      = self.input
+      RUN_ACCESS_TOKEN = data.google_client_config.current.access_token
+    }
+  }
+
+  # Last: after the ack, so Stream has the install before its first report, and
+  # after the rest, so a failed apply leaves no scan running on its subnet.
+  depends_on = [
+    time_sleep.iam_propagation,
+    terraform_data.acknowledge,
+    google_compute_router_nat.scanner,
+    google_compute_router_nat.regional,
+    google_cloud_scheduler_job.cron,
+    google_cloud_run_v2_job_iam_member.scanner_invoker,
+  ]
+}

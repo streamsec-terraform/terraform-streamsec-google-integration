@@ -1,0 +1,4 @@
+# Run by /bin/sh and bats, which a CRLF checkout breaks.
+*.sh text eol=lf
+*.bats text eol=lf
+**/tests/bin/* text eol=lf
