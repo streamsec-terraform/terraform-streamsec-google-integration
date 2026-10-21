@@ -214,12 +214,14 @@ If the preview succeeded, create the deployment from the preview in the
 
 ### Updating an existing integration
 
-Re-run the script with the same flags used at onboarding. When the deployment
-(`--deployment-name`, default `streamsec-integration`) already exists, the script updates the
-IAM roles, previews an update of that deployment to the latest release with the deployment's own
-inputs, and asks whether to apply it. Review the preview, answer `y`, and the script applies the
-update and waits for it to finish. With `--yes` it applies without asking. Run the update from the
-script, for example in Cloud Shell.
+Re-run the script from Cloud Shell with the same flags used at onboarding. When the deployment
+(`--deployment-name`, default `streamsec-integration`) already exists, the script:
+
+1. Updates the deployer's IAM roles.
+2. Creates a preview of the latest release, using the deployment's existing input values.
+3. Prompts for confirmation, then applies the update and reports the result.
+
+Pass `--yes` to apply the update without prompting.
 
 ### Troubleshooting
 

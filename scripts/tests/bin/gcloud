@@ -86,7 +86,11 @@ case "$*" in
       echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource '$4' was not found" >&2
       exit 1
     fi
-    [[ "$*" == *inputValues* ]] && printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n' ;;
+    [[ "$*" == *inputValues* ]] && printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n'
+    rev="$4/revisions/r-1"; grep -q -- "-X PATCH" "$FAKE_DIR/curl.log" 2>/dev/null && rev="$4/revisions/r-2"
+    [[ "$*" == *"value(state,latestRevision)"* ]] && echo "ACTIVE $rev"
+    [[ "$*" == *"value(latestRevision)"* ]] && echo "$rev"
+    ;;
   # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
   "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
   # revisions: "<deployment path>\t<revision id>", newest first

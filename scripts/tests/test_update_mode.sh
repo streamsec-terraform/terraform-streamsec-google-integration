@@ -37,6 +37,9 @@ case "$*" in
 JSON
         fi
         rev="r-1"; [[ -s "$PATCH_BODY" && "${NEW_REVISION:-true}" == true ]] && rev="r-2"
+        if [[ -n "${CHANGED_SINCE_PREVIEW:-}" && "$*" == *"value(latestRevision)"* ]]; then
+          [[ -f "$STUB_LOG.rev" ]] && rev="r-9"; touch "$STUB_LOG.rev"
+        fi
         [[ "$*" == *"value(state,latestRevision)"* ]] && echo "${STATE:-ACTIVE} $rev"
         [[ "$*" == *"value(latestRevision)"* ]] && echo "$rev"
         exit 0 ;;
@@ -131,6 +134,9 @@ check '[[ "$OUTPUT" == *"The update of"*"failed"* && "$OUTPUT" != *"updated to v
 
 PATCH_HTTP=400 run_case "existing deployment, update request rejected" true --yes
 check '[[ "$OUTPUT" == *"REST API returned HTTP 400"* && "$OUTPUT" != *"updated to v9.9.9"* ]]' "reports a rejected update request"
+
+CHANGED_SINCE_PREVIEW=1 run_case "existing deployment, changed since the preview" true --yes
+check '[[ "$OUTPUT" == *"changed since the preview"* && -z "$PATCH" ]]' "does not apply over a newer revision"
 
 NEW_REVISION=false run_case "existing deployment, no new revision" true --yes
 check '[[ "$OUTPUT" == *"still running"* && "$OUTPUT" != *"updated to v9.9.9"* ]]' "does not report success without a new revision"
