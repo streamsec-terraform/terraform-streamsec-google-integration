@@ -1,168 +1,59 @@
-data "google_project" "this" {
-  project_id = var.project_id
-}
-
 locals {
-  project_number          = data.google_project.this.number
-  gcs_service_agent_email = "service-${local.project_number}@gs-project-accounts.iam.gserviceaccount.com"
-  secret_resource_path    = "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
-  bucket_suffix           = substr(sha256(var.project_id), 0, 8)
-  logs_bucket_name        = "${var.bucket_name}-${local.bucket_suffix}"
-  artifact_object_name    = "gcp-gke-logs-collection.zip"
-}
+  # log_filter.txt is copied from lightlytics/gcp-deploymentmanager
+  # code/gke-logs/setup-realtime.sh (LOG_FILTER) @ 7e5cf3c; keep in sync.
+  base_filter = trimspace(file("${path.module}/log_filter.txt"))
 
-#
-# Enable required APIs (minimum set for this workflow)
-#
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "logging.googleapis.com",
-    "monitoring.googleapis.com",
-    "storage.googleapis.com",
-    "cloudfunctions.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "secretmanager.googleapis.com",
-    "pubsub.googleapis.com",
-    "iam.googleapis.com",
+  project_ids      = [for p in var.projects : p.project_id]
+  include_projects = distinct(var.include_projects)
+  include_clusters = distinct(var.include_clusters)
+  exclude_clusters = distinct(var.exclude_clusters)
+
+  gke_projects = length(local.include_projects) == 0 ? var.projects : {
+    for k, p in var.projects : k => p if contains(local.include_projects, p.project_id)
+  }
+
+  deploy_projects = var.org_level_sink ? {
+    (var.project_for_resources) = { project_for_resources = var.project_for_resources }
+  } : local.gke_projects
+
+  filter_clauses = compact([
+    var.org_level_sink && length(local.include_projects) > 0 ? "(${join(" OR ", [for p in local.include_projects : "resource.labels.project_id=\"${p}\""])})" : "",
+    length(local.include_clusters) > 0 ? "(${join(" OR ", [for c in local.include_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
+    length(local.exclude_clusters) > 0 ? "-(${join(" OR ", [for c in local.exclude_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
   ])
 
-  project            = var.project_id
-  service            = each.value
-  disable_on_destroy = false
+  sink_filter = join("\n", concat([local.base_filter], local.filter_clauses))
 }
 
-#
-# (2) Logs bucket - destination for org sink
-#
-resource "google_storage_bucket" "logs" {
-  name                        = local.logs_bucket_name
-  project                     = var.project_id
-  location                    = var.bucket_location
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  retention_policy {
-    retention_period = 2592000 # 30 days (30 * 24 * 60 * 60)
-    is_locked        = false
+resource "terraform_data" "inputs" {
+  lifecycle {
+    precondition {
+      condition     = !var.org_level_sink || (var.organization_id != null && var.organization_id != "")
+      error_message = "organization_id is required when org_level_sink is true."
+    }
+    precondition {
+      condition     = !var.org_level_sink || contains(local.project_ids, var.project_for_resources)
+      error_message = "project_for_resources must be an integrated project (one of projects) when org_level_sink is true."
+    }
+    precondition {
+      condition     = alltrue([for p in local.include_projects : contains(local.project_ids, p)])
+      error_message = "include_projects must only contain integrated projects."
+    }
+    precondition {
+      condition     = var.org_level_sink || length(local.gke_projects) > 0
+      error_message = "Project mode needs at least one GKE project."
+    }
+    precondition {
+      condition     = length(setintersection(local.include_clusters, local.exclude_clusters)) == 0
+      error_message = "A cluster name must not be in both include_clusters and exclude_clusters."
+    }
+    precondition {
+      condition     = alltrue([for c in concat(local.include_clusters, local.exclude_clusters) : can(regex("^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$", c))])
+      error_message = "Cluster names must match ^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$."
+    }
+    precondition {
+      condition     = length(local.sink_filter) <= 20000
+      error_message = "The sink filter is longer than 20,000 characters. Use fewer cluster names."
+    }
   }
-
-  depends_on = [google_project_service.apis]
-}
-
-#
-# (3) Org-level logging sink -> writes into the bucket
-# Destination format: storage.googleapis.com/<BUCKET_NAME>
-#
-resource "google_logging_organization_sink" "org_sink" {
-  name        = var.log_sink_name
-  org_id      = var.org_id
-  destination = "storage.googleapis.com/${google_storage_bucket.logs.name}"
-
-  # Include children so it can capture projects/folders under the org.
-  # If you ONLY want org-level logs excluding children, set to false.
-  include_children = true
-
-  filter = <<-EOT
-resource.type="k8s_cluster"
--protoPayload.authenticationInfo.principalEmail=~"system:"
--protoPayload.authenticationInfo.principalEmail=~"@container-engine-robot.iam.gserviceaccount.com"
--protoPayload.methodName="io.k8s.coordination.v1.leases.update"
--protoPayload.methodName="io.k8s.networking.gateway.v1beta1.gatewayclasses.update"
--(protoPayload.methodName="io.k8s.networking.gateway.v1beta1.gatewayclasses.status.update")
-protoPayload.methodName=~""
-EOT
-
-  depends_on = [google_project_service.apis]
-}
-
-#
-# Allow the sink's writer identity to write objects into the bucket
-# (writer_identity is created by Logging on sink creation)
-#
-resource "google_storage_bucket_iam_member" "sink_writer_object_creator" {
-  bucket = google_storage_bucket.logs.name
-  role   = "roles/storage.objectCreator"
-  member = google_logging_organization_sink.org_sink.writer_identity
-}
-
-#
-# (1) Grant Cloud Storage service agent Pub/Sub Publisher (needed for Gen1 bucket triggers)
-#
-resource "google_project_iam_member" "gcs_agent_pubsub_publisher" {
-  project = var.project_id
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${local.gcs_service_agent_email}"
-
-  depends_on = [google_project_service.apis]
-}
-
-#
-# (5) Secret Manager secret + version for StreamSec token
-#
-resource "google_secret_manager_secret" "token" {
-  project   = var.project_id
-  secret_id = var.secret_name
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "token_v1" {
-  secret      = google_secret_manager_secret.token.id
-  secret_data = var.streamsec_token
-}
-
-#
-# (4) Function service account
-#
-resource "google_service_account" "function_sa" {
-  project      = var.project_id
-  account_id   = "streamsec-gke-logs-fn"
-  display_name = "StreamSec GKE Logs Collection Function"
-}
-
-# Grant secret access to function SA
-resource "google_secret_manager_secret_iam_member" "fn_sa_secret_accessor" {
-  secret_id = google_secret_manager_secret.token.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.function_sa.email}"
-}
-
-#
-# (6) Cloud Function (Gen1) triggered by GCS object finalize
-# Source zip is read directly from the public StreamSec artifacts bucket
-#
-resource "google_cloudfunctions_function" "collector" {
-  name        = var.function_name
-  project     = var.project_id
-  region      = var.region
-  runtime     = var.function_runtime
-  entry_point = "StorageGKELogsCollection"
-
-  service_account_email = google_service_account.function_sa.email
-
-  # Source zip directly from public artifacts bucket
-  source_archive_bucket = var.source_artifact_bucket
-  source_archive_object = local.artifact_object_name
-
-  # Trigger on logs bucket
-  event_trigger {
-    event_type = "google.storage.object.finalize"
-    resource   = google_storage_bucket.logs.name
-  }
-
-  environment_variables = {
-    API_URL     = var.api_url
-    SECRET_NAME = local.secret_resource_path
-  }
-
-  depends_on = [
-    google_project_service.apis,
-    google_storage_bucket_iam_member.sink_writer_object_creator,
-    google_project_iam_member.gcs_agent_pubsub_publisher,
-    google_secret_manager_secret_iam_member.fn_sa_secret_accessor
-  ]
 }
