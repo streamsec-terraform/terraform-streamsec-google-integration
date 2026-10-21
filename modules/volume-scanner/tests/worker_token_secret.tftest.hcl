@@ -2,7 +2,7 @@
 # a Batch job is readable by anyone with batch.jobs.get, which the basic Viewer
 # role has. The scanner passes the collection token to its workers as a Batch
 # secret variable when the orchestrator names the token's secret version, so
-# that name must be the exact version this instance created (DEV-23067). It is
+# that name must be the exact version this instance created. It is
 # computed, so this needs an apply against the mock provider. stream_api_url
 # points at a closed local port so the acknowledgement's non-fatal curl
 # reaches nothing.

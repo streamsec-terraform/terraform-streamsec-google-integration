@@ -1,11 +1,9 @@
 mock_provider "google" {}
 
 # The install ack is the only way Stream learns a project's deployed template
-# version. It previously pointed at the /api gateway, which has no auth bypass
-# for the GCP path and answered 500 "No authorized" — and because the ack
-# provisioner is deliberately non-fatal, every apply stayed green while the
-# backend recorded nothing. Pin the URL so a revert to the gateway path fails
-# here rather than silently in production (DEV-21196).
+# version, and its provisioner is deliberately non-fatal: with a wrong URL,
+# every apply stays green while Stream records nothing. Pin the URL so a change
+# to it fails here rather than silently in production.
 
 run "acknowledgement_contract" {
   command = plan
@@ -22,7 +20,7 @@ run "acknowledgement_contract" {
 
   assert {
     condition     = local.stream_ack_url == "https://tenant.streamsec.io/scanner-callback/gcp/stream-test-123/acknowledge"
-    error_message = "The scanner acknowledgement must post to the ms_api scanner-callback route, not the /api gateway."
+    error_message = "The scanner acknowledgement must post to Stream's scanner-callback route."
   }
 
   assert {
