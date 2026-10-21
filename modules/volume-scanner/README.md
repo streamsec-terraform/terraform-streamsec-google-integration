@@ -8,7 +8,7 @@ authenticated by tokens minted for this deployment.
 
 ### What this module creates
 
-- **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager)
+- **Required APIs** enabled in the target project (Compute, Batch, Cloud Run, Cloud Scheduler, Secret Manager, Resource Manager). A scanner that also scans other projects of the organization reads each one with Resource Manager, which counts the call against the scanner's own project, so the API must be enabled there
 - **Service account** shared by the orchestrator and its workers
 - **Least-privilege custom role** — discover VMs, snapshot/attach disks, run Batch workers, plus read access for each workload kind left on (see [Workload scanning](#workload-scanning)); no data-plane read beyond the disks and workloads it scans
 - **Secret Manager secrets** for the collection and acknowledge tokens, so neither is a plaintext Cloud Run env var
