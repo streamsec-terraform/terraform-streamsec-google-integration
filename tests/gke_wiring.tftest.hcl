@@ -112,6 +112,22 @@ run "gke_secret_name_collision" {
   expect_failures = [terraform_data.gke_inputs]
 }
 
+run "gke_secret_name_default_no_clash" {
+  command = plan
+
+  variables {
+    org_id                  = "123456789"
+    org_level_sink          = true
+    enable_real_time_events = true
+    regional_secret         = false
+  }
+
+  assert {
+    condition     = length(terraform_data.gke_inputs) == 1
+    error_message = "The default (suffixed) GKE secret name must not clash."
+  }
+}
+
 run "gke_secret_name_same_regional" {
   command = plan
 
