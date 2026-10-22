@@ -18,8 +18,8 @@
 #  10. Infrastructure Manager service account
 #  11. Custom IAM roles (ops role at org or project, project resources role)
 #
-# 2-8 include the GKE audit logs resources (function, sink, topic, secret, service account):
-# every one named <prefix>-<8 hex>.
+# Not the GKE audit logs resources (enable_gke_logs): their names end with a random suffix
+# that only the deleted deployment knew. Delete them by hand.
 # --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
 # which is how setup-prerequisites.sh's leftover check points here.
 #
@@ -169,8 +169,8 @@ if [[ "$ONLY_GIVEN" == true ]]; then
       exit 1
     fi
   done
-  if [[ ",$ONLY_KINDS," == *"org-sink,"* && -z "$ORGANIZATION_ID" ]]; then
-    log_error "--only org-sink and gke-org-sink need --org-id."
+  if [[ ",$ONLY_KINDS," == *",org-sink,"* && -z "$ORGANIZATION_ID" ]]; then
+    log_error "--only org-sink needs --org-id."
     exit 1
   fi
 fi
@@ -185,6 +185,9 @@ IM_SA_EMAIL="${IM_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 # Discovery — check which resources exist
 ###############################################################################
 log_step "Discovering existing resources..."
+if [[ "$ONLY_GIVEN" != true ]]; then
+  log_info "GKE audit logs resources (enable_gke_logs, names with a random suffix) are not checked: delete them by hand."
+fi
 
 FOUND_RESOURCES=()
 NOT_FOUND_RESOURCES=()
@@ -209,42 +212,29 @@ HAS_ORG_IAM_SECURITY_REVIEWER=false
 FOUND_KINDS=()
 UNCHECKED_RESOURCES=()
 
-# GKE entries are "<kind>=<name>".
-kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* || " ${FOUND_KINDS[*]-} " == *" $1="* ]]; }
+kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
 
 for kind in "${IR_KINDS[@]}"; do
   selected "$kind" || continue
   # Auto-detect the sink: org level first (only with an org ID), then project level; --only takes both as asked.
-  if [[ "$kind" == *org-sink && -z "$ORGANIZATION_ID" ]] ||
-      { [[ "$kind" == *project-sink && "$ONLY_GIVEN" != true ]] && kind_found "${kind%project-sink}org-sink"; }; then
+  if [[ "$kind" == org-sink && -z "$ORGANIZATION_ID" ]] ||
+      { [[ "$kind" == project-sink && "$ONLY_GIVEN" != true ]] && kind_found org-sink; }; then
     continue
   fi
+  label=$(ir_label "$kind")
   exists_rc=0
-  entries=("$kind")
-  if [[ "$kind" == gke-* ]]; then
-    names=$(ir_gke_list "$kind") || exists_rc=$?
-    entries=("$kind=$(ir_gke_prefix "$kind")-*")
-    if [[ $exists_rc -eq 0 ]]; then
-      entries=()
-      for name in $names; do entries+=("$kind=$name"); done
-    fi
+  ir_exists "$kind" || exists_rc=$?
+  if [[ $exists_rc -eq 0 ]]; then
+    FOUND_KINDS+=("$kind")
+    FOUND_RESOURCES+=("$label")
+    log_info "Found: $label"
+  elif [[ $exists_rc -eq 1 ]]; then
+    NOT_FOUND_RESOURCES+=("$label")
+    log_warn "Not found: $label (skipping)"
   else
-    ir_exists "$kind" || exists_rc=$?
+    UNCHECKED_RESOURCES+=("$label")
+    log_warn "Could not check: $label (skipping)"
   fi
-  for entry in "${entries[@]}"; do
-    label=$(ir_label "$entry")
-    if [[ $exists_rc -eq 0 ]]; then
-      FOUND_KINDS+=("$entry")
-      FOUND_RESOURCES+=("$label")
-      log_info "Found: $label"
-    elif [[ $exists_rc -eq 1 ]]; then
-      NOT_FOUND_RESOURCES+=("$label")
-      log_warn "Not found: $label (skipping)"
-    else
-      UNCHECKED_RESOURCES+=("$label")
-      log_warn "Could not check: $label (skipping)"
-    fi
-  done
 done
 
 # Check org IAM bindings (only if org-id provided)
@@ -400,7 +390,7 @@ fi
 
 # Check if any org-level resources will be deleted
 HAS_ORG_LEVEL_DELETIONS=false
-if kind_found org-sink || kind_found gke-org-sink || \
+if kind_found org-sink || \
    [[ "$HAS_ORG_IAM_VIEWER" == true ]] || \
    [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]] || \
    [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]] || \
@@ -475,7 +465,7 @@ fi
 
 # 2-8. Module resources, in IR_KINDS (dependency) order
 for kind in ${FOUND_KINDS[@]+"${FOUND_KINDS[@]}"}; do
-  delete_resource "$(ir_label "$kind")" "ir_delete '$kind'"
+  delete_resource "$(ir_label "$kind")" "ir_delete $kind"
 done
 
 # 9. IM SA IAM bindings (remove before deleting the SA)

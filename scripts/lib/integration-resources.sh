@@ -2,7 +2,6 @@
 #
 # The resources the base integration module creates under fixed names: how to
 # find, delete and recognise each one in an Infrastructure Manager revision.
-# The GKE module's names are a prefix plus a random suffix (kind "gke-*=<name>").
 # Sourced by setup-prerequisites.sh and cleanup-abandoned-deployment.sh, which
 # set PROJECT_ID, REGION and ORGANIZATION_ID. "ir_" = integration resource.
 
@@ -14,65 +13,14 @@ PUBSUB_TOPIC="${PUBSUB_TOPIC:-stream-security-events-topic}"
 LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
 REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
 GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
-# The GKE audit logs module (enable_gke_logs): name prefixes, the module adds -<8 hex>.
-GKE_FUNCTION_NAME="${GKE_FUNCTION_NAME:-stream-sec-gke-logs-pubsub}"
-GKE_SINK="${GKE_SINK:-streamsec-gke-audit-logs-pubsub}"
-GKE_TOPIC="${GKE_TOPIC:-streamsec-gke-audit-logs}"
-GKE_SECRET="${GKE_SECRET:-streamsec-gke-logs-token}"
-GKE_SA_ACCOUNT_ID="${GKE_SA_ACCOUNT_ID:-streamsec-gke-audit}"
 
 # In deletion order: functions before the topic and service account they use,
 # sinks before the topic they write to.
-IR_KINDS=(events-function gke-function org-sink project-sink gke-org-sink gke-project-sink
-  topic gke-topic global-secret gke-secret regional-secret function-sa gke-sa sa)
+IR_KINDS=(events-function org-sink project-sink topic global-secret regional-secret function-sa sa)
 
 ir_is_kind() { [[ " ${IR_KINDS[*]} " == *" $1 "* ]]; }
 
 ir_sa_email() { echo "$1@${PROJECT_ID}.iam.gserviceaccount.com"; }
-
-# Runs ir_* function $1 for "<GKE kind>=<name>" $2 as the matching base kind with that name.
-ir_gke() {
-  local base="${2%%=*}" name="${2#*=}"
-  base="${base#gke-}"
-  case "$base" in
-    function) base=events-function ;;
-    secret)   base=global-secret ;;
-    sa)       base=function-sa ;;
-  esac
-  FUNCTION_NAME="$name" LOGGING_SINK="$name" PUBSUB_TOPIC="$name" \
-    GLOBAL_SECRET="$name" FUNCTION_SA_ACCOUNT_ID="$name" "$1" "$base"
-}
-
-ir_gke_prefix() {
-  case "$1" in
-    gke-function) echo "$GKE_FUNCTION_NAME" ;;
-    gke-*-sink)   echo "$GKE_SINK" ;;
-    gke-topic)    echo "$GKE_TOPIC" ;;
-    gke-secret)   echo "$GKE_SECRET" ;;
-    gke-sa)       echo "$GKE_SA_ACCOUNT_ID" ;;
-  esac
-}
-
-# The names of GKE kind $1 that are "<prefix>-<8 hex>", one per line (there may be several).
-# 0 = some, 1 = none (or the API is off), 2 = couldn't tell (the error goes to stderr).
-ir_gke_list() {
-  local out
-  case "$1" in
-    gke-function)     out=$(gcloud functions list --regions="$REGION" --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
-    gke-org-sink)     out=$(gcloud logging sinks list --organization="$ORGANIZATION_ID" --format='value(name)' 2>&1) ;;
-    gke-project-sink) out=$(gcloud logging sinks list --project="$PROJECT_ID" --format='value(name)' 2>&1) ;;
-    gke-topic)        out=$(gcloud pubsub topics list --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
-    gke-secret)       out=$(gcloud secrets list --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
-    gke-sa)           out=$(gcloud iam service-accounts list --project="$PROJECT_ID" --format='value(email)' 2>&1) && out=$(sed 's/@.*//' <<<"$out") ;;
-  esac || {
-    case "$out" in
-      *SERVICE_DISABLED* | *"has not been used"*) return 1 ;;
-    esac
-    echo "$out" >&2
-    return 2
-  }
-  grep -E "^$(ir_gke_prefix "$1")-[0-9a-f]{8}\$" <<<"$out"
-}
 
 # Regional secrets are served only by the regional endpoint, and gcloud doesn't
 # switch to it for --location (it fails with INVALID_ARGUMENT).
@@ -82,7 +30,6 @@ ir_regional_secrets() {
 }
 
 ir_label() {
-  if [[ "$1" == gke-* ]]; then echo "GKE $(ir_gke ir_label "$1")"; return; fi
   case "$1" in
     events-function)   echo "Cloud Function v2: $FUNCTION_NAME ($REGION)" ;;
     org-sink)          echo "Org logging sink: $LOGGING_SINK" ;;
@@ -120,7 +67,6 @@ ir_exists() {
 }
 
 ir_delete() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_delete "$1"; return; fi
   case "$1" in
     events-function)   gcloud functions delete "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 --quiet ;;
     org-sink)          gcloud logging sinks delete "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --quiet ;;
@@ -217,7 +163,7 @@ ir_in_use() {
   return 0
 }
 
-# The cleanup-abandoned-deployment.sh flag that names the resource (not for GKE kinds).
+# The cleanup-abandoned-deployment.sh flag that names the resource.
 ir_name_flag() {
   case "$1" in
     events-function)        echo "--function-name $FUNCTION_NAME" ;;

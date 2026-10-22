@@ -387,7 +387,6 @@ fi
 ###############################################################################
 LEFTOVER_KINDS=()   # deletable leftovers, in deletion order
 BLOCKED=()          # leftovers this script won't delete
-BLOCKED_SINKS=()    # names of the sinks in BLOCKED
 NOT_OURS=()         # resources owned by a deployment other than $DEPLOYMENT_NAME
 IN_USE=()           # leftovers that look in use: --yes alone won't delete them
 
@@ -485,7 +484,6 @@ check_leftovers() {
   unknown=()
   LEFTOVER_KINDS=()
   BLOCKED=()
-  BLOCKED_SINKS=()
   NOT_OURS=()
   IN_USE=()
   if ! read_owned_state; then
@@ -497,11 +495,8 @@ check_leftovers() {
   for kind in "${IR_KINDS[@]}"; do
     case "$kind" in
       global-secret) continue ;;  # the Infrastructure Manager wrapper makes a regional one
-      gke-*) continue ;;  # random name suffixes: never a 409
-    esac
-    case "$kind" in
-      *org-sink) [[ "$ORG_LEVEL_SINK" == true ]] || continue ;;
-      *project-sink) [[ "$ORG_LEVEL_SINK" != true ]] || continue ;;
+      org-sink) [[ "$ORG_LEVEL_SINK" == true ]] || continue ;;
+      project-sink) [[ "$ORG_LEVEL_SINK" != true ]] || continue ;;
     esac
     label=$(ir_label "$kind")
     exists=no owner=- hints=""
@@ -527,7 +522,6 @@ check_leftovers() {
         # A sink feeding another project may serve a live integration there.
         if [[ -n "$destination" && "$destination" != *"/projects/$PROJECT_ID/"* ]]; then
           BLOCKED+=("$label writes to $destination")
-          BLOCKED_SINKS+=("$LOGGING_SINK")
         else
           LEFTOVER_KINDS+=("$kind")
           reason=$(ir_in_use "$kind")
@@ -577,7 +571,7 @@ delete_leftovers() {
 
 # Returns non-zero, after saying why, when the apply would fail on leftovers.
 run_leftover_check() {
-  local rc=0 response kind kinds cmd sink sink_scope
+  local rc=0 response kind kinds cmd sink_scope
   log_step "Checking for resources left over from an earlier integration..."
   if [[ "$SKIP_LEFTOVER_CHECK" == true ]]; then
     log_warn "Skipping the check (--skip-leftover-check)."
@@ -613,9 +607,7 @@ run_leftover_check() {
     if [[ "$ORG_LEVEL_SINK" == true ]]; then sink_scope="--organization=$ORGANIZATION_ID"; fi
     log_error "Not deleting these, which may serve a live integration in another project:"
     printf '    %s\n' "${BLOCKED[@]}"
-    for sink in "${BLOCKED_SINKS[@]}"; do
-      echo "  If nothing there uses it: gcloud logging sinks delete $sink $sink_scope"
-    done
+    echo "  If nothing there uses it: gcloud logging sinks delete $LOGGING_SINK $sink_scope"
     echo ""
   fi
   if [[ ${#LEFTOVER_KINDS[@]} -eq 0 ]]; then
@@ -634,7 +626,7 @@ run_leftover_check() {
         echo "  Re-run without --yes to confirm, or delete them with cleanup-abandoned-deployment.sh."
         return 1
       fi
-    elif [[ " ${LEFTOVER_KINDS[*]} " == *"org-sink "* ]]; then
+    elif [[ " ${LEFTOVER_KINDS[*]} " == *" org-sink "* ]]; then
       read -r -p "This deletes an organization-level sink. Type 'DELETE-ORG-RESOURCES' to confirm: " response
       if [[ "$response" != DELETE-ORG-RESOURCES ]]; then
         log_warn "Aborted."
@@ -654,7 +646,7 @@ run_leftover_check() {
 
   kinds=$(IFS=,; echo "${LEFTOVER_KINDS[*]}")
   cmd="$(dirname "$0")/cleanup-abandoned-deployment.sh --project-id $PROJECT_ID --region $REGION"
-  if [[ ",$kinds," == *"org-sink,"* ]]; then
+  if [[ ",$kinds," == *",org-sink,"* ]]; then
     cmd+=" --org-id $ORGANIZATION_ID"
   fi
   cmd+=" --only $kinds"
@@ -1555,6 +1547,13 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     fi
   elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
     log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"
+    exit 1
+  fi
+
+  # The old bucket-based GKE module's inputs: an update would destroy its bucket.
+  if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
+      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":'; then
+    log_error "Deployment '$DEPLOYMENT_NAME' has inputs of the old bucket-based GKE module: remove them and apply once with enable_gke_logs = false first (see the README's upgrade note)."
     exit 1
   fi
 
