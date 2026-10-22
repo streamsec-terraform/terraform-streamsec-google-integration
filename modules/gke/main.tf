@@ -87,7 +87,7 @@ resource "terraform_data" "inputs" {
     }
     precondition {
       condition     = local.sink_filter_length <= 20000
-      error_message = "The GKE sink filter has ${local.sink_filter_length} characters; GCP allows 20,000. Org mode lists every GKE project in it (all integrated projects when gke_include_projects is empty): set gke_include_projects to the projects with GKE clusters, or list fewer clusters in gke_include_clusters / gke_exclude_clusters."
+      error_message = "GKE sink filter too long (${local.sink_filter_length} of 20,000 characters). Set gke_include_projects to the projects with GKE clusters."
     }
   }
 }
