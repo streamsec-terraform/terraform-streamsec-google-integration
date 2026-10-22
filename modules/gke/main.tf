@@ -42,6 +42,8 @@ locals {
   ])
 
   sink_filter = join("\n", concat([local.base_filter], local.filter_clauses))
+  # A separate local, so a failed length check does not print the whole filter.
+  sink_filter_length = length(local.sink_filter)
 
   # Integrated deploy projects only, so a bad project_for_resources gives only the precondition error.
   data_projects = { for k, p in local.deploy_projects : k => p if contains(local.project_ids, p.project_id) }
@@ -84,8 +86,8 @@ resource "terraform_data" "inputs" {
       error_message = "Cluster names must match ^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$."
     }
     precondition {
-      condition     = length(local.sink_filter) <= 20000
-      error_message = "The sink filter is longer than 20,000 characters. Use fewer names in include_clusters, exclude_clusters or include_projects (empty: every integrated project) (root: gke_include_clusters, gke_exclude_clusters, gke_include_projects)."
+      condition     = local.sink_filter_length <= 20000
+      error_message = "The GKE sink filter has ${local.sink_filter_length} characters; GCP allows 20,000. Org mode lists every GKE project in it (all integrated projects when gke_include_projects is empty): set gke_include_projects to the projects with GKE clusters, or list fewer clusters in gke_include_clusters / gke_exclude_clusters."
     }
   }
 }

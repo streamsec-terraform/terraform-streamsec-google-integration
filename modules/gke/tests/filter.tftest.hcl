@@ -202,7 +202,6 @@ run "filter_too_long_projects" {
 
   variables {
     projects              = { for i in range(290) : format("gke-project-%018d", i) => { project_id = format("gke-project-%018d", i), name = "p" } }
-    include_projects      = [for i in range(290) : format("gke-project-%018d", i)]
     project_for_resources = "gke-project-000000000000000000"
   }
 
