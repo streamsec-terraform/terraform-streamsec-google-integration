@@ -560,11 +560,25 @@ abandoned_integration() {
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
 }
 
-@test "--enable-gke-logs: the check skips GKE resources (their names have a random suffix)" {
+@test "--enable-gke-logs: the check never looks at GKE resources (their names have a random suffix)" {
   exist topic:streamsec-gke-audit-logs-0a1b2c3d org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d
   run_check --org-id 123 --enable-gke-logs
   [ "$status" -eq 0 ]
   [[ "$output" == *"No leftovers"* ]]
   [[ "$output" != *GKE* ]]
   refute_called 'gke'
+}
+
+@test "an existing deployment with old bucket-based GKE inputs stops before the preview" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_bucket_name": {\n    "inputValue": "my-gke-logs"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"inputs of the old bucket-based GKE module"*"enable_gke_logs = false first"* ]]
+  refute_preview
+  printf '{\r\n  "gke_api_url": {\r\n    "inputValue": "https://app.streamsec.io"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"inputs of the old bucket-based GKE module"* ]]
+  refute_preview
 }

@@ -104,27 +104,13 @@ setup() { setup_fakes; }
     'logging sinks delete stream-security-events-sink --project=p1'
 }
 
-@test "abandoned GKE logs installs are found by name prefix and random suffix and deleted in order" {
-  exist function2:stream-sec-gke-logs-pubsub-0a1b2c3d org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d \
-    topic:streamsec-gke-audit-logs-0a1b2c3d topic:streamsec-gke-audit-logs-ffff0000 \
-    secret:streamsec-gke-logs-token-0a1b2c3d sa:streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com \
-    topic:streamsec-gke-audit-logs topic:streamsec-gke-audit-logs-0a1b2c3d-x secret:streamsec-gke-logs-token-mine
+@test "GKE logs resources are never deleted: their suffixed names may be another install's" {
+  exist org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d topic:streamsec-gke-audit-logs-0a1b2c3d \
+    function2:stream-sec-gke-logs-pubsub-0a1b2c3d secret:streamsec-gke-logs-token-0a1b2c3d \
+    sa:streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com topic:stream-security-events-topic
   run bash "$CLEANUP" --project-id p1 --region us-central1 --org-id 123 --yes
   [ "$status" -eq 0 ]
-  assert_mutations 'functions delete stream-sec-gke-logs-pubsub-0a1b2c3d --region=us-central1' \
-    'logging sinks delete streamsec-gke-audit-logs-pubsub-0a1b2c3d --organization=123' \
-    'pubsub topics delete streamsec-gke-audit-logs-0a1b2c3d ' \
-    'pubsub topics delete streamsec-gke-audit-logs-ffff0000 ' \
-    'secrets delete streamsec-gke-logs-token-0a1b2c3d --project=p1' \
-    'service-accounts delete streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com'
-  [ "$(cat "$FAKE_DIR/existing")" = "$(printf '%s\n' topic:streamsec-gke-audit-logs topic:streamsec-gke-audit-logs-0a1b2c3d-x secret:streamsec-gke-logs-token-mine)" ]
-}
-
-@test "a GKE kind that can't be listed is reported, not deleted" {
-  exist topic:streamsec-gke-audit-logs-0a1b2c3d
-  echo topic >"$FAKE_DIR/list-errors"
-  run bash "$CLEANUP" --project-id p1 --region us-central1 --only gke-topic --yes
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Could not check: GKE Pub/Sub topic: streamsec-gke-audit-logs-*"* ]]
-  refute_called ' delete '
+  [[ "$output" == *"GKE audit logs resources"*"delete them by hand"* ]]
+  assert_mutations 'pubsub topics delete stream-security-events-topic'
+  refute_called 'gke'
 }

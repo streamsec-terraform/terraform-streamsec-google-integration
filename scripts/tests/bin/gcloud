@@ -76,24 +76,6 @@ if [[ -n "$verb" ]]; then
   exit 0
 fi
 
-# Lists: the names of the existing resources of that kind; a kind in $FAKE_DIR/list-errors fails.
-kind=""
-case "$*" in
-  "functions list"*) kind=function2 ;;
-  "logging sinks list"*) kind=project-sink; [[ "$*" == *--organization=* ]] && kind=org-sink ;;
-  "pubsub topics list "*) kind=topic ;;
-  "secrets list"*) kind=secret ;;
-  "iam service-accounts list"*) kind=sa ;;
-esac
-if [[ -n "$kind" ]]; then
-  if grep -qxF "$kind" "$FAKE_DIR/list-errors" 2>/dev/null; then
-    echo "ERROR: (gcloud.$kind.list) PERMISSION_DENIED: caller lacks permission" >&2
-    exit 1
-  fi
-  sed -n "s/^$kind://p" "$FAKE_DIR/existing"
-  exit 0
-fi
-
 # Rows of a tab-separated file whose first column is $2, without that column.
 rows_for() { [[ -f "$FAKE_DIR/$1" ]] && awk -F'\t' -v k="$2" '$1 == k' "$FAKE_DIR/$1" | cut -f2-; return 0; }
 

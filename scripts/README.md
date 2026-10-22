@@ -51,7 +51,7 @@ at any time.
 
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
-**GKE audit logs (`--enable-gke-logs`):** the flag sets `enable_gke_logs=true` in the preview (other inputs are kept); the next steps tell you to set it on the deployment. Before the preview the script stops if the module ref has no real-time GKE module, or if the project role lacks the `run.services.*` permissions that step 2 adds.
+**GKE audit logs (`--enable-gke-logs`):** the flag sets `enable_gke_logs=true` in the preview (other inputs are kept); the next steps tell you to set it on the deployment. Before the preview the script stops if the module ref has no real-time GKE module, if the project role lacks the `run.services.*` permissions that step 2 adds, or if the existing deployment has inputs of the old bucket-based GKE module (see the root README's upgrade note).
 
 ### Prerequisites
 
@@ -264,10 +264,12 @@ gcloud infra-manager deployments delete <DEPLOYMENT_NAME> \
 The script auto-detects which resources exist and removes:
 - Terraform-managed resources (functions, sinks, topics, secrets including the regional
   `stream-security` secret, service accounts)
-- The GKE audit logs resources: all whose names are the module's prefix plus `-<8 hex>`
 - Custom IAM roles created by `setup-prerequisites.sh`
 - IAM bindings for the Infrastructure Manager service account
 - The Infrastructure Manager service account itself
+
+It does not delete the GKE audit logs resources (`enable_gke_logs`): their names end with a random suffix
+that only the deployment knew. Apply with `enable_gke_logs = false` before Step 1, or delete them by hand.
 
 Regional secrets are only served by the regional Secret Manager endpoint
 (`secretmanager.<region>.rep.googleapis.com`), which the script uses for them.
