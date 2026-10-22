@@ -12,12 +12,12 @@ variables {
   }
 }
 
-run "base_filter_matches_script" {
+run "base_filter_unchanged" {
   command = plan
 
   assert {
-    condition     = trimspace(local.base_filter) == trimspace(file("tests/fixtures/script_log_filter.txt"))
-    error_message = "The base filter must match the script LOG_FILTER."
+    condition     = trimspace(local.base_filter) == trimspace(file("tests/fixtures/base_log_filter.txt"))
+    error_message = "The base filter changed: update tests/fixtures/base_log_filter.txt if intended."
   }
 }
 

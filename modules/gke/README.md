@@ -7,8 +7,6 @@ Two modes, set by `org_level_sink`:
 - `true`: one organization sink, topic, and function in `project_for_resources`. Needs `organization_id`.
 - `false`: one project sink, topic, and function in each project of `projects` (narrowed by `include_projects`).
 
-If you set up GKE audit logs with `setup-realtime.sh` in a project, remove it first, with the install's `--region` (and `--secret-name`/`--secret-location`, if it used them): `bash setup-realtime.sh --project <PROJECT_ID> --region <REGION> --uninstall --delete-secret`.
-
 Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
 
 Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
