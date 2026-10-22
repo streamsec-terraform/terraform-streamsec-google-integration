@@ -149,6 +149,29 @@ run "org_project_for_resources_not_integrated" {
   expect_failures = [terraform_data.inputs]
 }
 
+run "org_project_for_resources_empty" {
+  command = plan
+
+  variables {
+    project_for_resources = ""
+  }
+
+  expect_failures = [terraform_data.inputs]
+}
+
+run "org_project_for_resources_not_read" {
+  command = plan
+
+  variables {
+    project_for_resources = "p2"
+  }
+
+  assert {
+    condition     = keys(data.google_project.this) == ["p2"] && keys(data.streamsec_gcp_project.this) == ["p2"]
+    error_message = "The data sources must read only the integrated deploy project."
+  }
+}
+
 run "org_without_organization_id" {
   command = plan
 
@@ -178,6 +201,18 @@ run "filter_too_long" {
 
   variables {
     include_clusters = [for i in range(600) : "cluster-${i}"]
+  }
+
+  expect_failures = [terraform_data.inputs]
+}
+
+run "filter_too_long_projects" {
+  command = plan
+
+  variables {
+    projects              = { for i in range(290) : format("gke-project-%018d", i) => { project_id = format("gke-project-%018d", i), name = "p" } }
+    include_projects      = [for i in range(290) : format("gke-project-%018d", i)]
+    project_for_resources = "gke-project-000000000000000000"
   }
 
   expect_failures = [terraform_data.inputs]

@@ -186,7 +186,7 @@ variable "enable_gke_logs" {
 }
 
 variable "gke_org_level_sink" {
-  description = "Use an organization-level log sink for GKE. Null follows org_level_sink. Set false for project sinks (no org_id needed)."
+  description = "Use an organization-level log sink for GKE. Null follows org_level_sink. false (a project sink, no org_id needed) works only in google_project_id."
   type        = bool
   default     = null
 }
@@ -216,7 +216,7 @@ variable "gke_region" {
 }
 
 variable "gke_build_service_account" {
-  description = "Service account that builds the GKE logs function (projects/<project>/serviceAccounts/<email>). Null uses the project default."
+  description = "Service account that builds the GKE logs function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default."
   type        = string
   default     = null
 }

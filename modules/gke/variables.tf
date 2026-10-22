@@ -55,7 +55,7 @@ variable "region" {
 variable "build_service_account" {
   type        = string
   default     = null
-  description = "Service account that builds the function (projects/<project>/serviceAccounts/<email>). Null uses the project default."
+  description = "Service account that builds the function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default."
 }
 
 variable "secret_name" {

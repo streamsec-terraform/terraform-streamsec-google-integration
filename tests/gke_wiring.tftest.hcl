@@ -19,6 +19,13 @@ override_data {
   }
 }
 
+override_data {
+  target = data.google_client_config.current[0]
+  values = {
+    region = "europe-west1"
+  }
+}
+
 override_resource {
   target          = module.gke[0].google_logging_organization_sink.this[0]
   override_during = plan
@@ -42,6 +49,34 @@ run "gke_follows_org_level_sink" {
   assert {
     condition     = length(module.gke[0].sink_writer_identities) == 1 && module.gke[0].sink_writer_identities["p1"] == "serviceAccount:org-sink"
     error_message = "org_level_sink = true must give the GKE module one organization sink."
+  }
+}
+
+run "gke_region_follows_provider" {
+  command = plan
+
+  variables {
+    org_id = "123456789"
+    region = "us-east1"
+  }
+
+  assert {
+    condition     = local.gke_region == "europe-west1"
+    error_message = "Without gke_region the GKE function must use the provider region, not region."
+  }
+}
+
+run "gke_region_set" {
+  command = plan
+
+  variables {
+    org_id     = "123456789"
+    gke_region = "asia-east1"
+  }
+
+  assert {
+    condition     = local.gke_region == "asia-east1"
+    error_message = "gke_region must set the GKE function region."
   }
 }
 
@@ -91,5 +126,25 @@ run "gke_secret_name_same_regional" {
   assert {
     condition     = length(terraform_data.gke_inputs) == 1
     error_message = "A regional real-time secret of the same name must not clash with the GKE global secret."
+  }
+}
+
+run "gke_secret_name_same_different_projects" {
+  command = plan
+
+  variables {
+    org_id                  = "123456789"
+    org_level_sink          = true
+    include_projects        = ["p1", "p2"]
+    enable_real_time_events = true
+    gke_secret_name         = "stream-security-collection-token"
+    regional_secret         = false
+    gke_org_level_sink      = false
+    gke_include_projects    = ["p2"]
+  }
+
+  assert {
+    condition     = length(terraform_data.gke_inputs) == 1
+    error_message = "The same secret name in different projects must not clash."
   }
 }

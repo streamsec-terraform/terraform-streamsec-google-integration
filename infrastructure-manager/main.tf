@@ -77,3 +77,14 @@ module "streamsec_google_projects" {
   gke_source_bucket         = var.gke_source_bucket
   gke_source_object         = var.gke_source_object
 }
+
+# The script grants the project resources role only in google_project_id.
+resource "terraform_data" "gke_inputs" {
+  count = var.enable_gke_logs && !coalesce(var.gke_org_level_sink, var.org_level_sink) ? 1 : 0
+  lifecycle {
+    precondition {
+      condition     = toset(length(var.gke_include_projects) > 0 ? var.gke_include_projects : var.include_projects) == toset([var.google_project_id])
+      error_message = "GKE project sinks work here only in google_project_id: set gke_include_projects = [google_project_id], or gke_org_level_sink = true."
+    }
+  }
+}

@@ -81,8 +81,8 @@ run "org_mode" {
     error_message = "Org mode deploys only in project_for_resources."
   }
   assert {
-    condition     = keys(time_sleep.api_propagation) == ["p1"]
-    error_message = "Org mode needs one API wait, in project_for_resources."
+    condition     = length(split(",", time_sleep.api_propagation.triggers.apis)) == 9 && startswith(time_sleep.api_propagation.triggers.apis, "p1/")
+    error_message = "Org mode needs one API wait, on project_for_resources' APIs."
   }
   assert {
     condition     = google_cloudfunctions2_function.this["p1"].build_config[0].entry_point == "PubSubGKELogsCollection"
@@ -126,8 +126,8 @@ run "project_mode" {
     error_message = "Project mode needs a topic and function per project."
   }
   assert {
-    condition     = keys(time_sleep.api_propagation) == ["p1", "p2"] && length(split(",", time_sleep.api_propagation["p2"].triggers.apis)) == 9
-    error_message = "Project mode needs an API wait per project, on that project's APIs only."
+    condition     = length(split(",", time_sleep.api_propagation.triggers.apis)) == 18
+    error_message = "The API wait must cover the APIs of every project, so an added project waits again."
   }
   assert {
     condition     = nonsensitive(google_secret_manager_secret_version.this["p2"].secret_data) == "tok-p2"
@@ -169,6 +169,20 @@ run "function_config" {
   assert {
     condition     = google_cloudfunctions2_function.this["p1"].build_config[0].service_account == "projects/p1/serviceAccounts/builder@p1.iam.gserviceaccount.com"
     error_message = "build_service_account must set the build service account."
+  }
+}
+
+run "build_service_account_per_project" {
+  command = plan
+
+  variables {
+    org_level_sink        = false
+    build_service_account = "projects/{project}/serviceAccounts/builder@{project}.iam.gserviceaccount.com"
+  }
+
+  assert {
+    condition     = google_cloudfunctions2_function.this["p2"].build_config[0].service_account == "projects/p2/serviceAccounts/builder@p2.iam.gserviceaccount.com" && google_cloudfunctions2_function.this["p1"].build_config[0].service_account == "projects/p1/serviceAccounts/builder@p1.iam.gserviceaccount.com"
+    error_message = "{project} in build_service_account must become each deploy project ID."
   }
 }
 

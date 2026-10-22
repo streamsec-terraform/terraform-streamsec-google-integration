@@ -13,7 +13,7 @@ locals {
   }
 
   # Keyed by project id. The fallback lets the precondition report a project_for_resources
-  # outside projects; real providers may still add lookup or argument errors.
+  # outside projects; the data sources skip it.
   deploy_projects = var.org_level_sink ? {
     (var.project_for_resources) = try(var.projects[var.project_for_resources], { project_id = var.project_for_resources, name = var.project_for_resources })
   } : local.gke_projects
@@ -42,6 +42,9 @@ locals {
   ])
 
   sink_filter = join("\n", concat([local.base_filter], local.filter_clauses))
+
+  # Integrated deploy projects only, so a bad project_for_resources gives only the precondition error.
+  data_projects = { for k, p in local.deploy_projects : k => p if contains(local.project_ids, p.project_id) }
 
   sink_writer_identities = var.org_level_sink ? {
     for k in keys(local.deploy_projects) : k => google_logging_organization_sink.this[0].writer_identity
@@ -78,7 +81,7 @@ resource "terraform_data" "inputs" {
     }
     precondition {
       condition     = length(local.sink_filter) <= 20000
-      error_message = "The sink filter is longer than 20,000 characters. Use fewer cluster names."
+      error_message = "The sink filter is longer than 20,000 characters. Use fewer names in include_clusters, exclude_clusters or include_projects (root: gke_include_clusters, gke_exclude_clusters, gke_include_projects)."
     }
   }
 }
@@ -86,13 +89,15 @@ resource "terraform_data" "inputs" {
 data "streamsec_host" "this" {}
 
 data "google_project" "this" {
-  for_each   = local.deploy_projects
+  for_each   = local.data_projects
   project_id = each.value.project_id
 }
 
 data "streamsec_gcp_project" "this" {
-  for_each   = local.deploy_projects
-  project_id = try(var.acked_project_ids[each.key], each.value.project_id)
+  for_each = local.data_projects
+  # lookup, not try(): on Terraform 1.5 try() over a map with any unknown value is unknown,
+  # which would defer (and replace) the token of every project, not only the new one.
+  project_id = lookup(var.acked_project_ids, each.key, each.value.project_id)
 }
 
 resource "google_project_service" "this" {
@@ -103,13 +108,13 @@ resource "google_project_service" "this" {
   depends_on         = [terraform_data.inputs]
 }
 
-# One wait per project, so a project added later also waits for its own APIs.
+# One wait for all projects; a project added later changes the trigger, so it waits again.
 resource "time_sleep" "api_propagation" {
-  for_each        = local.deploy_projects
   create_duration = "30s"
   triggers = {
-    apis = join(",", [for s in google_project_service.this : s.service if s.project == each.value.project_id])
+    apis = join(",", sort(keys(local.project_apis)))
   }
+  depends_on = [google_project_service.this]
 }
 
 resource "google_secret_manager_secret" "this" {
@@ -188,7 +193,7 @@ resource "google_cloudfunctions2_function" "this" {
   build_config {
     runtime         = "nodejs22"
     entry_point     = "PubSubGKELogsCollection"
-    service_account = var.build_service_account
+    service_account = var.build_service_account == null ? null : replace(var.build_service_account, "{project}", each.key)
     source {
       storage_source {
         bucket = var.source_bucket
