@@ -1,6 +1,6 @@
 locals {
-  # log_filter.txt is copied from lightlytics/gcp-deploymentmanager
-  # code/gke-logs/setup-realtime.sh (LOG_FILTER) @ 7e5cf3c; keep in sync.
+  # log_filter.txt is based on lightlytics/gcp-deploymentmanager
+  # code/gke-logs/setup-realtime.sh (LOG_FILTER) @ 7e5cf3c.
   base_filter = trimspace(file("${path.module}/log_filter.txt"))
 
   project_ids      = [for p in var.projects : p.project_id]
