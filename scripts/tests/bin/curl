@@ -7,9 +7,12 @@ if [[ -f "$FAKE_DIR/curl-fail" ]]; then
   echo "curl: (22) The requested URL returned error: 403" >&2
   exit 22
 fi
-# The module's variables.tf at a git ref: $FAKE_DIR/ref-variables, or one with the real-time GKE module.
+# The module's variables.tf at git ref R: $FAKE_DIR/ref-variables-R, $FAKE_DIR/ref-variables,
+# or one with the real-time GKE module.
 if [[ "$*" == *raw.githubusercontent.com* ]]; then
-  cat "$FAKE_DIR/ref-variables" 2>/dev/null || echo 'variable "gke_org_level_sink" {}'
+  ref="$*"; ref="${ref##*integration/}"; ref="${ref%%/*}"
+  cat "$FAKE_DIR/ref-variables-$ref" 2>/dev/null || cat "$FAKE_DIR/ref-variables" 2>/dev/null ||
+    echo 'variable "gke_org_level_sink" {}'
   exit 0
 fi
 to_file=false
