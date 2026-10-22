@@ -534,6 +534,24 @@ abandoned_integration() {
   refute_preview
 }
 
+@test "GKE logs on in the deployment's inputs stop before the preview on a ref without the real-time GKE module" {
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Git ref v0.0.0 has no real-time GKE module"* ]]
+  refute_preview
+}
+
+@test "--enable-gke-logs: no 'Also set' step when the deployment already has enable_gke_logs" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Also set the input enable_gke_logs"* ]]
+}
+
 @test "GKE logs go on to the preview when the project role has run.services.*" {
   exist project-role:StreamSecurityInfraManagerProjectRole
   echo 'pubsub.topics.create;run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
