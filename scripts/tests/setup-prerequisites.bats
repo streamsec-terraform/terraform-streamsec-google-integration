@@ -445,10 +445,15 @@ abandoned_integration() {
   grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
 }
 
-@test "without --enable-gke-logs the inputs don't mention GKE" {
+@test "without --enable-gke-logs the inputs don't mention GKE, also on an existing deployment" {
   run_setup
   [ "$status" -eq 0 ]
   [ -s "$FAKE_DIR/curl.body" ]
+  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
+  deployment streamsec-integration ACTIVE
+  run_setup
+  [ "$status" -eq 0 ]
+  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
   ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
 }
 
@@ -458,24 +463,6 @@ abandoned_integration() {
   [ "$status" -eq 0 ]
   grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
   grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
-}
-
-@test "--enable-gke-logs on an existing deployment replaces an enable_gke_logs input" {
-  deployment streamsec-integration ACTIVE
-  printf '{\n  "enable_gke_logs": {\n    "inputValue": "false"\n  },\n  "include_projects": {\n    "inputValue": ["p1", "p,2"]\n  }\n}\n' >"$FAKE_DIR/input-values"
-  run_setup --enable-gke-logs
-  [ "$status" -eq 0 ]
-  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 1 ]
-  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
-  grep -q '"inputValue": \["p1", "p,2"\]' "$FAKE_DIR/curl.body"
-}
-
-@test "an existing deployment without --enable-gke-logs keeps its inputs as they are" {
-  deployment streamsec-integration ACTIVE
-  run_setup
-  [ "$status" -eq 0 ]
-  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
-  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
 }
 
 @test "org mode passes --enable-gke-logs to the preview's --input-values" {
@@ -488,11 +475,12 @@ abandoned_integration() {
 
 @test "--enable-gke-logs on a CRLF deployment input replaces enable_gke_logs, not duplicates it" {
   deployment streamsec-integration ACTIVE
-  printf '{\r\n  "enable_gke_logs": {\r\n    "inputValue": "false"\r\n  },\r\n  "google_project_id": {\r\n    "inputValue": "p1"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
+  printf '{\r\n  "enable_gke_logs": {\r\n    "inputValue": "false"\r\n  },\r\n  "include_projects": {\r\n    "inputValue": ["p1", "p,2"]\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
   [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 1 ]
   grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+  grep -q '"inputValue": \["p1", "p,2"\]' "$FAKE_DIR/curl.body"
 }
 
 @test "--enable-gke-logs: the next steps tell to set enable_gke_logs on the deployment" {

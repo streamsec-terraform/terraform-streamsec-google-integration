@@ -112,7 +112,7 @@ run "org_mode" {
     error_message = "Topic publisher must be the org sink writer identity."
   }
   assert {
-    condition     = toset(keys(output.sink_names)) == toset(["p1"]) && output.sink_names["p1"] == "streamsec-gke-audit-logs-pubsub-0a1b2c3d" && toset(keys(output.secret_ids)) == toset(["p1"])
+    condition     = google_logging_organization_sink.this[0].name == "streamsec-gke-audit-logs-pubsub-0a1b2c3d" && toset(keys(output.secret_ids)) == toset(["p1"])
     error_message = "Org mode outputs one sink name and one secret, keyed by project_for_resources."
   }
 }
@@ -149,8 +149,8 @@ run "project_mode" {
     error_message = "Each project sink must target its own topic."
   }
   assert {
-    condition     = toset(keys(output.sink_names)) == toset(["p1", "p2"]) && toset(keys(output.secret_ids)) == toset(["p1", "p2"]) && output.sink_writer_identities["p2"] == "serviceAccount:sink-p2"
-    error_message = "Project mode outputs a sink name, secret and writer identity per project."
+    condition     = toset(keys(output.secret_ids)) == toset(["p1", "p2"]) && output.sink_writer_identities["p2"] == "serviceAccount:sink-p2"
+    error_message = "Project mode outputs a secret and writer identity per project."
   }
 }
 

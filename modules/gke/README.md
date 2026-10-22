@@ -7,15 +7,7 @@ Two modes, set by `org_level_sink`:
 - `true`: one organization sink, topic, and function in `project_for_resources`. Needs `organization_id`.
 - `false`: one project sink, topic, and function in each project of `projects` (narrowed by `include_projects`).
 
-Resource names end with one random suffix per module instance (`-<8 hex>`), e.g. `stream-sec-gke-logs-pubsub-0a1b2c3d`.
-
-Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
-
 Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
-
-Upgrading from the old bucket-based GKE module: see the root README.
-
-Org mode collects every project in the organization (also projects excluded from the integration) unless `include_projects` is set (root: `gke_include_projects`); cluster names match in every project.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -69,7 +61,7 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_acked_project_ids"></a> [acked\_project\_ids](#input\_acked\_project\_ids) | Project ID per integrated project, unknown until its Stream Security ack exists (defers the token lookup of new projects only). | `map(string)` | n/a | yes |
+| <a name="input_acked_project_ids"></a> [acked\_project\_ids](#input\_acked\_project\_ids) | Project ID per integrated project; unknown until its ack exists. | `map(string)` | n/a | yes |
 | <a name="input_build_service_account"></a> [build\_service\_account](#input\_build\_service\_account) | Service account that builds the function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default. | `string` | `null` | no |
 | <a name="input_exclude_clusters"></a> [exclude\_clusters](#input\_exclude\_clusters) | Cluster names to skip. | `list(string)` | `[]` | no |
 | <a name="input_include_clusters"></a> [include\_clusters](#input\_include\_clusters) | Cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
@@ -90,7 +82,6 @@ No modules.
 | <a name="output_function_names"></a> [function\_names](#output\_function\_names) | Function name per deployment project. |
 | <a name="output_secret_ids"></a> [secret\_ids](#output\_secret\_ids) | Token secret ID per deployment project. |
 | <a name="output_service_account_emails"></a> [service\_account\_emails](#output\_service\_account\_emails) | Function service account email per deployment project. |
-| <a name="output_sink_names"></a> [sink\_names](#output\_sink\_names) | Log sink name per deployment project. |
 | <a name="output_sink_writer_identities"></a> [sink\_writer\_identities](#output\_sink\_writer\_identities) | Log sink writer identity per deployment project. |
 | <a name="output_topic_ids"></a> [topic\_ids](#output\_topic\_ids) | Pub/Sub topic ID per deployment project. |
 <!-- END_TF_DOCS -->

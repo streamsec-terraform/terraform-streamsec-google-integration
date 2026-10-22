@@ -230,26 +230,12 @@ check "response_region" {
 
 locals {
   gke_org_level_sink = var.enable_gke_logs && coalesce(var.gke_org_level_sink, var.org_level_sink)
-  # Projects that get the real-time global secret and the GKE secret.
-  realtime_secret_projects = var.org_level_sink ? [var.project_for_resources] : keys(local.projects)
-  gke_secret_projects      = local.gke_org_level_sink ? [var.project_for_resources] : length(var.gke_include_projects) > 0 ? var.gke_include_projects : keys(local.projects)
   # The provider region, as real-time events use for their function.
   gke_region = var.enable_gke_logs ? coalesce(var.gke_region, data.google_client_config.current[0].region, "us-central1") : null
 }
 
 data "google_client_config" "current" {
   count = var.enable_gke_logs ? 1 : 0
-}
-
-# A global real-time secret and the GKE global secret of the same name would clash in the same project.
-resource "terraform_data" "gke_inputs" {
-  count = var.enable_gke_logs ? 1 : 0
-  lifecycle {
-    precondition {
-      condition     = !(var.enable_real_time_events && var.use_secret_manager && !var.regional_secret && var.gke_secret_name == var.secret_name && length(setintersection(local.realtime_secret_projects, local.gke_secret_projects)) > 0)
-      error_message = "gke_secret_name must differ from secret_name when real-time events use a global Secret Manager secret in the same project."
-    }
-  }
 }
 
 module "gke" {
@@ -265,9 +251,7 @@ module "gke" {
   region                = local.gke_region
   build_service_account = var.gke_build_service_account
   secret_name           = var.gke_secret_name
-  source_bucket         = var.gke_source_bucket
-  source_object         = var.gke_source_object
-  # Unknown until a project's ack exists: only new projects defer their token lookup.
+  # Unknown until the project's ack exists.
   acked_project_ids = { for k, a in streamsec_gcp_project_ack.this : k => a.id == null ? null : a.project_id }
 }
 

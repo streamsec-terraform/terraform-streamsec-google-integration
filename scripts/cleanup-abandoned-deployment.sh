@@ -18,8 +18,6 @@
 #  10. Infrastructure Manager service account
 #  11. Custom IAM roles (ops role at org or project, project resources role)
 #
-# Not the GKE audit logs resources (enable_gke_logs): their names end with a random suffix
-# that only the deleted deployment knew. Delete them by hand.
 # --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
 # which is how setup-prerequisites.sh's leftover check points here.
 #

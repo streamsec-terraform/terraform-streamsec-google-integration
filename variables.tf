@@ -242,18 +242,6 @@ variable "gke_secret_name" {
   default     = null
 }
 
-variable "gke_source_bucket" {
-  description = "Bucket holding the GKE logs function source zip."
-  type        = string
-  default     = "streamsec-production-public-artifacts"
-}
-
-variable "gke_source_object" {
-  description = "Object name of the GKE logs function source zip."
-  type        = string
-  default     = "gcp-gke-logs-collection.zip"
-}
-
 ################################################################################
 # Vertex AI Logging Module
 ################################################################################

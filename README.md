@@ -124,7 +124,6 @@ Apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if th
 | ---- | ------- |
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
 | <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.13 |
-| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 | <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
 
 ## Modules
@@ -150,7 +149,6 @@ Apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if th
 | [google_service_account_key.org](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_key) | resource |
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
 | [streamsec_gcp_project_ack.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project_ack) | resource |
-| [terraform_data.gke_inputs](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [time_sleep.this](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [google_client_config.current](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
 | [google_cloud_asset_search_all_resources.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/cloud_asset_search_all_resources) | data source |
@@ -181,8 +179,6 @@ Apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if th
 | <a name="input_gke_org_level_sink"></a> [gke\_org\_level\_sink](#input\_gke\_org\_level\_sink) | Use an organization-level log sink for GKE. Null follows org\_level\_sink. Set false for project sinks (no org\_id needed). | `bool` | `null` | no |
 | <a name="input_gke_region"></a> [gke\_region](#input\_gke\_region) | Region for the GKE logs Cloud Function. Null uses the provider region, then us-central1. | `string` | `null` | no |
 | <a name="input_gke_secret_name"></a> [gke\_secret\_name](#input\_gke\_secret\_name) | Secret Manager secret name holding the StreamSec GKE collection token. Null: streamsec-gke-logs-token-<random suffix>. | `string` | `null` | no |
-| <a name="input_gke_source_bucket"></a> [gke\_source\_bucket](#input\_gke\_source\_bucket) | Bucket holding the GKE logs function source zip. | `string` | `"streamsec-production-public-artifacts"` | no |
-| <a name="input_gke_source_object"></a> [gke\_source\_object](#input\_gke\_source\_object) | Object name of the GKE logs function source zip. | `string` | `"gcp-gke-logs-collection.zip"` | no |
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
