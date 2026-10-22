@@ -1525,16 +1525,6 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     fi
   fi
 
-  # An older module reads enable_gke_logs as the old bucket-based pipeline.
-  if [[ "$ENABLE_GKE_LOGS" == true ]]; then
-    if ! REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$GIT_REF/$GIT_DIRECTORY/variables.tf" 2>&1); then
-      log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
-    elif [[ "$REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
-      log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
-      exit 1
-    fi
-  fi
-
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"
 
   DEPLOYMENT_PATH="projects/$PROJECT_ID/locations/$REGION/deployments/$DEPLOYMENT_NAME"
@@ -1568,9 +1558,21 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     exit 1
   fi
 
-  # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
-  if [[ "$ENABLE_GKE_LOGS" == true ]] || { [[ "$EXISTING_DEPLOYMENT" == true ]] &&
-      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true'; }; then
+  DEPLOYMENT_HAS_GKE_LOGS=false
+  if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
+      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true'; then
+    DEPLOYMENT_HAS_GKE_LOGS=true
+  fi
+
+  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
+    # An older module reads enable_gke_logs as the old bucket-based pipeline.
+    if ! REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$GIT_REF/$GIT_DIRECTORY/variables.tf" 2>&1); then
+      log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
+    elif [[ "$REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
+      log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
+      exit 1
+    fi
+    # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
     if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
         --format="value(includedPermissions)" 2>/dev/null); then
       log_warn "Could not read role '$PROJECT_ROLE_ID': GKE logs need run.services.getIamPolicy and run.services.setIamPolicy in it."
@@ -1745,7 +1747,7 @@ JSONEOF
           echo "  2. If the preview looks correct, update the existing deployment in the GCP Console:"
           echo "     https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
           echo "     Click Edit, set the Git ref to $GIT_REF, keep all other values, and click Update."
-          if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+          if [[ "$ENABLE_GKE_LOGS" == true && "$DEPLOYMENT_HAS_GKE_LOGS" != true ]]; then
             echo "     Also set the input enable_gke_logs = true (the preview had it; the deployment does not yet)."
           fi
           echo ""

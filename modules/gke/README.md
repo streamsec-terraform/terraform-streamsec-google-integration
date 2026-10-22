@@ -11,7 +11,7 @@ If you set up GKE audit logs with `setup-realtime.sh` in a project, remove it fi
 
 Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
 
-Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants); in project mode, `{project}` in it becomes each project ID.
+Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
 
 Upgrading from the old bucket-based GKE module: see the root README.
 
