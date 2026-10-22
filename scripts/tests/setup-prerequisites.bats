@@ -540,9 +540,17 @@ abandoned_integration() {
   [[ "$output" != *"Also set the input enable_gke_logs"* ]]
 }
 
+@test "GKE logs stop when the project role lacks run.services.get" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  refute_preview
+}
+
 @test "GKE logs go on to the preview when the project role has run.services.*" {
   exist project-role:StreamSecurityInfraManagerProjectRole
-  echo 'pubsub.topics.create;run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
+  echo 'pubsub.topics.create;run.services.get;run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"

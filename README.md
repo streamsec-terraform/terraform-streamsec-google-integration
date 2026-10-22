@@ -104,7 +104,7 @@ the permission on that project too.
 
 ## Upgrading GKE logs from the bucket-based module
 
-Apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if the old logs bucket's delete fails, remove its retention policy and empty it), then set it back to `true`.
+Remove the old inputs (`gke_bucket_name`, `gke_bucket_location`, `gke_api_url`, `gke_streamsec_token`) and apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if the old logs bucket's delete fails, remove its retention policy and empty it), then set it back to `true`.
 `gke_org_level_sink` now follows `org_level_sink`: set `gke_org_level_sink = true` to keep one organization sink.
 
 <!-- BEGIN_TF_DOCS -->

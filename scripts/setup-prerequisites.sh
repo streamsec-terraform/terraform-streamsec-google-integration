@@ -1597,8 +1597,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
     if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
         --format="value(includedPermissions)" 2>/dev/null); then
-      log_warn "Could not read role '$PROJECT_ROLE_ID': GKE logs need run.services.getIamPolicy and run.services.setIamPolicy in it."
-    elif [[ ";$ROLE_PERMS;" != *";run.services.getIamPolicy;"* || ";$ROLE_PERMS;" != *";run.services.setIamPolicy;"* ]]; then
+      log_warn "Could not read role '$PROJECT_ROLE_ID': GKE logs need run.services.get, getIamPolicy and setIamPolicy in it."
+    elif [[ ";$ROLE_PERMS;" != *";run.services.get;"* || ";$ROLE_PERMS;" != *";run.services.getIamPolicy;"* ||
+            ";$ROLE_PERMS;" != *";run.services.setIamPolicy;"* ]]; then
       log_error "Role '$PROJECT_ROLE_ID' lacks the run.services.* permissions GKE logs need: re-run with --start-from-step 2 and accept the role update."
       exit 1
     fi
