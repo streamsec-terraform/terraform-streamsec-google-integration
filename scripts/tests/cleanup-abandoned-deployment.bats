@@ -104,15 +104,27 @@ setup() { setup_fakes; }
     'logging sinks delete stream-security-events-sink --project=p1'
 }
 
-@test "an abandoned GKE logs install is found and deleted, each resource after what depends on it" {
-  exist function2:stream-sec-gke-logs-pubsub org-sink:streamsec-gke-audit-logs-pubsub \
-    topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token sa:streamsec-gke-audit@p1.iam.gserviceaccount.com
+@test "abandoned GKE logs installs are found by name prefix and random suffix and deleted in order" {
+  exist function2:stream-sec-gke-logs-pubsub-0a1b2c3d org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d \
+    topic:streamsec-gke-audit-logs-0a1b2c3d topic:streamsec-gke-audit-logs-ffff0000 \
+    secret:streamsec-gke-logs-token-0a1b2c3d sa:streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com \
+    topic:streamsec-gke-audit-logs topic:streamsec-gke-audit-logs-0a1b2c3d-x secret:streamsec-gke-logs-token-mine
   run bash "$CLEANUP" --project-id p1 --region us-central1 --org-id 123 --yes
   [ "$status" -eq 0 ]
-  assert_mutations 'functions delete stream-sec-gke-logs-pubsub --region=us-central1' \
-    'logging sinks delete streamsec-gke-audit-logs-pubsub --organization=123' \
-    'pubsub topics delete streamsec-gke-audit-logs' \
-    'secrets delete streamsec-gke-logs-token --project=p1' \
-    'service-accounts delete streamsec-gke-audit@p1.iam.gserviceaccount.com'
-  [ ! -s "$FAKE_DIR/existing" ]
+  assert_mutations 'functions delete stream-sec-gke-logs-pubsub-0a1b2c3d --region=us-central1' \
+    'logging sinks delete streamsec-gke-audit-logs-pubsub-0a1b2c3d --organization=123' \
+    'pubsub topics delete streamsec-gke-audit-logs-0a1b2c3d ' \
+    'pubsub topics delete streamsec-gke-audit-logs-ffff0000 ' \
+    'secrets delete streamsec-gke-logs-token-0a1b2c3d --project=p1' \
+    'service-accounts delete streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com'
+  [ "$(cat "$FAKE_DIR/existing")" = "$(printf '%s\n' topic:streamsec-gke-audit-logs topic:streamsec-gke-audit-logs-0a1b2c3d-x secret:streamsec-gke-logs-token-mine)" ]
+}
+
+@test "a GKE kind that can't be listed is reported, not deleted" {
+  exist topic:streamsec-gke-audit-logs-0a1b2c3d
+  echo topic >"$FAKE_DIR/list-errors"
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --only gke-topic --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Could not check: GKE Pub/Sub topic: streamsec-gke-audit-logs-*"* ]]
+  refute_called ' delete '
 }

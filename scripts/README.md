@@ -174,7 +174,6 @@ names (the names are in [`lib/integration-resources.sh`](lib/integration-resourc
 - the events Cloud Function
 - the function service account and the `stream-security` service account
 - the regional `stream-security` secret
-- with `--enable-gke-logs`: the GKE function, sink, topic and service account, and the `streamsec-gke-logs-token` secret
 
 A resource in the state of any Infrastructure Manager deployment in the project belongs
 to it, whatever the deployment is called: re-running the script on an integrated
@@ -265,6 +264,7 @@ gcloud infra-manager deployments delete <DEPLOYMENT_NAME> \
 The script auto-detects which resources exist and removes:
 - Terraform-managed resources (functions, sinks, topics, secrets including the regional
   `stream-security` secret, service accounts)
+- The GKE audit logs resources: all whose names are the module's prefix plus `-<8 hex>`
 - Custom IAM roles created by `setup-prerequisites.sh`
 - IAM bindings for the Infrastructure Manager service account
 - The Infrastructure Manager service account itself

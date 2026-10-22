@@ -560,45 +560,11 @@ abandoned_integration() {
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
 }
 
-@test "with --enable-gke-logs the check finds GKE leftovers; without it, it skips them" {
-  exist topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token
-  run_setup
+@test "--enable-gke-logs: the check skips GKE resources (their names have a random suffix)" {
+  exist topic:streamsec-gke-audit-logs-0a1b2c3d org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d
+  run_check --org-id 123 --enable-gke-logs
   [ "$status" -eq 0 ]
   [[ "$output" == *"No leftovers"* ]]
-  : >"$FAKE_DIR/curl.log"
-  run_setup --enable-gke-logs
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"GKE Pub/Sub topic: streamsec-gke-audit-logs"* ]]
-  [[ "$output" == *"GKE Global secret: streamsec-gke-logs-token"* ]]
-  [[ "$output" == *"--only gke-topic,gke-secret"* ]]
-  refute_preview
-}
-
-@test "--cleanup-leftovers deletes GKE leftovers, the function before its topic and service account" {
-  exist function2:stream-sec-gke-logs-pubsub project-sink:streamsec-gke-audit-logs-pubsub \
-    topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token sa:streamsec-gke-audit@p1.iam.gserviceaccount.com
-  run_setup --enable-gke-logs --cleanup-leftovers
-  [ "$status" -eq 0 ]
-  assert_mutations 'functions delete stream-sec-gke-logs-pubsub --region=us-central1' \
-    'logging sinks delete streamsec-gke-audit-logs-pubsub --project=p1' \
-    'pubsub topics delete streamsec-gke-audit-logs' \
-    'secrets delete streamsec-gke-logs-token --project=p1' \
-    'service-accounts delete streamsec-gke-audit@p1.iam.gserviceaccount.com'
-}
-
-@test "a GKE org sink leftover prints a cleanup command with --org-id" {
-  exist org-sink:streamsec-gke-audit-logs-pubsub
-  run_check --org-id 123 --enable-gke-logs
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"--org-id 123 --only gke-org-sink"* ]]
-}
-
-@test "an unowned GKE sink that writes to another project is never offered for deletion" {
-  exist org-sink:streamsec-gke-audit-logs-pubsub
-  echo "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs" >"$FAKE_DIR/sink-destination"
-  run_check --org-id 123 --enable-gke-logs --cleanup-leftovers --yes
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"gcloud logging sinks delete streamsec-gke-audit-logs-pubsub --organization=123"* ]]
-  [[ "$output" != *"sinks delete stream-security-events-sink"* ]]
-  refute_called ' delete '
+  [[ "$output" != *GKE* ]]
+  refute_called 'gke'
 }
