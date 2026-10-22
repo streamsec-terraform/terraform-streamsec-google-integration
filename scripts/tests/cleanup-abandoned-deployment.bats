@@ -103,3 +103,16 @@ setup() { setup_fakes; }
   assert_mutations 'logging sinks delete stream-security-events-sink --organization=123' \
     'logging sinks delete stream-security-events-sink --project=p1'
 }
+
+@test "an abandoned GKE logs install is found and deleted, each resource after what depends on it" {
+  exist function2:stream-sec-gke-logs-pubsub org-sink:streamsec-gke-audit-logs-pubsub \
+    topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token sa:streamsec-gke-audit@p1.iam.gserviceaccount.com
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --org-id 123 --yes
+  [ "$status" -eq 0 ]
+  assert_mutations 'functions delete stream-sec-gke-logs-pubsub --region=us-central1' \
+    'logging sinks delete streamsec-gke-audit-logs-pubsub --organization=123' \
+    'pubsub topics delete streamsec-gke-audit-logs' \
+    'secrets delete streamsec-gke-logs-token --project=p1' \
+    'service-accounts delete streamsec-gke-audit@p1.iam.gserviceaccount.com'
+  [ ! -s "$FAKE_DIR/existing" ]
+}

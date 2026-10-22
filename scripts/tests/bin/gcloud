@@ -67,6 +67,9 @@ if [[ -n "$verb" ]]; then
     fi
     drop "$kind:$name"
   fi
+  if [[ "$kind" == *-role && "$*" == *"value(includedPermissions)"* ]]; then
+    cat "$FAKE_DIR/role-permissions" 2>/dev/null
+  fi
   if [[ "$kind" == *-sink && "$*" == *"value(destination)"* ]]; then
     cat "$FAKE_DIR/sink-destination" 2>/dev/null || echo "pubsub.googleapis.com/projects/p1/topics/stream-security-events-topic"
   fi

@@ -485,3 +485,102 @@ abandoned_integration() {
   [ "$status" -eq 0 ]
   called 'infra-manager previews create .*--input-values=[^ ]*enable_gke_logs=true'
 }
+
+@test "--enable-gke-logs on a CRLF deployment input replaces enable_gke_logs, not duplicates it" {
+  deployment streamsec-integration ACTIVE
+  printf '{\r\n  "enable_gke_logs": {\r\n    "inputValue": "false"\r\n  },\r\n  "google_project_id": {\r\n    "inputValue": "p1"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 1 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+}
+
+@test "--enable-gke-logs: the next steps tell to set enable_gke_logs on the deployment" {
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"enable_gke_logs=true"* ]]
+  deployment streamsec-integration ACTIVE
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Also set the input enable_gke_logs = true"* ]]
+}
+
+@test "--enable-gke-logs stops before the preview on a ref without the real-time GKE module" {
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Git ref v0.0.0 has no real-time GKE module"* ]]
+  grep -q 'raw.githubusercontent.com/streamsec-terraform/terraform-streamsec-google-integration/v0.0.0/infrastructure-manager/variables.tf' "$FAKE_DIR/curl.log"
+  refute_preview
+}
+
+@test "GKE logs stop before the preview when the project role lacks run.services.*" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create;run.services.get' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lacks the run.services.* permissions"*"--start-from-step 2"* ]]
+  refute_preview
+}
+
+@test "GKE logs on in the deployment's inputs also need run.services.* in the project role" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create' >"$FAKE_DIR/role-permissions"
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lacks the run.services.* permissions"* ]]
+  refute_preview
+}
+
+@test "GKE logs go on to the preview when the project role has run.services.*" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create;run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}
+
+@test "with --enable-gke-logs the check finds GKE leftovers; without it, it skips them" {
+  exist topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No leftovers"* ]]
+  : >"$FAKE_DIR/curl.log"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"GKE Pub/Sub topic: streamsec-gke-audit-logs"* ]]
+  [[ "$output" == *"GKE Global secret: streamsec-gke-logs-token"* ]]
+  [[ "$output" == *"--only gke-topic,gke-secret"* ]]
+  refute_preview
+}
+
+@test "--cleanup-leftovers deletes GKE leftovers, the function before its topic and service account" {
+  exist function2:stream-sec-gke-logs-pubsub project-sink:streamsec-gke-audit-logs-pubsub \
+    topic:streamsec-gke-audit-logs secret:streamsec-gke-logs-token sa:streamsec-gke-audit@p1.iam.gserviceaccount.com
+  run_setup --enable-gke-logs --cleanup-leftovers
+  [ "$status" -eq 0 ]
+  assert_mutations 'functions delete stream-sec-gke-logs-pubsub --region=us-central1' \
+    'logging sinks delete streamsec-gke-audit-logs-pubsub --project=p1' \
+    'pubsub topics delete streamsec-gke-audit-logs' \
+    'secrets delete streamsec-gke-logs-token --project=p1' \
+    'service-accounts delete streamsec-gke-audit@p1.iam.gserviceaccount.com'
+}
+
+@test "a GKE org sink leftover prints a cleanup command with --org-id" {
+  exist org-sink:streamsec-gke-audit-logs-pubsub
+  run_check --org-id 123 --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--org-id 123 --only gke-org-sink"* ]]
+}
+
+@test "an unowned GKE sink that writes to another project is never offered for deletion" {
+  exist org-sink:streamsec-gke-audit-logs-pubsub
+  echo "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs" >"$FAKE_DIR/sink-destination"
+  run_check --org-id 123 --enable-gke-logs --cleanup-leftovers --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"gcloud logging sinks delete streamsec-gke-audit-logs-pubsub --organization=123"* ]]
+  [[ "$output" != *"sinks delete stream-security-events-sink"* ]]
+  refute_called ' delete '
+}

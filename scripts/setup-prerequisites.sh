@@ -267,8 +267,8 @@ Infrastructure Manager options:
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
                           --org-id becomes optional; project Owner is sufficient)
-  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true,
-                          also on an existing deployment)
+  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true
+                          in the preview; set it on the deployment too)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
 Leftovers of an earlier integration (checked before step 6):
@@ -387,6 +387,7 @@ fi
 ###############################################################################
 LEFTOVER_KINDS=()   # deletable leftovers, in deletion order
 BLOCKED=()          # leftovers this script won't delete
+BLOCKED_SINKS=()    # names of the sinks in BLOCKED
 NOT_OURS=()         # resources owned by a deployment other than $DEPLOYMENT_NAME
 IN_USE=()           # leftovers that look in use: --yes alone won't delete them
 
@@ -484,6 +485,7 @@ check_leftovers() {
   unknown=()
   LEFTOVER_KINDS=()
   BLOCKED=()
+  BLOCKED_SINKS=()
   NOT_OURS=()
   IN_USE=()
   if ! read_owned_state; then
@@ -495,8 +497,11 @@ check_leftovers() {
   for kind in "${IR_KINDS[@]}"; do
     case "$kind" in
       global-secret) continue ;;  # the Infrastructure Manager wrapper makes a regional one
-      org-sink) [[ "$ORG_LEVEL_SINK" == true ]] || continue ;;
-      project-sink) [[ "$ORG_LEVEL_SINK" != true ]] || continue ;;
+      gke-*) [[ "$ENABLE_GKE_LOGS" == true ]] || continue ;;
+    esac
+    case "$kind" in
+      *org-sink) [[ "$ORG_LEVEL_SINK" == true ]] || continue ;;
+      *project-sink) [[ "$ORG_LEVEL_SINK" != true ]] || continue ;;
     esac
     label=$(ir_label "$kind")
     exists=no owner=- hints=""
@@ -522,6 +527,7 @@ check_leftovers() {
         # A sink feeding another project may serve a live integration there.
         if [[ -n "$destination" && "$destination" != *"/projects/$PROJECT_ID/"* ]]; then
           BLOCKED+=("$label writes to $destination")
+          if [[ "$kind" == gke-* ]]; then BLOCKED_SINKS+=("$GKE_SINK"); else BLOCKED_SINKS+=("$LOGGING_SINK"); fi
         else
           LEFTOVER_KINDS+=("$kind")
           reason=$(ir_in_use "$kind")
@@ -571,7 +577,7 @@ delete_leftovers() {
 
 # Returns non-zero, after saying why, when the apply would fail on leftovers.
 run_leftover_check() {
-  local rc=0 response kind kinds cmd sink_scope
+  local rc=0 response kind kinds cmd sink sink_scope
   log_step "Checking for resources left over from an earlier integration..."
   if [[ "$SKIP_LEFTOVER_CHECK" == true ]]; then
     log_warn "Skipping the check (--skip-leftover-check)."
@@ -607,7 +613,9 @@ run_leftover_check() {
     if [[ "$ORG_LEVEL_SINK" == true ]]; then sink_scope="--organization=$ORGANIZATION_ID"; fi
     log_error "Not deleting these, which may serve a live integration in another project:"
     printf '    %s\n' "${BLOCKED[@]}"
-    echo "  If nothing there uses it: gcloud logging sinks delete $LOGGING_SINK $sink_scope"
+    for sink in "${BLOCKED_SINKS[@]}"; do
+      echo "  If nothing there uses it: gcloud logging sinks delete $sink $sink_scope"
+    done
     echo ""
   fi
   if [[ ${#LEFTOVER_KINDS[@]} -eq 0 ]]; then
@@ -626,7 +634,7 @@ run_leftover_check() {
         echo "  Re-run without --yes to confirm, or delete them with cleanup-abandoned-deployment.sh."
         return 1
       fi
-    elif [[ " ${LEFTOVER_KINDS[*]} " == *" org-sink "* ]]; then
+    elif [[ " ${LEFTOVER_KINDS[*]} " == *"org-sink "* ]]; then
       read -r -p "This deletes an organization-level sink. Type 'DELETE-ORG-RESOURCES' to confirm: " response
       if [[ "$response" != DELETE-ORG-RESOURCES ]]; then
         log_warn "Aborted."
@@ -646,7 +654,7 @@ run_leftover_check() {
 
   kinds=$(IFS=,; echo "${LEFTOVER_KINDS[*]}")
   cmd="$(dirname "$0")/cleanup-abandoned-deployment.sh --project-id $PROJECT_ID --region $REGION"
-  if [[ ",$kinds," == *",org-sink,"* ]]; then
+  if [[ ",$kinds," == *"org-sink,"* ]]; then
     cmd+=" --org-id $ORGANIZATION_ID"
   fi
   cmd+=" --only $kinds"
@@ -1473,7 +1481,7 @@ set_input_value() {
   awk -v key="$1" -v val="$2" '
     { s = s $0 "\n" }
     END {
-      member = "^[ \t\n]*\"" key "\"[ \t\n]*:"
+      member = "^[ \t\r\n]*\"" key "\"[ \t\r\n]*:"
       for (i = index(s, "{") + 1; i <= length(s); i++) {
         c = substr(s, i, 1)
         if (esc) esc = 0
@@ -1482,7 +1490,7 @@ set_input_value() {
         else if (!instr && (c == "{" || c == "[")) depth++
         else if (!instr && depth > 0 && (c == "}" || c == "]")) depth--
         else if (!instr && depth == 0 && (c == "," || c == "}")) {
-          sub(/[ \t\n]+$/, "", m)
+          sub(/[ \t\r\n]+$/, "", m)
           if (m != "" && m !~ member) out = out (n++ ? "," : "") m
           m = ""
           if (c == "}") break
@@ -1517,6 +1525,16 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     fi
   fi
 
+  # An older module reads enable_gke_logs as the old bucket-based pipeline.
+  if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+    if ! REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$GIT_REF/$GIT_DIRECTORY/variables.tf" 2>&1); then
+      log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
+    elif [[ "$REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
+      log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
+      exit 1
+    fi
+  fi
+
   PREVIEW_NAME="${DEPLOYMENT_NAME}-preview-$(date +%s)"
 
   DEPLOYMENT_PATH="projects/$PROJECT_ID/locations/$REGION/deployments/$DEPLOYMENT_NAME"
@@ -1545,13 +1563,21 @@ if [[ $START_FROM_STEP -le 6 ]]; then
       log_error "Could not read the input values of deployment '$DEPLOYMENT_NAME'."
       exit 1
     fi
-    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
-      log_info "Setting enable_gke_logs = true in the deployment's inputs."
-      DEPLOYMENT_INPUTS_JSON=$(printf '%s\n' "$DEPLOYMENT_INPUTS_JSON" | set_input_value enable_gke_logs true)
-    fi
   elif [[ "$DESCRIBE_ERR" != *NOT_FOUND* ]]; then
     log_error "Could not check whether deployment '$DEPLOYMENT_NAME' exists: $DESCRIBE_ERR"
     exit 1
+  fi
+
+  # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
+  if [[ "$ENABLE_GKE_LOGS" == true ]] || { [[ "$EXISTING_DEPLOYMENT" == true ]] &&
+      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true'; }; then
+    if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
+        --format="value(includedPermissions)" 2>/dev/null); then
+      log_warn "Could not read role '$PROJECT_ROLE_ID': GKE logs need run.services.getIamPolicy and run.services.setIamPolicy in it."
+    elif [[ ";$ROLE_PERMS;" != *";run.services.getIamPolicy;"* || ";$ROLE_PERMS;" != *";run.services.setIamPolicy;"* ]]; then
+      log_error "Role '$PROJECT_ROLE_ID' lacks the run.services.* permissions GKE logs need: re-run with --start-from-step 2 and accept the role update."
+      exit 1
+    fi
   fi
 
   log_info "Preview name: $PREVIEW_NAME"
@@ -1599,10 +1625,14 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   "google_region": {"inputValue": "$REGION"},
   "streamsec_secret_name": {"inputValue": "$SECRET_NAME"},
   "org_level_sink": {"inputValue": "$ORG_LEVEL_SINK"},
-  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ "$PROJECT_ONLY" == true ]]; then echo ","; echo "  \"sa_project_level_permissions\": {\"inputValue\": \"true\"}"; fi)$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)$(if [[ "$ENABLE_GKE_LOGS" == true ]]; then echo ","; echo "  \"enable_gke_logs\": {\"inputValue\": \"true\"}"; fi)
+  "include_projects": {"inputValue": ["$PROJECT_ID"]}$(if [[ "$PROJECT_ONLY" == true ]]; then echo ","; echo "  \"sa_project_level_permissions\": {\"inputValue\": \"true\"}"; fi)$(if [[ -n "$ORGANIZATION_ID" ]]; then echo ","; echo "  \"org_id\": {\"inputValue\": \"$ORGANIZATION_ID\"}"; fi)
 }
 JSONEOF
 )
+    fi
+    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+      log_info "Setting enable_gke_logs = true in the preview's inputs."
+      INPUT_VALUES_JSON=$(printf '%s\n' "$INPUT_VALUES_JSON" | set_input_value enable_gke_logs true)
     fi
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
@@ -1715,6 +1745,9 @@ JSONEOF
           echo "  2. If the preview looks correct, update the existing deployment in the GCP Console:"
           echo "     https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
           echo "     Click Edit, set the Git ref to $GIT_REF, keep all other values, and click Update."
+          if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+            echo "     Also set the input enable_gke_logs = true (the preview had it; the deployment does not yet)."
+          fi
           echo ""
           break
         fi
@@ -1724,6 +1757,9 @@ JSONEOF
         echo "       org_level_sink=$ORG_LEVEL_SINK$( [[ -n "$ORGANIZATION_ID" ]] && echo "  org_id=$ORGANIZATION_ID" )"
         if [[ "$SINGLE_PROJECT" == true ]]; then
           echo "       include_projects=[\"$PROJECT_ID\"]$( [[ "$PROJECT_ONLY" == true ]] && echo "  sa_project_level_permissions=true" )"
+        fi
+        if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+          echo "       enable_gke_logs=true"
         fi
         echo ""
 
