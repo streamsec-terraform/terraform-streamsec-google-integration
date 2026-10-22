@@ -18,6 +18,7 @@
 #  10. Infrastructure Manager service account
 #  11. Custom IAM roles (ops role at org or project, project resources role)
 #
+# 2-8 include the GKE audit logs resources (function, sink, topic, secret, service account).
 # --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
 # which is how setup-prerequisites.sh's leftover check points here.
 #
@@ -167,8 +168,8 @@ if [[ "$ONLY_GIVEN" == true ]]; then
       exit 1
     fi
   done
-  if [[ ",$ONLY_KINDS," == *",org-sink,"* && -z "$ORGANIZATION_ID" ]]; then
-    log_error "--only org-sink needs --org-id."
+  if [[ ",$ONLY_KINDS," == *"org-sink,"* && -z "$ORGANIZATION_ID" ]]; then
+    log_error "--only org-sink and gke-org-sink need --org-id."
     exit 1
   fi
 fi
@@ -212,8 +213,8 @@ kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
 for kind in "${IR_KINDS[@]}"; do
   selected "$kind" || continue
   # Auto-detect the sink: org level first (only with an org ID), then project level; --only takes both as asked.
-  if [[ "$kind" == org-sink && -z "$ORGANIZATION_ID" ]] ||
-      { [[ "$kind" == project-sink && "$ONLY_GIVEN" != true ]] && kind_found org-sink; }; then
+  if [[ "$kind" == *org-sink && -z "$ORGANIZATION_ID" ]] ||
+      { [[ "$kind" == *project-sink && "$ONLY_GIVEN" != true ]] && kind_found "${kind%project-sink}org-sink"; }; then
     continue
   fi
   label=$(ir_label "$kind")
@@ -385,7 +386,7 @@ fi
 
 # Check if any org-level resources will be deleted
 HAS_ORG_LEVEL_DELETIONS=false
-if kind_found org-sink || \
+if kind_found org-sink || kind_found gke-org-sink || \
    [[ "$HAS_ORG_IAM_VIEWER" == true ]] || \
    [[ "$HAS_ORG_IAM_SECURITY_REVIEWER" == true ]] || \
    [[ "$HAS_IM_OPS_ROLE_BINDING_ORG" == true ]] || \

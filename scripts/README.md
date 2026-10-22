@@ -51,7 +51,7 @@ at any time.
 
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
-**GKE audit logs (`--enable-gke-logs`):** the project role always includes the `run.services.*` permissions. The flag sets `enable_gke_logs=true` on new and existing deployments (other inputs are kept).
+**GKE audit logs (`--enable-gke-logs`):** the flag sets `enable_gke_logs=true` in the preview (other inputs are kept); the next steps tell you to set it on the deployment. Before the preview the script stops if the module ref has no real-time GKE module, or if the project role lacks the `run.services.*` permissions that step 2 adds.
 
 ### Prerequisites
 
@@ -112,6 +112,7 @@ at any time.
 | `--git-ref` | `GIT_REF` | latest release | Module git ref used for the preview: a tag or a slash-free ref (Infrastructure Manager cannot fetch refs containing `/`, so `feature/x` style branch names are rejected) |
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
+| `--enable-gke-logs` | `ENABLE_GKE_LOGS=true` | — | Collect GKE audit logs in real time (see [Modes](#modes)) |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
 | `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check): read-only, unless with `--cleanup-leftovers`. Needs only `--project-id`, `--region`, the mode flags and `--org-id` (unless `--project-only`) |
 | `--cleanup-leftovers` | — | — | Delete the leftovers the check finds, after a confirmation, then go on |
@@ -173,6 +174,7 @@ names (the names are in [`lib/integration-resources.sh`](lib/integration-resourc
 - the events Cloud Function
 - the function service account and the `stream-security` service account
 - the regional `stream-security` secret
+- with `--enable-gke-logs`: the GKE function, sink, topic and service account, and the `streamsec-gke-logs-token` secret
 
 A resource in the state of any Infrastructure Manager deployment in the project belongs
 to it, whatever the deployment is called: re-running the script on an integrated

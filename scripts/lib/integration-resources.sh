@@ -13,14 +13,33 @@ PUBSUB_TOPIC="${PUBSUB_TOPIC:-stream-security-events-topic}"
 LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
 REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
 GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
+# The GKE audit logs module (enable_gke_logs).
+GKE_FUNCTION_NAME="${GKE_FUNCTION_NAME:-stream-sec-gke-logs-pubsub}"
+GKE_SINK="${GKE_SINK:-streamsec-gke-audit-logs-pubsub}"
+GKE_TOPIC="${GKE_TOPIC:-streamsec-gke-audit-logs}"
+GKE_SECRET="${GKE_SECRET:-streamsec-gke-logs-token}"
+GKE_SA_ACCOUNT_ID="${GKE_SA_ACCOUNT_ID:-streamsec-gke-audit}"
 
 # In deletion order: functions before the topic and service account they use,
 # sinks before the topic they write to.
-IR_KINDS=(events-function org-sink project-sink topic global-secret regional-secret function-sa sa)
+IR_KINDS=(events-function gke-function org-sink project-sink gke-org-sink gke-project-sink
+  topic gke-topic global-secret gke-secret regional-secret function-sa gke-sa sa)
 
 ir_is_kind() { [[ " ${IR_KINDS[*]} " == *" $1 "* ]]; }
 
 ir_sa_email() { echo "$1@${PROJECT_ID}.iam.gserviceaccount.com"; }
+
+# Runs ir_* function $1 for GKE kind $2 as the matching base kind, with the GKE names.
+ir_gke() {
+  local base="${2#gke-}"
+  case "$base" in
+    function) base=events-function ;;
+    secret)   base=global-secret ;;
+    sa)       base=function-sa ;;
+  esac
+  FUNCTION_NAME="$GKE_FUNCTION_NAME" LOGGING_SINK="$GKE_SINK" PUBSUB_TOPIC="$GKE_TOPIC" \
+    GLOBAL_SECRET="$GKE_SECRET" FUNCTION_SA_ACCOUNT_ID="$GKE_SA_ACCOUNT_ID" "$1" "$base"
+}
 
 # Regional secrets are served only by the regional endpoint, and gcloud doesn't
 # switch to it for --location (it fails with INVALID_ARGUMENT).
@@ -30,6 +49,7 @@ ir_regional_secrets() {
 }
 
 ir_label() {
+  if [[ "$1" == gke-* ]]; then echo "GKE $(ir_gke ir_label "$1")"; return; fi
   case "$1" in
     events-function)   echo "Cloud Function v2: $FUNCTION_NAME ($REGION)" ;;
     org-sink)          echo "Org logging sink: $LOGGING_SINK" ;;
@@ -43,6 +63,7 @@ ir_label() {
 }
 
 ir_describe() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_describe "$1"; return; fi
   case "$1" in
     events-function)   gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 ;;
     org-sink)          gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" ;;
@@ -67,6 +88,7 @@ ir_exists() {
 }
 
 ir_delete() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_delete "$1"; return; fi
   case "$1" in
     events-function)   gcloud functions delete "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 --quiet ;;
     org-sink)          gcloud logging sinks delete "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --quiet ;;
@@ -84,6 +106,7 @@ ir_delete() {
 # "<terraform type>\t<id>" of the resource in `gcloud infra-manager resources list`. @P@ is
 # the project ID or number; a leading * matches any prefix (an org sink's name is unique in the org).
 ir_state_match() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_state_match "$1"; return; fi
   case "$1" in
     events-function)   printf 'google_cloudfunctions2_function\tprojects/@P@/locations/%s/functions/%s\n' "$REGION" "$FUNCTION_NAME" ;;
     org-sink)          printf 'google_logging_organization_sink\t*/sinks/%s\n' "$LOGGING_SINK" ;;
@@ -105,6 +128,7 @@ ir_count() {
 
 # What uses the resource, to judge whether deleting it is safe.
 ir_hints() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_hints "$1"; return; fi
   local value email
   case "$1" in
     events-function)
@@ -141,6 +165,7 @@ ir_hints() {
 
 # Why the resource looks in use (subscriptions, keys, accessors), or nothing.
 ir_in_use() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_in_use "$1"; return; fi
   local n
   case "$1" in
     topic)
@@ -163,7 +188,7 @@ ir_in_use() {
   return 0
 }
 
-# The cleanup-abandoned-deployment.sh flag that names the resource.
+# The cleanup-abandoned-deployment.sh flag that names the resource (GKE kinds: none, fixed names).
 ir_name_flag() {
   case "$1" in
     events-function)        echo "--function-name $FUNCTION_NAME" ;;
@@ -177,6 +202,7 @@ ir_name_flag() {
 }
 
 ir_sink_destination() {
+  if [[ "$1" == gke-* ]]; then ir_gke ir_sink_destination "$1"; return; fi
   if [[ "$1" == org-sink ]]; then
     gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --format='value(destination)'
   else
