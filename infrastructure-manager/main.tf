@@ -74,8 +74,6 @@ module "streamsec_google_projects" {
   gke_region                = var.gke_region
   gke_build_service_account = var.gke_build_service_account
   gke_secret_name           = var.gke_secret_name
-  gke_source_bucket         = var.gke_source_bucket
-  gke_source_object         = var.gke_source_object
 }
 
 # The script grants the project resources role only in google_project_id.

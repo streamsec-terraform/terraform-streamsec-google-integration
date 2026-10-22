@@ -3,4 +3,4 @@
 *.bats text eol=lf
 **/tests/bin/* text eol=lf
 # The GKE log filter becomes the sink filter as is.
-modules/gke/**/*.txt text eol=lf
+modules/gke/log_filter.txt text eol=lf

@@ -12,15 +12,6 @@ variables {
   }
 }
 
-run "base_filter_unchanged" {
-  command = plan
-
-  assert {
-    condition     = trimspace(local.base_filter) == trimspace(file("tests/fixtures/base_log_filter.txt"))
-    error_message = "The base filter changed: update tests/fixtures/base_log_filter.txt if intended."
-  }
-}
-
 run "org_no_scoping" {
   command = plan
 

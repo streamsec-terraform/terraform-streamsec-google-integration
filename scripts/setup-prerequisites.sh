@@ -1467,13 +1467,15 @@ fi
 
 run_leftover_check || exit 1
 
-# Sets input KEY to {"inputValue": "VALUE"} in the inputValues JSON object on stdin:
-# drops any existing KEY member (split at top-level commas, outside strings) and appends it.
-# The module's variables.tf at git ref $1 (curl's error on failure).
-ref_variables() {
-  curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$1/$GIT_DIRECTORY/variables.tf" 2>&1
+# Whether the module at git ref $1 has the real-time GKE module: 0 yes, 1 no,
+# 2 unreadable (curl's error in REF_VARIABLES).
+ref_has_realtime_gke() {
+  REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$1/$GIT_DIRECTORY/variables.tf" 2>&1) || return 2
+  [[ "$REF_VARIABLES" == *'variable "gke_org_level_sink"'* ]]
 }
 
+# Sets input KEY to {"inputValue": "VALUE"} in the inputValues JSON object on stdin:
+# drops any existing KEY member (split at top-level commas, outside strings) and appends it.
 set_input_value() {
   awk -v key="$1" -v val="$2" '
     { s = s $0 "\n" }
@@ -1557,15 +1559,16 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 
   # The old bucket-based GKE module: an update would destroy its bucket.
   OLD_GKE_MODULE_ERROR="Deployment '$DEPLOYMENT_NAME' uses the old bucket-based GKE module: remove its old GKE inputs (if any) and apply once with enable_gke_logs = false first (see the README's upgrade note)."
+  DEPLOYMENT_INPUTS_COMPACT=$(tr -d ' \t\r\n' <<<"${DEPLOYMENT_INPUTS_JSON:-}")
   if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
-      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":'; then
+      grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":' <<<"$DEPLOYMENT_INPUTS_COMPACT"; then
     log_error "$OLD_GKE_MODULE_ERROR"
     exit 1
   fi
 
   DEPLOYMENT_HAS_GKE_LOGS=false
   if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
-      tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true'; then
+      grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true' <<<"$DEPLOYMENT_INPUTS_COMPACT"; then
     DEPLOYMENT_HAS_GKE_LOGS=true
     # enable_gke_logs = true with only default GKE inputs: the deployment's own ref tells.
     DEPLOYMENT_REF=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
@@ -1573,22 +1576,24 @@ if [[ $START_FROM_STEP -le 6 ]]; then
         --format="value(terraformBlueprint.gitSource.ref)" 2>/dev/null) || DEPLOYMENT_REF=""
     if [[ -z "$DEPLOYMENT_REF" ]]; then
       log_warn "Could not read deployment '$DEPLOYMENT_NAME's git ref to check its GKE module."
-    elif ! DEPLOYMENT_REF_VARIABLES=$(ref_variables "$DEPLOYMENT_REF"); then
-      log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $DEPLOYMENT_REF_VARIABLES"
-    elif [[ "$DEPLOYMENT_REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
-      log_error "$OLD_GKE_MODULE_ERROR"
-      exit 1
+    else
+      REF_STATUS=0
+      ref_has_realtime_gke "$DEPLOYMENT_REF" || REF_STATUS=$?
+      case $REF_STATUS in
+        1) log_error "$OLD_GKE_MODULE_ERROR"; exit 1 ;;
+        2) log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $REF_VARIABLES" ;;
+      esac
     fi
   fi
 
   if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
     # An older module reads enable_gke_logs as the old bucket-based pipeline.
-    if ! REF_VARIABLES=$(ref_variables "$GIT_REF"); then
-      log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
-    elif [[ "$REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
-      log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
-      exit 1
-    fi
+    REF_STATUS=0
+    ref_has_realtime_gke "$GIT_REF" || REF_STATUS=$?
+    case $REF_STATUS in
+      1) log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."; exit 1 ;;
+      2) log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES" ;;
+    esac
     # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
     if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
         --format="value(includedPermissions)" 2>/dev/null); then
@@ -1650,7 +1655,6 @@ JSONEOF
 )
     fi
     if [[ "$ENABLE_GKE_LOGS" == true ]]; then
-      log_info "Setting enable_gke_logs = true in the preview's inputs."
       INPUT_VALUES_JSON=$(printf '%s\n' "$INPUT_VALUES_JSON" | set_input_value enable_gke_logs true)
     fi
 

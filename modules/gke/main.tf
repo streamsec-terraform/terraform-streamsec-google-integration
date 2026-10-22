@@ -132,7 +132,7 @@ resource "google_secret_manager_secret" "this" {
   replication {
     auto {}
   }
-  depends_on = [terraform_data.inputs, time_sleep.api_propagation]
+  depends_on = [time_sleep.api_propagation]
 }
 
 resource "google_secret_manager_secret_version" "this" {
@@ -146,7 +146,7 @@ resource "google_service_account" "this" {
   project      = each.value.project_id
   account_id   = "streamsec-gke-audit-${local.suffix}"
   display_name = "Stream Security GKE audit logs"
-  depends_on   = [terraform_data.inputs, time_sleep.api_propagation]
+  depends_on   = [time_sleep.api_propagation]
 }
 
 resource "google_secret_manager_secret_iam_member" "this" {
@@ -161,7 +161,7 @@ resource "google_pubsub_topic" "this" {
   for_each   = local.deploy_projects
   project    = each.value.project_id
   name       = "streamsec-gke-audit-logs-${local.suffix}"
-  depends_on = [terraform_data.inputs, time_sleep.api_propagation]
+  depends_on = [time_sleep.api_propagation]
 }
 
 resource "google_logging_organization_sink" "this" {
@@ -171,7 +171,6 @@ resource "google_logging_organization_sink" "this" {
   destination      = "pubsub.googleapis.com/${google_pubsub_topic.this[var.project_for_resources].id}"
   filter           = local.sink_filter
   include_children = true
-  depends_on       = [terraform_data.inputs]
 }
 
 resource "google_logging_project_sink" "this" {
@@ -181,7 +180,6 @@ resource "google_logging_project_sink" "this" {
   destination            = "pubsub.googleapis.com/${google_pubsub_topic.this[each.key].id}"
   filter                 = local.sink_filter
   unique_writer_identity = true
-  depends_on             = [terraform_data.inputs]
 }
 
 resource "google_pubsub_topic_iam_member" "sink_publisher" {
@@ -227,7 +225,7 @@ resource "google_cloudfunctions2_function" "this" {
     service_account_email = google_service_account.this[each.key].email
   }
 
-  depends_on = [terraform_data.inputs, time_sleep.api_propagation, google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
+  depends_on = [google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
@@ -244,6 +242,6 @@ resource "google_service_account_iam_member" "pubsub_token_creator" {
   service_account_id = google_service_account.this[each.key].name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:service-${data.google_project.this[each.key].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-  # The Pub/Sub service agent appears once the API is on; wait for the API and the topic.
-  depends_on = [time_sleep.api_propagation, google_pubsub_topic.this]
+  # The Pub/Sub service agent appears once the API is on (the SA waits for it) and the topic exists.
+  depends_on = [google_pubsub_topic.this]
 }

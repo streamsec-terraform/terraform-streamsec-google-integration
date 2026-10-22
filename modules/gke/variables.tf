@@ -25,7 +25,7 @@ variable "projects" {
 
 variable "acked_project_ids" {
   type        = map(string)
-  description = "Project ID per integrated project, unknown until its Stream Security ack exists (defers the token lookup of new projects only)."
+  description = "Project ID per integrated project; unknown until its ack exists."
 }
 
 variable "include_projects" {
