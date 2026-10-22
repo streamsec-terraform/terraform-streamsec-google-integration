@@ -237,9 +237,9 @@ variable "gke_build_service_account" {
 }
 
 variable "gke_secret_name" {
-  description = "Secret Manager secret name holding the StreamSec GKE collection token."
+  description = "Secret Manager secret name holding the StreamSec GKE collection token. Null: streamsec-gke-logs-token-<random suffix>."
   type        = string
-  default     = "streamsec-gke-logs-token"
+  default     = null
 }
 
 variable "gke_source_bucket" {

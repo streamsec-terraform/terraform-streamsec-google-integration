@@ -13,17 +13,24 @@ mock_provider "streamsec" {
   }
 }
 mock_provider "time" {}
+mock_provider "random" {}
+
+override_resource {
+  target          = random_id.suffix
+  override_during = plan
+  values          = { hex = "0a1b2c3d" }
+}
 
 override_resource {
   target          = google_pubsub_topic.this["p1"]
   override_during = plan
-  values          = { id = "projects/p1/topics/streamsec-gke-audit-logs" }
+  values          = { id = "projects/p1/topics/streamsec-gke-audit-logs-0a1b2c3d" }
 }
 
 override_resource {
   target          = google_pubsub_topic.this["p2"]
   override_during = plan
-  values          = { id = "projects/p2/topics/streamsec-gke-audit-logs" }
+  values          = { id = "projects/p2/topics/streamsec-gke-audit-logs-0a1b2c3d" }
 }
 
 override_resource {
@@ -105,7 +112,7 @@ run "org_mode" {
     error_message = "Topic publisher must be the org sink writer identity."
   }
   assert {
-    condition     = toset(keys(output.sink_names)) == toset(["p1"]) && output.sink_names["p1"] == "streamsec-gke-audit-logs-pubsub" && toset(keys(output.secret_ids)) == toset(["p1"])
+    condition     = toset(keys(output.sink_names)) == toset(["p1"]) && output.sink_names["p1"] == "streamsec-gke-audit-logs-pubsub-0a1b2c3d" && toset(keys(output.secret_ids)) == toset(["p1"])
     error_message = "Org mode outputs one sink name and one secret, keyed by project_for_resources."
   }
 }
@@ -138,7 +145,7 @@ run "project_mode" {
     error_message = "Each topic publisher must be its own sink writer identity."
   }
   assert {
-    condition     = google_logging_project_sink.this["p1"].destination == "pubsub.googleapis.com/projects/p1/topics/streamsec-gke-audit-logs" && google_logging_project_sink.this["p2"].destination == "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs"
+    condition     = google_logging_project_sink.this["p1"].destination == "pubsub.googleapis.com/projects/p1/topics/streamsec-gke-audit-logs-0a1b2c3d" && google_logging_project_sink.this["p2"].destination == "pubsub.googleapis.com/projects/p2/topics/streamsec-gke-audit-logs-0a1b2c3d"
     error_message = "Each project sink must target its own topic."
   }
   assert {
@@ -159,7 +166,7 @@ run "function_config" {
     error_message = "API_URL must be the bare Stream Security host."
   }
   assert {
-    condition     = google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.SECRET_NAME == "projects/p1/secrets/streamsec-gke-logs-token/versions/latest"
+    condition     = google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.SECRET_NAME == "projects/p1/secrets/streamsec-gke-logs-token-0a1b2c3d/versions/latest"
     error_message = "Wrong SECRET_NAME."
   }
   assert {
@@ -200,5 +207,42 @@ run "iam_scope" {
   assert {
     condition     = google_cloud_run_v2_service_iam_member.invoker["p1"].role == "roles/run.invoker"
     error_message = "Wrong invoker role."
+  }
+}
+
+run "names_suffix_and_limits" {
+  command = plan
+
+  variables {
+    org_level_sink = false
+  }
+
+  # GCP limits: service account ID 30, Cloud Run service (function) 49, sink 100, topic and secret 255.
+  assert {
+    condition = alltrue(flatten([for k in ["p1", "p2"] : [
+      length(google_service_account.this[k].account_id) <= 30 && endswith(google_service_account.this[k].account_id, "-0a1b2c3d"),
+      length(google_cloudfunctions2_function.this[k].name) <= 49 && endswith(google_cloudfunctions2_function.this[k].name, "-0a1b2c3d"),
+      length(google_logging_project_sink.this[k].name) <= 100 && endswith(google_logging_project_sink.this[k].name, "-0a1b2c3d"),
+      length(google_pubsub_topic.this[k].name) <= 255 && endswith(google_pubsub_topic.this[k].name, "-0a1b2c3d"),
+      length(google_secret_manager_secret.this[k].secret_id) <= 255 && endswith(google_secret_manager_secret.this[k].secret_id, "-0a1b2c3d"),
+    ]]))
+    error_message = "Every GKE resource name must end with the random suffix and fit its GCP limit."
+  }
+  assert {
+    condition     = google_cloudfunctions2_function.this["p1"].name == google_cloudfunctions2_function.this["p2"].name
+    error_message = "All projects share one suffix."
+  }
+}
+
+run "secret_name_as_given" {
+  command = plan
+
+  variables {
+    secret_name = "my-gke-token"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret.this["p1"].secret_id == "my-gke-token" && google_cloudfunctions2_function.this["p1"].service_config[0].environment_variables.SECRET_NAME == "projects/p1/secrets/my-gke-token/versions/latest"
+    error_message = "A secret_name that is set must be used as given."
   }
 }

@@ -60,8 +60,8 @@ variable "build_service_account" {
 
 variable "secret_name" {
   type        = string
-  default     = "streamsec-gke-logs-token"
-  description = "Secret Manager secret name for the Stream Security token."
+  default     = null
+  description = "Secret Manager secret name for the Stream Security token. Null: streamsec-gke-logs-token-<random suffix>."
 }
 
 variable "source_bucket" {

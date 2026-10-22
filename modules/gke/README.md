@@ -7,6 +7,8 @@ Two modes, set by `org_level_sink`:
 - `true`: one organization sink, topic, and function in `project_for_resources`. Needs `organization_id`.
 - `false`: one project sink, topic, and function in each project of `projects` (narrowed by `include_projects`).
 
+Resource names end with one random suffix per module instance (`-<8 hex>`), e.g. `stream-sec-gke-logs-pubsub-0a1b2c3d`.
+
 Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
 
 Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
@@ -22,6 +24,7 @@ Org mode collects every project in the organization (also projects excluded from
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
+| <a name="requirement_random"></a> [random](#requirement\_random) | >= 3.0 |
 | <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.13 |
 | <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
 
@@ -30,6 +33,7 @@ Org mode collects every project in the organization (also projects excluded from
 | Name | Version |
 | ---- | ------- |
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
+| <a name="provider_random"></a> [random](#provider\_random) | >= 3.0 |
 | <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.13 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 | <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
@@ -54,6 +58,7 @@ No modules.
 | [google_secret_manager_secret_version.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_version) | resource |
 | [google_service_account.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_iam_member.pubsub_token_creator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
+| [random_id.suffix](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/id) | resource |
 | [terraform_data.inputs](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [time_sleep.api_propagation](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
@@ -74,7 +79,7 @@ No modules.
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | Org mode: integrated project that holds the topic, function and secret. | `string` | `""` | no |
 | <a name="input_projects"></a> [projects](#input\_projects) | Integrated projects. | <pre>map(object({<br/>    project_id = string<br/>    name       = string<br/>  }))</pre> | n/a | yes |
 | <a name="input_region"></a> [region](#input\_region) | Function and trigger region. | `string` | `"us-central1"` | no |
-| <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | Secret Manager secret name for the Stream Security token. | `string` | `"streamsec-gke-logs-token"` | no |
+| <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | Secret Manager secret name for the Stream Security token. Null: streamsec-gke-logs-token-<random suffix>. | `string` | `null` | no |
 | <a name="input_source_bucket"></a> [source\_bucket](#input\_source\_bucket) | Bucket with the function source zip. | `string` | `"streamsec-production-public-artifacts"` | no |
 | <a name="input_source_object"></a> [source\_object](#input\_source\_object) | Function source zip object name. | `string` | `"gcp-gke-logs-collection.zip"` | no |
 

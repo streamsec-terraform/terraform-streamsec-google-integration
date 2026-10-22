@@ -46,6 +46,10 @@ locals {
   # Integrated deploy projects only, so a bad project_for_resources gives only the precondition error.
   data_projects = { for k, p in local.deploy_projects : k => p if contains(local.project_ids, p.project_id) }
 
+  # One random suffix per module instance, so names never clash with existing resources.
+  suffix      = random_id.suffix.hex
+  secret_name = coalesce(var.secret_name, "streamsec-gke-logs-token-${local.suffix}")
+
   sink_writer_identities = var.org_level_sink ? {
     for k in keys(local.deploy_projects) : k => google_logging_organization_sink.this[0].writer_identity
     } : {
@@ -86,6 +90,10 @@ resource "terraform_data" "inputs" {
   }
 }
 
+resource "random_id" "suffix" {
+  byte_length = 4
+}
+
 data "streamsec_host" "this" {}
 
 data "google_project" "this" {
@@ -120,7 +128,7 @@ resource "time_sleep" "api_propagation" {
 resource "google_secret_manager_secret" "this" {
   for_each  = local.deploy_projects
   project   = each.value.project_id
-  secret_id = var.secret_name
+  secret_id = local.secret_name
   replication {
     auto {}
   }
@@ -136,7 +144,7 @@ resource "google_secret_manager_secret_version" "this" {
 resource "google_service_account" "this" {
   for_each     = local.deploy_projects
   project      = each.value.project_id
-  account_id   = "streamsec-gke-audit"
+  account_id   = "streamsec-gke-audit-${local.suffix}"
   display_name = "Stream Security GKE audit logs"
   depends_on   = [terraform_data.inputs, time_sleep.api_propagation]
 }
@@ -152,13 +160,13 @@ resource "google_secret_manager_secret_iam_member" "this" {
 resource "google_pubsub_topic" "this" {
   for_each   = local.deploy_projects
   project    = each.value.project_id
-  name       = "streamsec-gke-audit-logs"
+  name       = "streamsec-gke-audit-logs-${local.suffix}"
   depends_on = [terraform_data.inputs, time_sleep.api_propagation]
 }
 
 resource "google_logging_organization_sink" "this" {
   count            = var.org_level_sink ? 1 : 0
-  name             = "streamsec-gke-audit-logs-pubsub"
+  name             = "streamsec-gke-audit-logs-pubsub-${local.suffix}"
   org_id           = var.organization_id
   destination      = "pubsub.googleapis.com/${google_pubsub_topic.this[var.project_for_resources].id}"
   filter           = local.sink_filter
@@ -169,7 +177,7 @@ resource "google_logging_organization_sink" "this" {
 resource "google_logging_project_sink" "this" {
   for_each               = var.org_level_sink ? {} : local.gke_projects
   project                = each.value.project_id
-  name                   = "streamsec-gke-audit-logs-pubsub"
+  name                   = "streamsec-gke-audit-logs-pubsub-${local.suffix}"
   destination            = "pubsub.googleapis.com/${google_pubsub_topic.this[each.key].id}"
   filter                 = local.sink_filter
   unique_writer_identity = true
@@ -187,7 +195,7 @@ resource "google_pubsub_topic_iam_member" "sink_publisher" {
 resource "google_cloudfunctions2_function" "this" {
   for_each = local.deploy_projects
   project  = each.value.project_id
-  name     = "stream-sec-gke-logs-pubsub"
+  name     = "stream-sec-gke-logs-pubsub-${local.suffix}"
   location = var.region
 
   build_config {
@@ -207,7 +215,7 @@ resource "google_cloudfunctions2_function" "this" {
     ingress_settings      = "ALLOW_INTERNAL_ONLY"
     environment_variables = {
       API_URL     = data.streamsec_host.this.host
-      SECRET_NAME = "projects/${each.value.project_id}/secrets/${var.secret_name}/versions/latest"
+      SECRET_NAME = "projects/${each.value.project_id}/secrets/${local.secret_name}/versions/latest"
     }
   }
 
