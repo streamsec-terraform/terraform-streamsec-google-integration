@@ -7,13 +7,13 @@ Two modes, set by `org_level_sink`:
 - `true`: one organization sink, topic, and function in `project_for_resources`. Needs `organization_id`.
 - `false`: one project sink, topic, and function in each project of `projects` (narrowed by `include_projects`).
 
-If you set up GKE audit logs with `setup-realtime.sh` in a project, remove it first: `bash setup-realtime.sh --project <PROJECT_ID> --uninstall --delete-secret`.
+If you set up GKE audit logs with `setup-realtime.sh` in a project, remove it first, with the install's `--region` (and `--secret-name`/`--secret-location`, if it used them): `bash setup-realtime.sh --project <PROJECT_ID> --region <REGION> --uninstall --delete-secret`.
 
 Cluster and project lists are Terraform inputs; `setup-prerequisites.sh` does not set them.
 
-Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
+Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants); in project mode, `{project}` in it becomes each project ID.
 
-Upgrading from the old bucket-based GKE module: remove the logs bucket's retention policy and empty the bucket, then run `terraform destroy -target=module.gke`.
+Upgrading from the old bucket-based GKE module: see the root README.
 
 Org mode collects every project in the organization (also projects excluded from the integration) unless `include_projects` is set (root: `gke_include_projects`); cluster names match in every project.
 
@@ -67,7 +67,7 @@ No modules.
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_acked_project_ids"></a> [acked\_project\_ids](#input\_acked\_project\_ids) | Project ID per integrated project, unknown until its Stream Security ack exists (defers the token lookup of new projects only). | `map(string)` | n/a | yes |
-| <a name="input_build_service_account"></a> [build\_service\_account](#input\_build\_service\_account) | Service account that builds the function (projects/<project>/serviceAccounts/<email>). Null uses the project default. | `string` | `null` | no |
+| <a name="input_build_service_account"></a> [build\_service\_account](#input\_build\_service\_account) | Service account that builds the function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default. | `string` | `null` | no |
 | <a name="input_exclude_clusters"></a> [exclude\_clusters](#input\_exclude\_clusters) | Cluster names to skip. | `list(string)` | `[]` | no |
 | <a name="input_include_clusters"></a> [include\_clusters](#input\_include\_clusters) | Cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | GKE projects (subset of projects). Empty means all integrated projects (org mode: the whole organization). | `list(string)` | `[]` | no |
