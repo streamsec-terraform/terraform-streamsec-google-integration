@@ -65,7 +65,7 @@ No modules.
 | <a name="input_build_service_account"></a> [build\_service\_account](#input\_build\_service\_account) | Service account that builds the function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default. | `string` | `null` | no |
 | <a name="input_exclude_clusters"></a> [exclude\_clusters](#input\_exclude\_clusters) | Cluster names to skip. | `list(string)` | `[]` | no |
 | <a name="input_include_clusters"></a> [include\_clusters](#input\_include\_clusters) | Cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
-| <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | GKE projects (subset of projects). Empty means all integrated projects (org mode: the whole organization). | `list(string)` | `[]` | no |
+| <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | GKE projects (subset of projects). Empty means all integrated projects. | `list(string)` | `[]` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | true: one organization sink and one deployment in project\_for\_resources. false: a sink and a deployment in each GKE project. | `bool` | n/a | yes |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | GCP organization ID. Required when org\_level\_sink is true. | `string` | `null` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | Org mode: integrated project that holds the topic, function and secret. | `string` | `""` | no |

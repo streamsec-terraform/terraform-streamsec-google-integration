@@ -207,7 +207,7 @@ variable "gke_org_level_sink" {
 }
 
 variable "gke_include_projects" {
-  description = "Projects to collect GKE logs from. Empty means all integrated projects (project mode) or no project filter (org mode)."
+  description = "Projects to collect GKE logs from. Empty means all integrated projects."
   type        = list(string)
   default     = []
 }

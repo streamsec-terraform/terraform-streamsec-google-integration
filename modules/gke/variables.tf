@@ -31,7 +31,7 @@ variable "acked_project_ids" {
 variable "include_projects" {
   type        = list(string)
   default     = []
-  description = "GKE projects (subset of projects). Empty means all integrated projects (org mode: the whole organization)."
+  description = "GKE projects (subset of projects). Empty means all integrated projects."
 }
 
 variable "include_clusters" {
