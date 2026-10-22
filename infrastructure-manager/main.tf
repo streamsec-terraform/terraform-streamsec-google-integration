@@ -71,7 +71,7 @@ module "streamsec_google_projects" {
   gke_include_projects      = var.gke_include_projects
   gke_include_clusters      = var.gke_include_clusters
   gke_exclude_clusters      = var.gke_exclude_clusters
-  gke_region                = coalesce(var.gke_region, var.google_region, "us-central1")
+  gke_region                = var.gke_region
   gke_build_service_account = var.gke_build_service_account
   gke_secret_name           = var.gke_secret_name
   gke_source_bucket         = var.gke_source_bucket
