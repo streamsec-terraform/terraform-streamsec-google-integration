@@ -507,7 +507,7 @@ abandoned_integration() {
   echo 'pubsub.topics.create;run.services.get' >"$FAKE_DIR/role-permissions"
   run_setup --enable-gke-logs
   [ "$status" -eq 1 ]
-  [[ "$output" == *"lacks the run.services.* permissions"*"--start-from-step 2"* ]]
+  [[ "$output" == *"lacks run.services.* for GKE logs"*"--start-from-step 2"* ]]
   refute_preview
 }
 
@@ -518,7 +518,7 @@ abandoned_integration() {
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"lacks the run.services.* permissions"* ]]
+  [[ "$output" == *"lacks run.services.* for GKE logs"* ]]
   refute_preview
 }
 
@@ -570,12 +570,12 @@ abandoned_integration() {
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_bucket_name": {\n    "inputValue": "my-gke-logs"\n  }\n}\n' >"$FAKE_DIR/input-values"
   run_setup --enable-gke-logs
   [ "$status" -eq 1 ]
-  [[ "$output" == *"uses the old bucket-based GKE module"*"enable_gke_logs = false first"* ]]
+  [[ "$output" == *"has the old GKE module"*"enable_gke_logs = false"* ]]
   refute_preview
   printf '{\r\n  "gke_api_url": {\r\n    "inputValue": "https://app.streamsec.io"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"uses the old bucket-based GKE module"* ]]
+  [[ "$output" == *"has the old GKE module"* ]]
   refute_preview
 }
 
@@ -586,7 +586,7 @@ abandoned_integration() {
   echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables-v2.21.0"
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"uses the old bucket-based GKE module"* ]]
+  [[ "$output" == *"has the old GKE module"* ]]
   grep -q '/v2.21.0/infrastructure-manager/variables.tf' "$FAKE_DIR/curl.log"
   refute_preview
 }

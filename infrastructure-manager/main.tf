@@ -82,7 +82,7 @@ resource "terraform_data" "gke_inputs" {
   lifecycle {
     precondition {
       condition     = toset(length(var.gke_include_projects) > 0 ? var.gke_include_projects : var.include_projects) == toset([var.google_project_id])
-      error_message = "GKE project sinks work here only in google_project_id: set gke_include_projects = [google_project_id], or gke_org_level_sink = true."
+      error_message = "GKE project mode works only in google_project_id. Set gke_include_projects = [google_project_id] or gke_org_level_sink = true."
     }
   }
 }
