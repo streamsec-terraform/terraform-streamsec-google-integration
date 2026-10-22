@@ -2,6 +2,7 @@
 #
 # The resources the base integration module creates under fixed names: how to
 # find, delete and recognise each one in an Infrastructure Manager revision.
+# The GKE module's names are a prefix plus a random suffix (kind "gke-*=<name>").
 # Sourced by setup-prerequisites.sh and cleanup-abandoned-deployment.sh, which
 # set PROJECT_ID, REGION and ORGANIZATION_ID. "ir_" = integration resource.
 
@@ -13,7 +14,7 @@ PUBSUB_TOPIC="${PUBSUB_TOPIC:-stream-security-events-topic}"
 LOGGING_SINK="${LOGGING_SINK:-stream-security-events-sink}"
 REGIONAL_SECRET="${REGIONAL_SECRET:-stream-security}"
 GLOBAL_SECRET="${GLOBAL_SECRET:-stream-security-collection-token}"
-# The GKE audit logs module (enable_gke_logs).
+# The GKE audit logs module (enable_gke_logs): name prefixes, the module adds -<8 hex>.
 GKE_FUNCTION_NAME="${GKE_FUNCTION_NAME:-stream-sec-gke-logs-pubsub}"
 GKE_SINK="${GKE_SINK:-streamsec-gke-audit-logs-pubsub}"
 GKE_TOPIC="${GKE_TOPIC:-streamsec-gke-audit-logs}"
@@ -29,16 +30,48 @@ ir_is_kind() { [[ " ${IR_KINDS[*]} " == *" $1 "* ]]; }
 
 ir_sa_email() { echo "$1@${PROJECT_ID}.iam.gserviceaccount.com"; }
 
-# Runs ir_* function $1 for GKE kind $2 as the matching base kind, with the GKE names.
+# Runs ir_* function $1 for "<GKE kind>=<name>" $2 as the matching base kind with that name.
 ir_gke() {
-  local base="${2#gke-}"
+  local base="${2%%=*}" name="${2#*=}"
+  base="${base#gke-}"
   case "$base" in
     function) base=events-function ;;
     secret)   base=global-secret ;;
     sa)       base=function-sa ;;
   esac
-  FUNCTION_NAME="$GKE_FUNCTION_NAME" LOGGING_SINK="$GKE_SINK" PUBSUB_TOPIC="$GKE_TOPIC" \
-    GLOBAL_SECRET="$GKE_SECRET" FUNCTION_SA_ACCOUNT_ID="$GKE_SA_ACCOUNT_ID" "$1" "$base"
+  FUNCTION_NAME="$name" LOGGING_SINK="$name" PUBSUB_TOPIC="$name" \
+    GLOBAL_SECRET="$name" FUNCTION_SA_ACCOUNT_ID="$name" "$1" "$base"
+}
+
+ir_gke_prefix() {
+  case "$1" in
+    gke-function) echo "$GKE_FUNCTION_NAME" ;;
+    gke-*-sink)   echo "$GKE_SINK" ;;
+    gke-topic)    echo "$GKE_TOPIC" ;;
+    gke-secret)   echo "$GKE_SECRET" ;;
+    gke-sa)       echo "$GKE_SA_ACCOUNT_ID" ;;
+  esac
+}
+
+# The names of GKE kind $1 that are "<prefix>-<8 hex>", one per line (there may be several).
+# 0 = some, 1 = none (or the API is off), 2 = couldn't tell (the error goes to stderr).
+ir_gke_list() {
+  local out
+  case "$1" in
+    gke-function)     out=$(gcloud functions list --regions="$REGION" --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
+    gke-org-sink)     out=$(gcloud logging sinks list --organization="$ORGANIZATION_ID" --format='value(name)' 2>&1) ;;
+    gke-project-sink) out=$(gcloud logging sinks list --project="$PROJECT_ID" --format='value(name)' 2>&1) ;;
+    gke-topic)        out=$(gcloud pubsub topics list --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
+    gke-secret)       out=$(gcloud secrets list --project="$PROJECT_ID" --format='value(name.basename())' 2>&1) ;;
+    gke-sa)           out=$(gcloud iam service-accounts list --project="$PROJECT_ID" --format='value(email)' 2>&1) && out=$(sed 's/@.*//' <<<"$out") ;;
+  esac || {
+    case "$out" in
+      *SERVICE_DISABLED* | *"has not been used"*) return 1 ;;
+    esac
+    echo "$out" >&2
+    return 2
+  }
+  grep -E "^$(ir_gke_prefix "$1")-[0-9a-f]{8}\$" <<<"$out"
 }
 
 # Regional secrets are served only by the regional endpoint, and gcloud doesn't
@@ -63,7 +96,6 @@ ir_label() {
 }
 
 ir_describe() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_describe "$1"; return; fi
   case "$1" in
     events-function)   gcloud functions describe "$FUNCTION_NAME" --region="$REGION" --project="$PROJECT_ID" --gen2 ;;
     org-sink)          gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" ;;
@@ -106,7 +138,6 @@ ir_delete() {
 # "<terraform type>\t<id>" of the resource in `gcloud infra-manager resources list`. @P@ is
 # the project ID or number; a leading * matches any prefix (an org sink's name is unique in the org).
 ir_state_match() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_state_match "$1"; return; fi
   case "$1" in
     events-function)   printf 'google_cloudfunctions2_function\tprojects/@P@/locations/%s/functions/%s\n' "$REGION" "$FUNCTION_NAME" ;;
     org-sink)          printf 'google_logging_organization_sink\t*/sinks/%s\n' "$LOGGING_SINK" ;;
@@ -128,7 +159,6 @@ ir_count() {
 
 # What uses the resource, to judge whether deleting it is safe.
 ir_hints() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_hints "$1"; return; fi
   local value email
   case "$1" in
     events-function)
@@ -165,7 +195,6 @@ ir_hints() {
 
 # Why the resource looks in use (subscriptions, keys, accessors), or nothing.
 ir_in_use() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_in_use "$1"; return; fi
   local n
   case "$1" in
     topic)
@@ -188,7 +217,7 @@ ir_in_use() {
   return 0
 }
 
-# The cleanup-abandoned-deployment.sh flag that names the resource (GKE kinds: none, fixed names).
+# The cleanup-abandoned-deployment.sh flag that names the resource (not for GKE kinds).
 ir_name_flag() {
   case "$1" in
     events-function)        echo "--function-name $FUNCTION_NAME" ;;
@@ -202,7 +231,6 @@ ir_name_flag() {
 }
 
 ir_sink_destination() {
-  if [[ "$1" == gke-* ]]; then ir_gke ir_sink_destination "$1"; return; fi
   if [[ "$1" == org-sink ]]; then
     gcloud logging sinks describe "$LOGGING_SINK" --organization="$ORGANIZATION_ID" --format='value(destination)'
   else

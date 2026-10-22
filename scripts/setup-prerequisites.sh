@@ -497,7 +497,7 @@ check_leftovers() {
   for kind in "${IR_KINDS[@]}"; do
     case "$kind" in
       global-secret) continue ;;  # the Infrastructure Manager wrapper makes a regional one
-      gke-*) [[ "$ENABLE_GKE_LOGS" == true ]] || continue ;;
+      gke-*) continue ;;  # random name suffixes: never a 409
     esac
     case "$kind" in
       *org-sink) [[ "$ORG_LEVEL_SINK" == true ]] || continue ;;
@@ -527,7 +527,7 @@ check_leftovers() {
         # A sink feeding another project may serve a live integration there.
         if [[ -n "$destination" && "$destination" != *"/projects/$PROJECT_ID/"* ]]; then
           BLOCKED+=("$label writes to $destination")
-          if [[ "$kind" == gke-* ]]; then BLOCKED_SINKS+=("$GKE_SINK"); else BLOCKED_SINKS+=("$LOGGING_SINK"); fi
+          BLOCKED_SINKS+=("$LOGGING_SINK")
         else
           LEFTOVER_KINDS+=("$kind")
           reason=$(ir_in_use "$kind")

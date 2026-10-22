@@ -18,7 +18,8 @@
 #  10. Infrastructure Manager service account
 #  11. Custom IAM roles (ops role at org or project, project resources role)
 #
-# 2-8 include the GKE audit logs resources (function, sink, topic, secret, service account).
+# 2-8 include the GKE audit logs resources (function, sink, topic, secret, service account):
+# every one named <prefix>-<8 hex>.
 # --only <kinds> limits it to some of 2-8 (the kinds in lib/integration-resources.sh),
 # which is how setup-prerequisites.sh's leftover check points here.
 #
@@ -208,7 +209,8 @@ HAS_ORG_IAM_SECURITY_REVIEWER=false
 FOUND_KINDS=()
 UNCHECKED_RESOURCES=()
 
-kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* ]]; }
+# GKE entries are "<kind>=<name>".
+kind_found() { [[ " ${FOUND_KINDS[*]-} " == *" $1 "* || " ${FOUND_KINDS[*]-} " == *" $1="* ]]; }
 
 for kind in "${IR_KINDS[@]}"; do
   selected "$kind" || continue
@@ -217,20 +219,32 @@ for kind in "${IR_KINDS[@]}"; do
       { [[ "$kind" == *project-sink && "$ONLY_GIVEN" != true ]] && kind_found "${kind%project-sink}org-sink"; }; then
     continue
   fi
-  label=$(ir_label "$kind")
   exists_rc=0
-  ir_exists "$kind" || exists_rc=$?
-  if [[ $exists_rc -eq 0 ]]; then
-    FOUND_KINDS+=("$kind")
-    FOUND_RESOURCES+=("$label")
-    log_info "Found: $label"
-  elif [[ $exists_rc -eq 1 ]]; then
-    NOT_FOUND_RESOURCES+=("$label")
-    log_warn "Not found: $label (skipping)"
+  entries=("$kind")
+  if [[ "$kind" == gke-* ]]; then
+    names=$(ir_gke_list "$kind") || exists_rc=$?
+    entries=("$kind=$(ir_gke_prefix "$kind")-*")
+    if [[ $exists_rc -eq 0 ]]; then
+      entries=()
+      for name in $names; do entries+=("$kind=$name"); done
+    fi
   else
-    UNCHECKED_RESOURCES+=("$label")
-    log_warn "Could not check: $label (skipping)"
+    ir_exists "$kind" || exists_rc=$?
   fi
+  for entry in "${entries[@]}"; do
+    label=$(ir_label "$entry")
+    if [[ $exists_rc -eq 0 ]]; then
+      FOUND_KINDS+=("$entry")
+      FOUND_RESOURCES+=("$label")
+      log_info "Found: $label"
+    elif [[ $exists_rc -eq 1 ]]; then
+      NOT_FOUND_RESOURCES+=("$label")
+      log_warn "Not found: $label (skipping)"
+    else
+      UNCHECKED_RESOURCES+=("$label")
+      log_warn "Could not check: $label (skipping)"
+    fi
+  done
 done
 
 # Check org IAM bindings (only if org-id provided)
@@ -461,7 +475,7 @@ fi
 
 # 2-8. Module resources, in IR_KINDS (dependency) order
 for kind in ${FOUND_KINDS[@]+"${FOUND_KINDS[@]}"}; do
-  delete_resource "$(ir_label "$kind")" "ir_delete $kind"
+  delete_resource "$(ir_label "$kind")" "ir_delete '$kind'"
 done
 
 # 9. IM SA IAM bindings (remove before deleting the SA)
