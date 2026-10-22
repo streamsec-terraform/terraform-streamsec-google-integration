@@ -96,7 +96,9 @@ case "$*" in
       else
         printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n'
       fi
-    fi ;;
+    fi
+    # The deployment's git ref: $FAKE_DIR/deployment-ref, or none.
+    if [[ "$*" == *gitSource.ref* ]]; then cat "$FAKE_DIR/deployment-ref" 2>/dev/null || true; fi ;;
   # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
   "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
   # revisions: "<deployment path>\t<revision id>", newest first

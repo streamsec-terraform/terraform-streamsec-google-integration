@@ -51,7 +51,7 @@ at any time.
 
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
-**GKE audit logs (`--enable-gke-logs`):** the flag sets `enable_gke_logs=true` in the preview (other inputs are kept); the next steps tell you to set it on the deployment. Before the preview the script stops if the module ref has no real-time GKE module, if the project role lacks the `run.services.*` permissions that step 2 adds, or if the existing deployment has inputs of the old bucket-based GKE module (see the root README's upgrade note).
+**GKE audit logs (`--enable-gke-logs`):** the flag sets `enable_gke_logs=true` in the preview (other inputs are kept); the next steps tell you to set it on the deployment. Before the preview the script stops if the module ref has no real-time GKE module, if the project role lacks the `run.services.*` permissions that step 2 adds, or if the existing deployment uses the old bucket-based GKE module (its old GKE inputs, or `enable_gke_logs = true` on a ref without the real-time module; see the root README's upgrade note).
 
 ### Prerequisites
 

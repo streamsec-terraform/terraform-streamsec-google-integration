@@ -1469,6 +1469,11 @@ run_leftover_check || exit 1
 
 # Sets input KEY to {"inputValue": "VALUE"} in the inputValues JSON object on stdin:
 # drops any existing KEY member (split at top-level commas, outside strings) and appends it.
+# The module's variables.tf at git ref $1 (curl's error on failure).
+ref_variables() {
+  curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$1/$GIT_DIRECTORY/variables.tf" 2>&1
+}
+
 set_input_value() {
   awk -v key="$1" -v val="$2" '
     { s = s $0 "\n" }
@@ -1550,10 +1555,11 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     exit 1
   fi
 
-  # The old bucket-based GKE module's inputs: an update would destroy its bucket.
+  # The old bucket-based GKE module: an update would destroy its bucket.
+  OLD_GKE_MODULE_ERROR="Deployment '$DEPLOYMENT_NAME' uses the old bucket-based GKE module: remove its old GKE inputs (if any) and apply once with enable_gke_logs = false first (see the README's upgrade note)."
   if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
       tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":'; then
-    log_error "Deployment '$DEPLOYMENT_NAME' has inputs of the old bucket-based GKE module: remove them and apply once with enable_gke_logs = false first (see the README's upgrade note)."
+    log_error "$OLD_GKE_MODULE_ERROR"
     exit 1
   fi
 
@@ -1561,11 +1567,23 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
       tr -d ' \t\r\n' <<<"$DEPLOYMENT_INPUTS_JSON" | grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true'; then
     DEPLOYMENT_HAS_GKE_LOGS=true
+    # enable_gke_logs = true with only default GKE inputs: the deployment's own ref tells.
+    DEPLOYMENT_REF=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+        --project="$PROJECT_ID" --location="$REGION" --quiet \
+        --format="value(terraformBlueprint.gitSource.ref)" 2>/dev/null) || DEPLOYMENT_REF=""
+    if [[ -z "$DEPLOYMENT_REF" ]]; then
+      log_warn "Could not read deployment '$DEPLOYMENT_NAME's git ref to check its GKE module."
+    elif ! DEPLOYMENT_REF_VARIABLES=$(ref_variables "$DEPLOYMENT_REF"); then
+      log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $DEPLOYMENT_REF_VARIABLES"
+    elif [[ "$DEPLOYMENT_REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
+      log_error "$OLD_GKE_MODULE_ERROR"
+      exit 1
+    fi
   fi
 
   if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
     # An older module reads enable_gke_logs as the old bucket-based pipeline.
-    if ! REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$GIT_REF/$GIT_DIRECTORY/variables.tf" 2>&1); then
+    if ! REF_VARIABLES=$(ref_variables "$GIT_REF"); then
       log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
     elif [[ "$REF_VARIABLES" != *'variable "gke_org_level_sink"'* ]]; then
       log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."

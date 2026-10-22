@@ -574,11 +574,36 @@ abandoned_integration() {
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_bucket_name": {\n    "inputValue": "my-gke-logs"\n  }\n}\n' >"$FAKE_DIR/input-values"
   run_setup --enable-gke-logs
   [ "$status" -eq 1 ]
-  [[ "$output" == *"inputs of the old bucket-based GKE module"*"enable_gke_logs = false first"* ]]
+  [[ "$output" == *"uses the old bucket-based GKE module"*"enable_gke_logs = false first"* ]]
   refute_preview
   printf '{\r\n  "gke_api_url": {\r\n    "inputValue": "https://app.streamsec.io"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
   run_setup
   [ "$status" -eq 1 ]
-  [[ "$output" == *"inputs of the old bucket-based GKE module"* ]]
+  [[ "$output" == *"uses the old bucket-based GKE module"* ]]
   refute_preview
+}
+
+@test "GKE logs on with default inputs on an old-module deployment ref stop before the preview" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  echo v2.21.0 >"$FAKE_DIR/deployment-ref"
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables-v2.21.0"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"uses the old bucket-based GKE module"* ]]
+  grep -q '/v2.21.0/infrastructure-manager/variables.tf' "$FAKE_DIR/curl.log"
+  refute_preview
+}
+
+@test "GKE logs on: an unreadable deployment ref only warns" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not read deployment"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+  echo v2.30.0 >"$FAKE_DIR/deployment-ref"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"old bucket-based"* ]]
 }
