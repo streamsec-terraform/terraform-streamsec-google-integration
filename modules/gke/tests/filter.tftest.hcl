@@ -12,12 +12,12 @@ variables {
   }
 }
 
-run "org_no_scoping" {
+run "org_default_integrated_projects" {
   command = plan
 
   assert {
-    condition     = local.sink_filter == trimspace(file("log_filter.txt"))
-    error_message = "Without scoping the filter must be the base filter only."
+    condition     = local.sink_filter == "${trimspace(file("log_filter.txt"))}\n(resource.labels.project_id=\"p1\" OR resource.labels.project_id=\"p2\")"
+    error_message = "Without include_projects the org filter must list every integrated project."
   }
 
   assert {

@@ -36,7 +36,7 @@ locals {
   }
 
   filter_clauses = compact([
-    var.org_level_sink && length(local.include_projects) > 0 ? "(${join(" OR ", [for p in local.include_projects : "resource.labels.project_id=\"${p}\""])})" : "",
+    var.org_level_sink && length(local.gke_projects) > 0 ? "(${join(" OR ", [for p in values(local.gke_projects) : "resource.labels.project_id=\"${p.project_id}\""])})" : "",
     length(local.include_clusters) > 0 ? "(${join(" OR ", [for c in local.include_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
     length(local.exclude_clusters) > 0 ? "-(${join(" OR ", [for c in local.exclude_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
   ])
@@ -85,7 +85,7 @@ resource "terraform_data" "inputs" {
     }
     precondition {
       condition     = length(local.sink_filter) <= 20000
-      error_message = "The sink filter is longer than 20,000 characters. Use fewer names in include_clusters, exclude_clusters or include_projects (root: gke_include_clusters, gke_exclude_clusters, gke_include_projects)."
+      error_message = "The sink filter is longer than 20,000 characters. Use fewer names in include_clusters, exclude_clusters or include_projects (empty: every integrated project) (root: gke_include_clusters, gke_exclude_clusters, gke_include_projects)."
     }
   }
 }
