@@ -267,8 +267,7 @@ Infrastructure Manager options:
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
                           --org-id becomes optional; project Owner is sufficient)
-  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true
-                          in the preview; set it on the deployment too)
+  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
 Leftovers of an earlier integration (checked before step 6):
@@ -1531,6 +1530,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   if DESCRIBE_ERR=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
       --project="$PROJECT_ID" --location="$REGION" --quiet 2>&1 >/dev/null); then
     EXISTING_DEPLOYMENT=true
+    REVISION_PREVIEWED=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+        --project="$PROJECT_ID" --location="$REGION" --quiet \
+        --format="value(latestRevision)" 2>/dev/null || true)
     log_info "Deployment '$DEPLOYMENT_NAME' already exists — previewing an update to $GIT_REF."
     DEPLOYMENT_INPUTS_JSON=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
         --project="$PROJECT_ID" --location="$REGION" --quiet \
@@ -1766,12 +1768,89 @@ JSONEOF
         echo "     https://console.cloud.google.com/infra-manager/previews/details/$REGION/$PREVIEW_NAME?project=$PROJECT_ID"
         echo ""
         if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
-          echo "  2. If the preview looks correct, update the existing deployment in the GCP Console:"
-          echo "     https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
-          echo "     Click Edit, set the Git ref to $GIT_REF, keep all other values, and click Update."
-          if [[ "$ENABLE_GKE_LOGS" == true && "$DEPLOYMENT_HAS_GKE_LOGS" != true ]]; then
-            echo "     Also set the input enable_gke_logs = true (the preview had it; the deployment does not yet)."
+          echo "  2. If the preview looks correct, apply it to the existing deployment below."
+          echo ""
+          APPLY_RESPONSE="y"
+          if [[ "$AUTO_CONFIRM" != true ]]; then
+            read -r -p "Apply this update to deployment '$DEPLOYMENT_NAME' now? [y/N] " APPLY_RESPONSE
           fi
+          case "$APPLY_RESPONSE" in
+            [yY][eE][sS]|[yY]) ;;
+            *)
+              log_warn "Update not applied. Re-run this script and answer y to apply it."
+              break
+              ;;
+          esac
+
+          REVISION_BEFORE=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+            --project="$PROJECT_ID" --location="$REGION" --quiet \
+            --format="value(latestRevision)" 2>/dev/null || true)
+          if [[ -z "$REVISION_BEFORE" ]]; then
+            log_error "Could not read the current revision of deployment '$DEPLOYMENT_NAME'."
+            exit 1
+          fi
+          if [[ "$REVISION_BEFORE" != "$REVISION_PREVIEWED" ]]; then
+            log_error "Deployment '$DEPLOYMENT_NAME' changed since the preview. Re-run the script to preview it again."
+            exit 1
+          fi
+          ACCESS_TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
+          if [[ -z "$ACCESS_TOKEN" ]]; then
+            log_error "Could not obtain access token. Make sure you are authenticated with gcloud."
+            exit 1
+          fi
+          HTTP_CODE=$(printf '%s' "{
+              \"terraformBlueprint\": {
+                \"gitSource\": {
+                  \"repo\": \"$GIT_REPO\",
+                  \"directory\": \"$GIT_DIRECTORY\",
+                  \"ref\": \"$GIT_REF\"
+                },
+                \"inputValues\": $INPUT_VALUES_JSON
+              }
+            }" | curl -s -o "$TMP_PREVIEW_RESP" -w "%{http_code}" \
+            -X PATCH "https://config.googleapis.com/v1/$DEPLOYMENT_PATH?updateMask=terraformBlueprint" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @-) || true
+          if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
+            log_error "Updating deployment '$DEPLOYMENT_NAME' failed: REST API returned HTTP $HTTP_CODE"
+            cat "$TMP_PREVIEW_RESP" 2>/dev/null
+            echo ""
+            exit 1
+          fi
+
+          log_info "Applying the update to '$DEPLOYMENT_NAME'..."
+          APPLY_ELAPSED=0
+          DEPLOYMENT_STATE=UPDATING
+          REVISION_NOW="$REVISION_BEFORE"
+          while [[ $APPLY_ELAPSED -lt $MAX_WAIT_TIME ]]; do
+            sleep $POLL_INTERVAL
+            APPLY_ELAPSED=$((APPLY_ELAPSED + POLL_INTERVAL))
+            read -r DEPLOYMENT_STATE REVISION_NOW < <(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+              --project="$PROJECT_ID" --location="$REGION" --quiet \
+              --format="value(state,latestRevision)" 2>/dev/null || echo "UNKNOWN $REVISION_BEFORE")
+            if [[ "$REVISION_NOW" != "$REVISION_BEFORE" ]] && \
+               [[ "$DEPLOYMENT_STATE" == ACTIVE || "$DEPLOYMENT_STATE" == FAILED ]]; then
+              break
+            fi
+            echo -ne "\r  Deployment state: $DEPLOYMENT_STATE... (${APPLY_ELAPSED}s elapsed)"
+          done
+          echo ""
+          [[ "$REVISION_NOW" == "$REVISION_BEFORE" ]] && DEPLOYMENT_STATE="NO NEW REVISION"
+          case "$DEPLOYMENT_STATE" in
+            ACTIVE)
+              log_ok "Deployment '$DEPLOYMENT_NAME' updated to $GIT_REF."
+              ;;
+            FAILED)
+              log_error "The update of '$DEPLOYMENT_NAME' failed. See the latest revision in the GCP Console:"
+              echo "  https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
+              exit 1
+              ;;
+            *)
+              log_warn "The update of '$DEPLOYMENT_NAME' is still running (state: $DEPLOYMENT_STATE). Check it in the GCP Console:"
+              echo "  https://console.cloud.google.com/infra-manager/deployments/details/$REGION/$DEPLOYMENT_NAME?project=$PROJECT_ID"
+              ;;
+          esac
           echo ""
           break
         fi

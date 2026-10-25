@@ -50,7 +50,7 @@ at any time.
   To cover more projects, run the script once per project.
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
-**GKE audit logs (`--enable-gke-logs`):** sets `enable_gke_logs=true` in the preview; the next steps tell you to set it on the deployment. Stops before the preview if the module ref lacks real-time GKE, the project role lacks `run.services.*`, or the deployment still uses the old bucket-based GKE module.
+**GKE audit logs (`--enable-gke-logs`):** sets `enable_gke_logs=true` in the preview and in the update of an existing deployment; for a new deployment, the next steps list it. Stops before the preview if the module ref lacks real-time GKE, the project role lacks `run.services.*`, or the deployment still uses the old bucket-based GKE module.
 
 ### Prerequisites
 
@@ -217,14 +217,14 @@ If the preview succeeded, create the deployment from the preview in the
 
 ### Updating an existing integration
 
-Re-run the script with the same flags used at onboarding. When the deployment
-(`--deployment-name`, default `streamsec-integration`) already exists, the script updates the
-IAM roles, previews an update of that deployment to the latest release, and prints the Console
-steps to apply it: open the deployment, click **Edit**, set the Git ref to the new release, keep
-all other values, and click **Update**.
+Re-run the script from Cloud Shell with the same flags used at onboarding. When the deployment
+(`--deployment-name`, default `streamsec-integration`) already exists, the script:
 
-A Console update alone is not enough when a release adds deployer permissions; re-running the
-script applies them first.
+1. Updates the deployer's IAM roles.
+2. Creates a preview of the latest release, using the deployment's existing input values.
+3. Prompts for confirmation, then applies the update and reports the result.
+
+Pass `--yes` to apply the update without prompting.
 
 ### Troubleshooting
 
