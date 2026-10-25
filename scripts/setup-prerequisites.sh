@@ -1559,43 +1559,55 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     exit 1
   fi
 
-  # The old bucket-based GKE module: an update would destroy its bucket.
+  # The old bucket-based GKE module: an update to the real-time module would destroy its bucket.
   OLD_GKE_MODULE_ERROR="Deployment '$DEPLOYMENT_NAME' has the old GKE module: remove its old gke_* inputs and apply once with enable_gke_logs = false (see README)."
   DEPLOYMENT_INPUTS_COMPACT=$(tr -d ' \t\r\n' <<<"${DEPLOYMENT_INPUTS_JSON:-}")
-  if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
-      grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":' <<<"$DEPLOYMENT_INPUTS_COMPACT"; then
-    log_error "$OLD_GKE_MODULE_ERROR"
-    exit 1
+  DEPLOYMENT_OLD_GKE_INPUTS=false
+  DEPLOYMENT_HAS_GKE_LOGS=false
+  if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+    grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":' <<<"$DEPLOYMENT_INPUTS_COMPACT" &&
+      DEPLOYMENT_OLD_GKE_INPUTS=true
+    grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true' <<<"$DEPLOYMENT_INPUTS_COMPACT" &&
+      DEPLOYMENT_HAS_GKE_LOGS=true
   fi
 
-  DEPLOYMENT_HAS_GKE_LOGS=false
-  if [[ "$EXISTING_DEPLOYMENT" == true ]] &&
-      grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true' <<<"$DEPLOYMENT_INPUTS_COMPACT"; then
-    DEPLOYMENT_HAS_GKE_LOGS=true
-    # enable_gke_logs = true with only default GKE inputs: the deployment's own ref tells.
-    DEPLOYMENT_REF=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
-        --project="$PROJECT_ID" --location="$REGION" --quiet \
-        --format="value(terraformBlueprint.gitSource.ref)" 2>/dev/null) || DEPLOYMENT_REF=""
-    if [[ -z "$DEPLOYMENT_REF" ]]; then
-      log_warn "Could not read deployment '$DEPLOYMENT_NAME's git ref to check its GKE module."
+  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true || "$DEPLOYMENT_OLD_GKE_INPUTS" == true ]]; then
+    # 0 = the deployment's ref has the real-time module, 1 = the old one, 2 = unknown.
+    DEPLOYMENT_REF_STATUS=2
+    if [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
+      DEPLOYMENT_REF=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+          --project="$PROJECT_ID" --location="$REGION" --quiet \
+          --format="value(terraformBlueprint.gitSource.ref)" 2>/dev/null) || DEPLOYMENT_REF=""
+      if [[ -z "$DEPLOYMENT_REF" ]]; then
+        log_warn "Could not read deployment '$DEPLOYMENT_NAME's git ref to check its GKE module."
+      else
+        DEPLOYMENT_REF_STATUS=0
+        ref_has_realtime_gke "$DEPLOYMENT_REF" || DEPLOYMENT_REF_STATUS=$?
+        [[ $DEPLOYMENT_REF_STATUS -eq 2 ]] &&
+          log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $REF_VARIABLES"
+      fi
+    fi
+
+    TARGET_REF_STATUS=0
+    ref_has_realtime_gke "$GIT_REF" || TARGET_REF_STATUS=$?
+    [[ $TARGET_REF_STATUS -eq 2 ]] && log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
+
+    if [[ $TARGET_REF_STATUS -eq 1 ]]; then
+      # An older module reads enable_gke_logs as the old bucket-based pipeline. Old to old changes nothing.
+      if [[ "$ENABLE_GKE_LOGS" == true ]] ||
+          [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true && $DEPLOYMENT_REF_STATUS -ne 1 ]]; then
+        log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
+        exit 1
+      fi
     else
-      REF_STATUS=0
-      ref_has_realtime_gke "$DEPLOYMENT_REF" || REF_STATUS=$?
-      case $REF_STATUS in
-        1) log_error "$OLD_GKE_MODULE_ERROR"; exit 1 ;;
-        2) log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $REF_VARIABLES" ;;
-      esac
+      if [[ "$DEPLOYMENT_OLD_GKE_INPUTS" == true || $DEPLOYMENT_REF_STATUS -eq 1 ]]; then
+        log_error "$OLD_GKE_MODULE_ERROR"
+        exit 1
+      fi
     fi
   fi
 
-  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
-    # An older module reads enable_gke_logs as the old bucket-based pipeline.
-    REF_STATUS=0
-    ref_has_realtime_gke "$GIT_REF" || REF_STATUS=$?
-    case $REF_STATUS in
-      1) log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."; exit 1 ;;
-      2) log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES" ;;
-    esac
+  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]] && [[ ${TARGET_REF_STATUS:-0} -ne 1 ]]; then
     # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
     if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
         --format="value(includedPermissions)" 2>/dev/null); then

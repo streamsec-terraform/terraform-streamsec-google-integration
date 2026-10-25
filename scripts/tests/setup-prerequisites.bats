@@ -586,6 +586,17 @@ abandoned_integration() {
   refute_preview
 }
 
+@test "an old GKE deployment updated to an old ref goes on (nothing changes for GKE)" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_streamsec_token": {\n    "inputValue": "x"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  echo v2.21.0 >"$FAKE_DIR/deployment-ref"
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"has the old GKE module"* && "$output" != *"no real-time GKE module"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}
+
 @test "GKE logs on: an unreadable deployment ref only warns" {
   deployment streamsec-integration ACTIVE
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
