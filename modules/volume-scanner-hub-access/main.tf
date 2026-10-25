@@ -56,6 +56,33 @@ locals {
   }
 
   scope = var.grant_on.organization ? "organization" : length(var.grant_on.folder_ids) > 0 ? "folders" : "projects"
+
+  # The hubs' projects. A hub makes each snapshot in its own project, encrypted
+  # with the disk's own Cloud KMS key, so the project's Compute Engine service
+  # agent needs the keys too.
+  hub_projects = toset(concat(
+    tolist(var.hub_project_ids),
+    [for email in var.scanner_service_account_emails : regex("@([a-z0-9-]+)\\.iam\\.gserviceaccount\\.com$", email)[0]],
+  ))
+  compute_agents = {
+    for id, project in data.google_project.hub :
+    id => "serviceAccount:service-${project.number}@compute-system.iam.gserviceaccount.com"
+  }
+  kms_role = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  kms_folder_bindings = {
+    for pair in setproduct(toset(var.grant_on.folder_ids), local.hub_projects) :
+    "${pair[0]}/${pair[1]}" => { folder_id = pair[0], hub = pair[1] }
+  }
+  kms_project_bindings = {
+    for pair in setproduct(toset(var.grant_on.project_ids), local.hub_projects) :
+    "${pair[0]}/${pair[1]}" => { project_id = pair[0], hub = pair[1] }
+  }
+}
+
+# Its number names the hub project's Compute Engine service agent.
+data "google_project" "hub" {
+  for_each   = local.hub_projects
+  project_id = each.value
 }
 
 # Read access plus a snapshot of each disk. Snapshots and scan disks live in
@@ -97,4 +124,30 @@ resource "google_project_iam_member" "target" {
   member   = "serviceAccount:${each.value.email}"
 
   depends_on = [google_organization_iam_custom_role.target]
+}
+
+# The keys of disks the hubs snapshot, on the same scope as the role. GCP has
+# no condition that limits a key grant to Compute Engine, so this covers every
+# key there; the service agent uses them only for Compute Engine operations in
+# its hub, which still need the role above on the disk. Keys outside the scope,
+# such as in a central key project, need their own grant.
+resource "google_organization_iam_member" "kms" {
+  for_each = var.grant_on.organization ? local.hub_projects : toset([])
+  org_id   = var.org_id
+  role     = local.kms_role
+  member   = local.compute_agents[each.value]
+}
+
+resource "google_folder_iam_member" "kms" {
+  for_each = local.kms_folder_bindings
+  folder   = "folders/${each.value.folder_id}"
+  role     = local.kms_role
+  member   = local.compute_agents[each.value.hub]
+}
+
+resource "google_project_iam_member" "kms" {
+  for_each = local.kms_project_bindings
+  project  = each.value.project_id
+  role     = local.kms_role
+  member   = local.compute_agents[each.value.hub]
 }

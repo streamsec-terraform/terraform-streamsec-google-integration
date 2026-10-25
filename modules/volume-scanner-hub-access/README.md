@@ -22,6 +22,10 @@ to switch from one to the other.
 - One IAM member binding of that role for each scanner service account: on the
   organization, or on each folder or project. The bindings are
   non-authoritative, so they leave every other binding in those policies alone.
+- On the same organization, folders or projects, one binding of
+  `roles/cloudkms.cryptoKeyEncrypterDecrypter` for each hub project's Compute
+  Engine service agent, so disks encrypted with Cloud KMS keys can be scanned.
+  See [What the grant allows](#what-the-grant-allows).
 
 Nothing is created in the hubs or in the projects they scan.
 
@@ -136,6 +140,8 @@ by every hub, and can't be trimmed for one of them.
     folder;
   - projects: Project IAM Admin (`roles/resourcemanager.projectIamAdmin`) on
     each project.
+- **To read each hub project's number:** `resourcemanager.projects.get` on the
+  hub projects, which Browser (`roles/browser`) grants.
 
 ### What the grant allows
 
@@ -151,6 +157,12 @@ by every hub, and can't be trimmed for one of them.
 None of them creates or deletes anything in the scanned projects. Everything
 that does, such as the scan disks and the snapshot cleanup, is in the hub's own
 project role, created by `modules/volume-scanner`.
+
+A hub makes each snapshot in its own project, encrypted with the disk's own
+Cloud KMS key when it has one. So each hub project's Compute Engine service
+agent, `service-<hub project number>@compute-system.iam.gserviceaccount.com`,
+is also granted `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the same
+scope. Cloud KMS permissions are inherited, so this covers every key there.
 
 **Security.** A grant on the organization makes each hub project as sensitive
 as the organization:
@@ -170,6 +182,11 @@ as the organization:
   the hub's Owners, Editors and Compute Admins, can read the data of every
   scanned disk without acting as the scanner's account. Grant roles in the hub
   as carefully as in the organization.
+- The hub's Compute Engine service agent can use every Cloud KMS key in the
+  scope. GCP has no condition that limits a key grant to Compute Engine. No one
+  can act as a service agent directly, and it uses the keys only for Compute
+  Engine operations in the hub, which still need the role's
+  `compute.disks.createSnapshot` on the disk.
 
 Folders or projects narrow that reach. The projects you select in Stream
 decide what the scanner scans, but they do not limit what IAM allows; grant on
@@ -177,8 +194,9 @@ projects when the two must match.
 
 **Not covered by this module:**
 
-- Disks encrypted with customer-managed keys (CMEK): the hub's Compute Engine
-  service agent needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on each key.
+- Disks whose Cloud KMS key is in a project outside the scope, such as a
+  central key project: grant `roles/cloudkms.cryptoKeyEncrypterDecrypter` on
+  those keys to the hub project's Compute Engine service agent.
 - VPC Service Controls: a perimeter around a scanned project that leaves out
   the hub blocks snapshots into the hub.
 
@@ -266,10 +284,14 @@ No modules.
 
 | Name | Type |
 |------|------|
+| [google_folder_iam_member.kms](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/folder_iam_member) | resource |
 | [google_folder_iam_member.target](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/folder_iam_member) | resource |
 | [google_organization_iam_custom_role.target](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
+| [google_organization_iam_member.kms](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.target](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
+| [google_project_iam_member.kms](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.target](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project.hub](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
 
 ## Inputs
 

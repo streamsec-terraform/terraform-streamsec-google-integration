@@ -8,6 +8,12 @@ mock_provider "google" {
       name = "organizations/123456789012/roles/streamsecVolumeScannerTarget"
     }
   }
+  # A hub project's number names its Compute Engine service agent.
+  mock_data "google_project" {
+    defaults = {
+      number = "111122223333"
+    }
+  }
 }
 
 variables {
@@ -36,6 +42,19 @@ run "organization_by_default" {
       && b.member == "serviceAccount:streamsec-volume-scanner@scanner-hub-123.iam.gserviceaccount.com"
     ])
     error_message = "The organization binding must grant the module's role to the hub's scanner service account."
+  }
+
+  # The hub snapshots disks with their own Cloud KMS keys.
+  assert {
+    condition = (
+      toset(keys(google_organization_iam_member.kms)) == toset(["scanner-hub-123"])
+      && google_organization_iam_member.kms["scanner-hub-123"].org_id == "123456789012"
+      && google_organization_iam_member.kms["scanner-hub-123"].role == "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+      && google_organization_iam_member.kms["scanner-hub-123"].member == "serviceAccount:service-111122223333@compute-system.iam.gserviceaccount.com"
+      && length(google_folder_iam_member.kms) == 0
+      && length(google_project_iam_member.kms) == 0
+    )
+    error_message = "The hub project's Compute Engine service agent must be granted the Cloud KMS keys on the organization alone."
   }
 
   assert {
@@ -125,6 +144,26 @@ run "several_hubs_on_folders" {
     error_message = "Each folder binding must grant the module's role on its folder to its service account."
   }
 
+  # One per hub project and folder: the explicit account is in hub-a-123456 too.
+  assert {
+    condition = (
+      length(google_organization_iam_member.kms) == 0
+      && length(google_project_iam_member.kms) == 0
+      && toset(keys(google_folder_iam_member.kms)) == toset([
+        "111111111111/hub-a-123456",
+        "111111111111/hub-b-123456",
+        "222222222222/hub-a-123456",
+        "222222222222/hub-b-123456",
+      ])
+      && alltrue([for key, b in google_folder_iam_member.kms :
+        b.folder == "folders/${split("/", key)[0]}"
+        && b.role == "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+        && b.member == "serviceAccount:service-111122223333@compute-system.iam.gserviceaccount.com"
+      ])
+    )
+    error_message = "Each hub project's Compute Engine service agent must be granted the Cloud KMS keys on every folder, and nowhere else."
+  }
+
   assert {
     condition     = output.granted_on.scope == "folders" && toset(output.granted_on.ids) == toset(["111111111111", "222222222222"])
     error_message = "granted_on must name the folders."
@@ -166,6 +205,18 @@ run "projects" {
   }
 
   assert {
+    condition = (
+      length(google_organization_iam_member.kms) == 0
+      && length(google_folder_iam_member.kms) == 0
+      && toset(keys(google_project_iam_member.kms)) == toset(["app-prod-123/scanner-hub-123", "app-staging-456/scanner-hub-123"])
+      && alltrue([for key, b in google_project_iam_member.kms :
+        b.project == split("/", key)[0] && b.role == "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+      ])
+    )
+    error_message = "The hub project's Compute Engine service agent must be granted the Cloud KMS keys on each project, and nowhere else."
+  }
+
+  assert {
     condition     = output.granted_on.scope == "projects" && toset(output.granted_on.ids) == toset(["app-prod-123", "app-staging-456"])
     error_message = "granted_on must name the projects."
   }
@@ -196,6 +247,11 @@ run "service_accounts_without_hub_ids" {
   assert {
     condition     = toset([for b in google_organization_iam_member.target : b.member]) == toset(["serviceAccount:streamsec-volume-scanner-stg@scanner-hub-123.iam.gserviceaccount.com"])
     error_message = "An explicit service account must be bound without any hub_project_ids."
+  }
+
+  assert {
+    condition     = toset(keys(google_organization_iam_member.kms)) == toset(["scanner-hub-123"])
+    error_message = "An explicit service account's project must get the Cloud KMS keys too."
   }
 }
 
