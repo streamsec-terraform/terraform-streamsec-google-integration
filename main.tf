@@ -212,10 +212,10 @@ check "org_id_required" {
       (var.create_sa && !var.sa_project_level_permissions)
       || length(var.include_projects) == 0
       || (var.enable_real_time_events && var.org_level_sink)
-      || var.enable_gke_logs
+      || local.gke_org_level_sink
       || (length(var.response_enabled_projects) > 0 && var.response_org_level_permissions)
     )
-    error_message = "`org_id` is required for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
+    error_message = "`org_id` is required for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, an org-level GKE log sink, or org-level response permissions."
   }
 }
 
@@ -228,16 +228,31 @@ check "response_region" {
   }
 }
 
+locals {
+  gke_org_level_sink = var.enable_gke_logs && coalesce(var.gke_org_level_sink, var.org_level_sink)
+  # The provider region, as real-time events use for their function.
+  gke_region = var.enable_gke_logs ? coalesce(var.gke_region, data.google_client_config.current[0].region, "us-central1") : null
+}
+
+data "google_client_config" "current" {
+  count = var.enable_gke_logs ? 1 : 0
+}
+
 module "gke" {
-  count           = var.enable_gke_logs ? 1 : 0
-  source          = "./modules/gke"
-  project_id      = var.project_for_resources
-  org_id          = var.org_id
-  bucket_name     = var.gke_bucket_name
-  bucket_location = var.gke_bucket_location
-  api_url         = var.gke_api_url
-  secret_name     = var.gke_secret_name
-  streamsec_token = var.gke_streamsec_token
+  count                 = var.enable_gke_logs ? 1 : 0
+  source                = "./modules/gke"
+  org_level_sink        = local.gke_org_level_sink
+  organization_id       = var.org_id
+  project_for_resources = var.project_for_resources
+  projects              = local.projects
+  include_projects      = var.gke_include_projects
+  include_clusters      = var.gke_include_clusters
+  exclude_clusters      = var.gke_exclude_clusters
+  region                = local.gke_region
+  build_service_account = var.gke_build_service_account
+  secret_name           = var.gke_secret_name
+  # Unknown until the project's ack exists.
+  acked_project_ids = { for k, a in streamsec_gcp_project_ack.this : k => a.id == null ? null : a.project_id }
 }
 
 module "vertex_ai_logging" {

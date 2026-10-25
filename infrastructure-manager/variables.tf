@@ -49,7 +49,7 @@ variable "include_projects" {
 }
 
 variable "org_id" {
-  description = "The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, GKE logs, or org-level response permissions."
+  description = "The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create_sa without sa_project_level_permissions), org-wide project discovery (empty include_projects), an org-level log sink, an org-level GKE log sink, or org-level response permissions."
   type        = string
   default     = null
 }
@@ -185,33 +185,44 @@ variable "enable_gke_logs" {
   default     = false
 }
 
-variable "gke_bucket_name" {
-  description = "Base bucket name for GKE audit logs storage (must be globally unique)."
-  type        = string
-  default     = "gke-audit-logs"
+variable "gke_org_level_sink" {
+  description = "Use an organization-level log sink for GKE. Null follows org_level_sink. false (a project sink, no org_id needed) works only in google_project_id."
+  type        = bool
+  default     = null
 }
 
-variable "gke_bucket_location" {
-  description = "Bucket location/region or multi-region for GKE logs (e.g., US, EU, ASIA, us-central1)."
-  type        = string
-  default     = "US"
+variable "gke_include_projects" {
+  description = "Projects to collect GKE logs from. Empty means all integrated projects."
+  type        = list(string)
+  default     = []
 }
 
-variable "gke_api_url" {
-  description = "Stream Security API URL for GKE logs collection, e.g. https://app.streamsec.io"
+variable "gke_include_clusters" {
+  description = "GKE cluster names to collect. Empty means all clusters."
+  type        = list(string)
+  default     = []
+}
+
+variable "gke_exclude_clusters" {
+  description = "GKE cluster names to skip."
+  type        = list(string)
+  default     = []
+}
+
+variable "gke_region" {
+  description = "Region for the GKE logs Cloud Function. Null uses google_region, then us-central1."
   type        = string
-  default     = "https://app.streamsec.io"
+  default     = null
+}
+
+variable "gke_build_service_account" {
+  description = "Service account that builds the GKE logs function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default."
+  type        = string
+  default     = null
 }
 
 variable "gke_secret_name" {
-  description = "Secret Manager secret name holding the StreamSec GKE collection token."
+  description = "Secret Manager secret name holding the StreamSec GKE collection token. Null: streamsec-gke-logs-token-<random suffix>."
   type        = string
-  default     = "streamsec-gke-logs-token"
-}
-
-variable "gke_streamsec_token" {
-  description = "StreamSec collection token for GKE logs (stored in Secret Manager)."
-  type        = string
-  sensitive   = true
-  default     = ""
+  default     = null
 }

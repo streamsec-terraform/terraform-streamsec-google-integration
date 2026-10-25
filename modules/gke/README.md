@@ -1,107 +1,87 @@
-## Stream Security GKE logs collection (GCP)
+# GKE audit logs (real-time)
 
-This Terraform module deploys a GCP pipeline that exports **GKE audit/activity logs** (via an **organization-level Logging sink**) to a GCS bucket, then triggers a Cloud Function to forward/ingest them into **Stream Security**.
+Sends GKE audit logs to Stream Security in real time: log sink, Pub/Sub topic, and a Cloud Function (gen2) that forwards each entry.
 
-### What this module creates
+Two modes, set by `org_level_sink`:
 
-- **Required APIs** enabled in the target project (Logging, Storage, Cloud Functions, Secret Manager, IAM, Pub/Sub, Cloud Build, Monitoring)
-- **GCS logs bucket** (destination of the org sink)
-  - **Note**: the final bucket name is `${bucket_name}-<random_suffix>` to ensure global uniqueness
-  - 30-day retention policy (unlocked)
-- **Organization-level Logging sink** with `include_children = true`
-  - Filter targets `resource.type="k8s_cluster"` and excludes common “system” noise
-- **IAM bindings** so the sink can write into the logs bucket
-- **Secret Manager secret + version** holding your Stream Security collection token
-- **Artifact bucket** in your project plus a copy of the public StreamSec function zip into it
-- **Cloud Function (Gen1)** triggered by `google.storage.object.finalize` events on the logs bucket
-- **Function service account** + IAM to read the Secret Manager secret
+- `true`: one organization sink, topic, and function in `project_for_resources`. Needs `organization_id`.
+- `false`: one project sink, topic, and function in each project of `projects` (narrowed by `include_projects`).
 
-### Prerequisites
+Set `build_service_account` if the project's default compute account cannot build the function (new projects get no automatic grants).
 
-- **Terraform**: `>= 1.5.0`
-- **Google credentials** available to Terraform (Application Default Credentials recommended)
-  - Examples:
-    - `gcloud auth application-default login`
-    - or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key JSON (CI)
-- **gsutil installed** on the machine running Terraform
-  - This module uses a `local-exec` provisioner to run `gsutil cp ...` to copy the public artifact zip into your project’s artifact bucket.
-- **Permissions**
-  - You must be able to create an **organization logging sink** (org-level permissions).
-  - You must be able to create/manage resources in the **target project** (enable services, buckets, secrets, IAM, Cloud Functions).
-  - Simplest: run with an identity that is **Project Owner** on `project_id` and has an org role that allows **Logging sink configuration** (for example, Logging Admin / Logs Configuration Writer at the org level).
+<!-- BEGIN_TF_DOCS -->
+## Requirements
 
-### Configuration
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
+| <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.0 |
+| <a name="requirement_random"></a> [random](#requirement\_random) | >= 3.0 |
+| <a name="requirement_streamsec"></a> [streamsec](#requirement\_streamsec) | >= 1.13 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.10 |
 
-1) Copy the example tfvars.
+## Providers
 
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_google"></a> [google](#provider\_google) | >= 6.0 |
+| <a name="provider_random"></a> [random](#provider\_random) | >= 3.0 |
+| <a name="provider_streamsec"></a> [streamsec](#provider\_streamsec) | >= 1.13 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.10 |
 
-2) Edit `terraform.tfvars` and set the required values.
+## Modules
 
-- **`project_id`**: Project where the bucket/secret/function will live
-- **`org_id`**: Numeric GCP organization ID (sink is created at org scope)
-- (optional) **`region`**: Cloud Function region (default: `us-central1`)
-- (optional) **`bucket_name`**: Bucket name where GKE logs will be stored
-- (optional) **`bucket_location`**: Bucket location (default: `US`)
-- (optional) **`api_url`**: Your custom Stream Security base URL
-- (optional) **`secret_name`**: Secret name (default: `streamsec-gke-logs-token`)
-- **`streamsec_token`**: Stream Security collection token (sensitive)
+No modules.
 
-### Security note about the token
+## Resources
 
-Even though `streamsec_token` is marked `sensitive`, Terraform will still store it in **Terraform state** (and it will also be written to Secret Manager as a secret version). Protect your state accordingly (secure backend, encryption, least-privilege access).
+| Name | Type |
+| ---- | ---- |
+| [google_cloud_run_v2_service_iam_member.invoker](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_run_v2_service_iam_member) | resource |
+| [google_cloudfunctions2_function.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions2_function) | resource |
+| [google_logging_organization_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_organization_sink) | resource |
+| [google_logging_project_sink.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_project_sink) | resource |
+| [google_project_service.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
+| [google_pubsub_topic.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic) | resource |
+| [google_pubsub_topic_iam_member.sink_publisher](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_member) | resource |
+| [google_secret_manager_secret.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret) | resource |
+| [google_secret_manager_secret_iam_member.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_iam_member) | resource |
+| [google_secret_manager_secret_version.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/secret_manager_secret_version) | resource |
+| [google_service_account.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
+| [google_service_account_iam_member.pubsub_token_creator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
+| [random_id.suffix](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/id) | resource |
+| [terraform_data.inputs](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [time_sleep.api_propagation](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
+| [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/gcp_project) | data source |
+| [streamsec_host.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/data-sources/host) | data source |
 
-If you want to avoid committing secrets, do **not** put `streamsec_token` in `terraform.tfvars`. Instead set it via an environment variable:
+## Inputs
 
-```bash
-export TF_VAR_streamsec_token="YOUR_STREAMSEC_TOKEN"
-```
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_acked_project_ids"></a> [acked\_project\_ids](#input\_acked\_project\_ids) | Project ID per integrated project; unknown until its ack exists. | `map(string)` | n/a | yes |
+| <a name="input_build_service_account"></a> [build\_service\_account](#input\_build\_service\_account) | Service account that builds the function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default. | `string` | `null` | no |
+| <a name="input_exclude_clusters"></a> [exclude\_clusters](#input\_exclude\_clusters) | Cluster names to skip. | `list(string)` | `[]` | no |
+| <a name="input_include_clusters"></a> [include\_clusters](#input\_include\_clusters) | Cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
+| <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | GKE projects (subset of projects). Empty means all integrated projects. | `list(string)` | `[]` | no |
+| <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | true: one organization sink and one deployment in project\_for\_resources. false: a sink and a deployment in each GKE project. | `bool` | n/a | yes |
+| <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | GCP organization ID. Required when org\_level\_sink is true. | `string` | `null` | no |
+| <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | Org mode: integrated project that holds the topic, function and secret. | `string` | `""` | no |
+| <a name="input_projects"></a> [projects](#input\_projects) | Integrated projects. | <pre>map(object({<br/>    project_id = string<br/>    name       = string<br/>  }))</pre> | n/a | yes |
+| <a name="input_region"></a> [region](#input\_region) | Function and trigger region. | `string` | `"us-central1"` | no |
+| <a name="input_secret_name"></a> [secret\_name](#input\_secret\_name) | Secret Manager secret name for the Stream Security token. Null: streamsec-gke-logs-token-<random suffix>. | `string` | `null` | no |
+| <a name="input_source_bucket"></a> [source\_bucket](#input\_source\_bucket) | Bucket with the function source zip. | `string` | `"streamsec-production-public-artifacts"` | no |
+| <a name="input_source_object"></a> [source\_object](#input\_source\_object) | Function source zip object name. | `string` | `"gcp-gke-logs-collection.zip"` | no |
 
-### Deploy
+## Outputs
 
-From this directory:
-
-```bash
-terraform init
-terraform plan
-terraform apply
-```
-
-### Verify
-
-- **Org sink exists**: In Cloud Console → Logging → Log Router → Sinks (Organization)
-- **Logs bucket**: Storage bucket exists in `project_id` and has new objects written by the sink
-- **Cloud Function**: Deployed in `region`, triggered by GCS finalize events on the logs bucket
-- **Secret Manager**: Secret `${secret_name}` exists and has a version
-
-Terraform outputs you can use:
-
-- `logs_bucket`: the final bucket name created (includes the random suffix)
-- `function_name`: deployed Cloud Function name
-- `secret_resource_path`: secret version reference used by the function
-- `org_sink_writer_identity`: sink service account used for bucket writes
-
-### Cleanup
-
-```bash
-terraform destroy
-```
-
-**Note**: The logs bucket is created with a **30-day retention policy** and `force_destroy = false`. If log objects exist in the bucket, `terraform destroy` may fail. You may need to:
-
-- Remove/shorten the retention policy (and wait for it to take effect), and/or
-- Delete objects in the bucket (if permitted by retention), then re-run `terraform destroy`
-
-### Troubleshooting
-
-- **`gsutil: command not found`**
-  - Install the Google Cloud SDK (or run from Cloud Shell), and ensure `gsutil` is on `PATH`.
-- **Org sink creation fails**
-  - Confirm you’re using credentials with org-level permissions to create Logging sinks.
-- **No objects arrive in the bucket**
-  - Confirm the sink filter matches your environment and that `include_children = true` is appropriate for your org structure.
-  - Check that the sink writer identity has `roles/storage.objectCreator` on the logs bucket.
-- **`terraform destroy` fails deleting the logs bucket**
-  - The bucket may not be empty, or object retention may be preventing deletions. See the note in [Cleanup](#cleanup).
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_function_names"></a> [function\_names](#output\_function\_names) | Function name per deployment project. |
+| <a name="output_secret_ids"></a> [secret\_ids](#output\_secret\_ids) | Token secret ID per deployment project. |
+| <a name="output_service_account_emails"></a> [service\_account\_emails](#output\_service\_account\_emails) | Function service account email per deployment project. |
+| <a name="output_sink_writer_identities"></a> [sink\_writer\_identities](#output\_sink\_writer\_identities) | Log sink writer identity per deployment project. |
+| <a name="output_topic_ids"></a> [topic\_ids](#output\_topic\_ids) | Pub/Sub topic ID per deployment project. |
+<!-- END_TF_DOCS -->

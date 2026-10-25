@@ -183,6 +183,9 @@ IM_SA_EMAIL="${IM_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 # Discovery — check which resources exist
 ###############################################################################
 log_step "Discovering existing resources..."
+if [[ "$ONLY_GIVEN" != true ]]; then
+  log_info "GKE audit logs resources (enable_gke_logs, names with a random suffix) are not checked: delete them by hand."
+fi
 
 FOUND_RESOURCES=()
 NOT_FOUND_RESOURCES=()

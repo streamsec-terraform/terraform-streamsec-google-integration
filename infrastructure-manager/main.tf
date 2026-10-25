@@ -66,10 +66,23 @@ module "streamsec_google_projects" {
   auto_grant_workflow_invoker    = var.auto_grant_workflow_invoker
 
   # GKE Module
-  enable_gke_logs     = var.enable_gke_logs
-  gke_bucket_name     = var.gke_bucket_name
-  gke_bucket_location = var.gke_bucket_location
-  gke_api_url         = var.gke_api_url
-  gke_secret_name     = var.gke_secret_name
-  gke_streamsec_token = var.gke_streamsec_token
+  enable_gke_logs           = var.enable_gke_logs
+  gke_org_level_sink        = var.gke_org_level_sink
+  gke_include_projects      = var.gke_include_projects
+  gke_include_clusters      = var.gke_include_clusters
+  gke_exclude_clusters      = var.gke_exclude_clusters
+  gke_region                = var.gke_region
+  gke_build_service_account = var.gke_build_service_account
+  gke_secret_name           = var.gke_secret_name
+}
+
+# The script grants the project resources role only in google_project_id.
+resource "terraform_data" "gke_inputs" {
+  count = var.enable_gke_logs && !coalesce(var.gke_org_level_sink, var.org_level_sink) ? 1 : 0
+  lifecycle {
+    precondition {
+      condition     = toset(length(var.gke_include_projects) > 0 ? var.gke_include_projects : var.include_projects) == toset([var.google_project_id])
+      error_message = "GKE project mode works only in google_project_id. Set gke_include_projects = [google_project_id] or gke_org_level_sink = true."
+    }
+  }
 }

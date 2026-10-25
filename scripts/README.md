@@ -50,6 +50,8 @@ at any time.
   To cover more projects, run the script once per project.
 - When resuming with `--start-from-step`, pass `--project-only` again.
 
+**GKE audit logs (`--enable-gke-logs`):** sets `enable_gke_logs=true` in the preview and in the update of an existing deployment; for a new deployment, the next steps list it. Stops before the preview if the module ref lacks real-time GKE, the project role lacks `run.services.*`, or the deployment still uses the old bucket-based GKE module.
+
 ### Prerequisites
 
 - **gcloud CLI** installed and authenticated (`gcloud auth login`)
@@ -109,6 +111,7 @@ at any time.
 | `--git-ref` | `GIT_REF` | latest release | Module git ref used for the preview: a tag or a slash-free ref (Infrastructure Manager cannot fetch refs containing `/`, so `feature/x` style branch names are rejected) |
 | `--single-project` | `SINGLE_PROJECT=true` | — | Project-level logging sink + scoped asset discovery (still requires org-level permissions) |
 | `--project-only` | `PROJECT_ONLY=true` | — | Like `--single-project`, but everything at project level; no org permissions, `--org-id` optional |
+| `--enable-gke-logs` | `ENABLE_GKE_LOGS=true` | — | Collect GKE audit logs in real time (see [Modes](#modes)) |
 | `--start-from-step` | `START_FROM_STEP` | `1` | Resume from a specific step (1-6) |
 | `--check-leftovers` | `CHECK_LEFTOVERS=true` | — | Run only the [leftover check](#leftover-check): read-only, unless with `--cleanup-leftovers`. Needs only `--project-id`, `--region`, the mode flags and `--org-id` (unless `--project-only`) |
 | `--cleanup-leftovers` | — | — | Delete the leftovers the check finds, after a confirmation, then go on |
@@ -263,6 +266,9 @@ The script auto-detects which resources exist and removes:
 - Custom IAM roles created by `setup-prerequisites.sh`
 - IAM bindings for the Infrastructure Manager service account
 - The Infrastructure Manager service account itself
+
+It does not delete the GKE audit logs resources (`enable_gke_logs`): their names end with a random suffix
+that only the deployment knew. Apply with `enable_gke_logs = false` before Step 1, or delete them by hand.
 
 Regional secrets are only served by the regional Secret Manager endpoint
 (`secretmanager.<region>.rep.googleapis.com`), which the script uses for them.

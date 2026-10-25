@@ -67,6 +67,9 @@ if [[ -n "$verb" ]]; then
     fi
     drop "$kind:$name"
   fi
+  if [[ "$kind" == *-role && "$*" == *"value(includedPermissions)"* ]]; then
+    cat "$FAKE_DIR/role-permissions" 2>/dev/null
+  fi
   if [[ "$kind" == *-sink && "$*" == *"value(destination)"* ]]; then
     cat "$FAKE_DIR/sink-destination" 2>/dev/null || echo "pubsub.googleapis.com/projects/p1/topics/stream-security-events-topic"
   fi
@@ -86,7 +89,14 @@ case "$*" in
       echo "ERROR: (gcloud.infra-manager.deployments.describe) NOT_FOUND: Resource '$4' was not found" >&2
       exit 1
     fi
-    [[ "$*" == *inputValues* ]] && printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n'
+    # The deployment's inputs: $FAKE_DIR/input-values (the inputValues object), or google_project_id only.
+    if [[ "$*" == *inputValues* ]]; then
+      if [[ -f "$FAKE_DIR/input-values" ]]; then
+        printf '{\n  "terraformBlueprint": {\n    "inputValues": %s\n  }\n}\n' "$(cat "$FAKE_DIR/input-values")"
+      else
+        printf '{\n  "terraformBlueprint": {\n    "inputValues": {\n      "google_project_id": {\n        "inputValue": "p1"\n      }\n    }\n  }\n}\n'
+      fi
+    fi
     rev="$4/revisions/r-1"; grep -q -- "-X PATCH" "$FAKE_DIR/curl.log" 2>/dev/null && rev="$4/revisions/r-2"
     [[ "$*" == *"value(state,latestRevision)"* ]] && echo "ACTIVE $rev"
     [[ "$*" == *"value(latestRevision)"* ]] && echo "$rev"
