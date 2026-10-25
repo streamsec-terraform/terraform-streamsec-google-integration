@@ -574,22 +574,18 @@ abandoned_integration() {
   refute_preview
 }
 
-@test "GKE logs on with default inputs on an old-module deployment ref stop before the preview" {
-  deployment streamsec-integration ACTIVE
+@test "GKE logs on with default inputs and the old module in the deployment's state stop before the preview" {
+  deployment streamsec-integration ACTIVE $'google_logging_organization_sink\torganizations/123/sinks/streamsec-gke-audit-logs\tUNCHANGED\tRECONCILED'
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
-  echo v2.21.0 >"$FAKE_DIR/deployment-ref"
-  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables-v2.21.0"
   run_setup
   [ "$status" -eq 1 ]
   [[ "$output" == *"has the old GKE module"* ]]
-  grep -q '/v2.21.0/infrastructure-manager/variables.tf' "$FAKE_DIR/curl.log"
   refute_preview
 }
 
 @test "an old GKE deployment updated to an old ref goes on (nothing changes for GKE)" {
-  deployment streamsec-integration ACTIVE
+  deployment streamsec-integration ACTIVE $'google_logging_organization_sink\torganizations/123/sinks/streamsec-gke-audit-logs\tUNCHANGED\tRECONCILED'
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_streamsec_token": {\n    "inputValue": "x"\n  }\n}\n' >"$FAKE_DIR/input-values"
-  echo v2.21.0 >"$FAKE_DIR/deployment-ref"
   echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
   run_setup
   [ "$status" -eq 0 ]
@@ -597,16 +593,20 @@ abandoned_integration() {
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
 }
 
-@test "GKE logs on: an unreadable deployment ref only warns" {
+@test "GKE logs on: an unreadable deployment state only warns" {
   deployment streamsec-integration ACTIVE
   printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
   run_setup
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Could not read deployment"* ]]
+  [[ "$output" == *"Could not read the state of deployment"* ]]
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
-  echo v2.30.0 >"$FAKE_DIR/deployment-ref"
-  : >"$FAKE_DIR/curl.log"
+}
+
+@test "GKE logs on: a deployment that runs the real-time module goes on, also from a moving ref" {
+  deployment streamsec-integration ACTIVE $'google_logging_project_sink\tprojects/p1/sinks/streamsec-gke-audit-logs-pubsub-0a1b2c3d\tUNCHANGED\tRECONCILED'
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
   run_setup
   [ "$status" -eq 0 ]
-  [[ "$output" != *"has the old GKE module"* ]]
+  [[ "$output" != *"has the old GKE module"* && "$output" != *"Could not read the state"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
 }

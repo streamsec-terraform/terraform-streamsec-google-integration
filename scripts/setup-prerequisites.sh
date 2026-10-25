@@ -1572,19 +1572,21 @@ if [[ $START_FROM_STEP -le 6 ]]; then
   fi
 
   if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true || "$DEPLOYMENT_OLD_GKE_INPUTS" == true ]]; then
-    # 0 = the deployment's ref has the real-time module, 1 = the old one, 2 = unknown.
-    DEPLOYMENT_REF_STATUS=2
+    # 0 = the deployment runs the real-time module, 1 = the old one, 2 = unknown. The applied state
+    # tells, not the ref: a moving ref (e.g. main) may hold newer code than the deployment runs.
+    # The old module always made the org sink "streamsec-gke-audit-logs"; the new one never does.
+    DEPLOYMENT_MODULE_STATUS=2
     if [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
-      DEPLOYMENT_REF=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
-          --project="$PROJECT_ID" --location="$REGION" --quiet \
-          --format="value(terraformBlueprint.gitSource.ref)" 2>/dev/null) || DEPLOYMENT_REF=""
-      if [[ -z "$DEPLOYMENT_REF" ]]; then
-        log_warn "Could not read deployment '$DEPLOYMENT_NAME's git ref to check its GKE module."
+      DEPLOYMENT_REVISION=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+          --project="$PROJECT_ID" --location="$REGION" --quiet --format="value(latestRevision)" 2>/dev/null) || DEPLOYMENT_REVISION=""
+      if [[ -n "$DEPLOYMENT_REVISION" ]] &&
+          DEPLOYMENT_ROWS=$(revision_rows "$DEPLOYMENT_PATH" "${DEPLOYMENT_REVISION##*/}" 2>/dev/null) &&
+          [[ -n "$DEPLOYMENT_ROWS" ]]; then
+        DEPLOYMENT_MODULE_STATUS=0
+        grep -qE $'^google_logging_organization_sink\t[^\t]*/sinks/streamsec-gke-audit-logs(\t|$)' <<<"$DEPLOYMENT_ROWS" &&
+          DEPLOYMENT_MODULE_STATUS=1
       else
-        DEPLOYMENT_REF_STATUS=0
-        ref_has_realtime_gke "$DEPLOYMENT_REF" || DEPLOYMENT_REF_STATUS=$?
-        [[ $DEPLOYMENT_REF_STATUS -eq 2 ]] &&
-          log_warn "Could not check the GKE module of deployment ref $DEPLOYMENT_REF: $REF_VARIABLES"
+        log_warn "Could not read the state of deployment '$DEPLOYMENT_NAME' to check its GKE module."
       fi
     fi
 
@@ -1595,12 +1597,12 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     if [[ $TARGET_REF_STATUS -eq 1 ]]; then
       # An older module reads enable_gke_logs as the old bucket-based pipeline. Old to old changes nothing.
       if [[ "$ENABLE_GKE_LOGS" == true ]] ||
-          [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true && $DEPLOYMENT_REF_STATUS -ne 1 ]]; then
+          [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true && $DEPLOYMENT_MODULE_STATUS -ne 1 ]]; then
         log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
         exit 1
       fi
     else
-      if [[ "$DEPLOYMENT_OLD_GKE_INPUTS" == true || $DEPLOYMENT_REF_STATUS -eq 1 ]]; then
+      if [[ "$DEPLOYMENT_OLD_GKE_INPUTS" == true || $DEPLOYMENT_MODULE_STATUS -eq 1 ]]; then
         log_error "$OLD_GKE_MODULE_ERROR"
         exit 1
       fi
