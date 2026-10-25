@@ -428,3 +428,185 @@ abandoned_integration() {
   [[ "$output" == *"can't reach some locations"* ]]
   refute_called ' delete '
 }
+
+@test "the project role can bind an invoker on one Cloud Run service" {
+  run bash "$SETUP" --project-only --project-id p1 --region us-central1 \
+    --streamsec-host h.example --workspace-id w --api-token t \
+    --git-ref v0.0.0 --skip-permission-check --start-from-step 2 --yes
+  [ "$status" -eq 0 ]
+  called 'roles create .*run\.services\.get[,[:space:]]'
+  called 'roles create .*run\.services\.getIamPolicy'
+  called 'roles create .*run\.services\.setIamPolicy'
+}
+
+@test "--enable-gke-logs reaches the preview inputs" {
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+}
+
+@test "without --enable-gke-logs the inputs don't mention GKE, also on an existing deployment" {
+  run_setup
+  [ "$status" -eq 0 ]
+  [ -s "$FAKE_DIR/curl.body" ]
+  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
+  deployment streamsec-integration ACTIVE
+  run_setup
+  [ "$status" -eq 0 ]
+  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
+  ! grep -q enable_gke_logs "$FAKE_DIR/curl.body"
+}
+
+@test "--enable-gke-logs on an existing deployment adds the input and keeps the others" {
+  deployment streamsec-integration ACTIVE
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+  grep -q '"google_project_id"' "$FAKE_DIR/curl.body"
+}
+
+@test "org mode passes --enable-gke-logs to the preview's --input-values" {
+  run bash "$SETUP" --project-id p1 --org-id 123 --region us-central1 \
+    --streamsec-host h.example --workspace-id w --api-token t \
+    --git-ref v0.0.0 --skip-permission-check --start-from-step 6 --yes --enable-gke-logs
+  [ "$status" -eq 0 ]
+  called 'infra-manager previews create .*--input-values=[^ ]*enable_gke_logs=true'
+}
+
+@test "--enable-gke-logs on a CRLF deployment input replaces enable_gke_logs, not duplicates it" {
+  deployment streamsec-integration ACTIVE
+  printf '{\r\n  "enable_gke_logs": {\r\n    "inputValue": "false"\r\n  },\r\n  "include_projects": {\r\n    "inputValue": ["p1", "p,2"]\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  # One enable_gke_logs in each request: the preview and the update.
+  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 2 ]
+  grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
+  grep -q '"inputValue": \["p1", "p,2"\]' "$FAKE_DIR/curl.body"
+}
+
+@test "--enable-gke-logs: new deployment next steps list it; an existing deployment's update applies it" {
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"enable_gke_logs=true"* ]]
+  deployment streamsec-integration ACTIVE
+  : >"$FAKE_DIR/curl.body"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q -- "-X PATCH" "$FAKE_DIR/curl.log"
+  [ "$(grep -c '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body")" -eq 2 ]
+}
+
+@test "--enable-gke-logs stops before the preview on a ref without the real-time GKE module" {
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Git ref v0.0.0 has no real-time GKE module"* ]]
+  grep -q 'raw.githubusercontent.com/streamsec-terraform/terraform-streamsec-google-integration/v0.0.0/infrastructure-manager/variables.tf' "$FAKE_DIR/curl.log"
+  refute_preview
+}
+
+@test "GKE logs stop before the preview when the project role lacks run.services.*" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create;run.services.get' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lacks run.services.* for GKE logs"*"--start-from-step 2"* ]]
+  refute_preview
+}
+
+@test "GKE logs on in the deployment's inputs also need run.services.* in the project role" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create' >"$FAKE_DIR/role-permissions"
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lacks run.services.* for GKE logs"* ]]
+  refute_preview
+}
+
+@test "GKE logs on in the deployment's inputs stop before the preview on a ref without the real-time GKE module" {
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Git ref v0.0.0 has no real-time GKE module"* ]]
+  refute_preview
+}
+
+@test "GKE logs stop when the project role lacks run.services.get" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  refute_preview
+}
+
+@test "GKE logs go on to the preview when the project role has run.services.*" {
+  exist project-role:StreamSecurityInfraManagerProjectRole
+  echo 'pubsub.topics.create;run.services.get;run.services.getIamPolicy;run.services.setIamPolicy' >"$FAKE_DIR/role-permissions"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 0 ]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}
+
+@test "--enable-gke-logs: the check never looks at GKE resources (their names have a random suffix)" {
+  exist topic:streamsec-gke-audit-logs-0a1b2c3d org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d
+  run_check --org-id 123 --enable-gke-logs
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No leftovers"* ]]
+  [[ "$output" != *GKE* ]]
+  refute_called 'gke'
+}
+
+@test "an existing deployment with old bucket-based GKE inputs stops before the preview" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_bucket_name": {\n    "inputValue": "my-gke-logs"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup --enable-gke-logs
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"has the old GKE module"*"enable_gke_logs = false"* ]]
+  refute_preview
+  printf '{\r\n  "gke_api_url": {\r\n    "inputValue": "https://app.streamsec.io"\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"has the old GKE module"* ]]
+  refute_preview
+}
+
+@test "GKE logs on with default inputs and the old module in the deployment's state stop before the preview" {
+  deployment streamsec-integration ACTIVE $'google_logging_organization_sink\torganizations/123/sinks/streamsec-gke-audit-logs\tUNCHANGED\tRECONCILED'
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"has the old GKE module"* ]]
+  refute_preview
+}
+
+@test "an old GKE deployment updated to an old ref goes on (nothing changes for GKE)" {
+  deployment streamsec-integration ACTIVE $'google_logging_organization_sink\torganizations/123/sinks/streamsec-gke-audit-logs\tUNCHANGED\tRECONCILED'
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  },\n  "gke_streamsec_token": {\n    "inputValue": "x"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  echo 'variable "gke_bucket_name" {}' >"$FAKE_DIR/ref-variables"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"has the old GKE module"* && "$output" != *"no real-time GKE module"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}
+
+@test "GKE logs on: an unreadable deployment state only warns" {
+  deployment streamsec-integration ACTIVE
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not read the state of deployment"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}
+
+@test "GKE logs on: a deployment that runs the real-time module goes on, also from a moving ref" {
+  deployment streamsec-integration ACTIVE $'google_logging_project_sink\tprojects/p1/sinks/streamsec-gke-audit-logs-pubsub-0a1b2c3d\tUNCHANGED\tRECONCILED'
+  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
+  run_setup
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"has the old GKE module"* && "$output" != *"Could not read the state"* ]]
+  grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
+}

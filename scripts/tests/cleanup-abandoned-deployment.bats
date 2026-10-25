@@ -103,3 +103,14 @@ setup() { setup_fakes; }
   assert_mutations 'logging sinks delete stream-security-events-sink --organization=123' \
     'logging sinks delete stream-security-events-sink --project=p1'
 }
+
+@test "GKE logs resources are never deleted: their suffixed names may be another install's" {
+  exist org-sink:streamsec-gke-audit-logs-pubsub-0a1b2c3d topic:streamsec-gke-audit-logs-0a1b2c3d \
+    function2:stream-sec-gke-logs-pubsub-0a1b2c3d secret:streamsec-gke-logs-token-0a1b2c3d \
+    sa:streamsec-gke-audit-0a1b2c3d@p1.iam.gserviceaccount.com topic:stream-security-events-topic
+  run bash "$CLEANUP" --project-id p1 --region us-central1 --org-id 123 --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"GKE audit logs resources"*"delete them by hand"* ]]
+  assert_mutations 'pubsub topics delete stream-security-events-topic'
+  refute_called 'gke'
+}

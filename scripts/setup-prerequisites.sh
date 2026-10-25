@@ -222,6 +222,7 @@ GIT_REF="${GIT_REF:-}"   # optional: pin the module git ref (a tag, or a slash-f
 ORG_LEVEL_SINK="${ORG_LEVEL_SINK:-true}"
 SINGLE_PROJECT="${SINGLE_PROJECT:-false}"
 PROJECT_ONLY="${PROJECT_ONLY:-false}"
+ENABLE_GKE_LOGS="${ENABLE_GKE_LOGS:-false}"
 CHECK_LEFTOVERS="${CHECK_LEFTOVERS:-false}"
 CLEANUP_LEFTOVERS=false   # deletes, so only the flag turns it on
 SKIP_LEFTOVER_CHECK=false
@@ -266,6 +267,7 @@ Infrastructure Manager options:
   --project-only          Like --single-project, but requires NO organization-level
                           permissions (everything is created at project level;
                           --org-id becomes optional; project Owner is sufficient)
+  --enable-gke-logs       Collect GKE audit logs in real time (sets enable_gke_logs=true)
   --start-from-step NUM   Start from step NUM (1-6, default: 1) - useful for resuming
 
 Leftovers of an earlier integration (checked before step 6):
@@ -305,6 +307,7 @@ while [[ $# -gt 0 ]]; do
     --start-from-step)      START_FROM_STEP="$2";       shift 2 ;;
     --single-project)       ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; shift ;;
     --project-only)         ORG_LEVEL_SINK=false; SINGLE_PROJECT=true; PROJECT_ONLY=true; shift ;;
+    --enable-gke-logs)      ENABLE_GKE_LOGS=true;       shift   ;;
     --skip-permission-check) SKIP_PERMISSION_CHECK=true; shift   ;;
     --check-leftovers)      CHECK_LEFTOVERS=true;       shift   ;;
     --cleanup-leftovers)    CLEANUP_LEFTOVERS=true;     shift   ;;
@@ -1291,6 +1294,9 @@ cloudfunctions.functions.getIamPolicy,\
 cloudfunctions.functions.setIamPolicy,\
 cloudfunctions.functions.invoke,\
 cloudfunctions.operations.get,\
+run.services.get,\
+run.services.getIamPolicy,\
+run.services.setIamPolicy,\
 serviceusage.services.enable,\
 serviceusage.services.get,\
 serviceusage.services.list"
@@ -1460,6 +1466,40 @@ fi
 
 run_leftover_check || exit 1
 
+# Whether the module at git ref $1 has the real-time GKE module: 0 yes, 1 no,
+# 2 unreadable (curl's error in REF_VARIABLES).
+ref_has_realtime_gke() {
+  REF_VARIABLES=$(curl -sSf "${GIT_REPO/github.com/raw.githubusercontent.com}/$1/$GIT_DIRECTORY/variables.tf" 2>&1) || return 2
+  [[ "$REF_VARIABLES" == *'variable "gke_org_level_sink"'* ]]
+}
+
+# Sets input KEY to {"inputValue": "VALUE"} in the inputValues JSON object on stdin:
+# drops any existing KEY member (split at top-level commas, outside strings) and appends it.
+set_input_value() {
+  awk -v key="$1" -v val="$2" '
+    { s = s $0 "\n" }
+    END {
+      member = "^[ \t\r\n]*\"" key "\"[ \t\r\n]*:"
+      for (i = index(s, "{") + 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (esc) esc = 0
+        else if (c == "\\") esc = instr
+        else if (c == "\"") instr = !instr
+        else if (!instr && (c == "{" || c == "[")) depth++
+        else if (!instr && depth > 0 && (c == "}" || c == "]")) depth--
+        else if (!instr && depth == 0 && (c == "," || c == "}")) {
+          sub(/[ \t\r\n]+$/, "", m)
+          if (m != "" && m !~ member) out = out (n++ ? "," : "") m
+          m = ""
+          if (c == "}") break
+          continue
+        }
+        m = m c
+      }
+      print "{" out (n ? "," : "") "\n  \"" key "\": {\"inputValue\": \"" val "\"}\n}"
+    }'
+}
+
 ###############################################################################
 # Step 6 — Create Infrastructure Manager Preview
 ###############################################################################
@@ -1519,6 +1559,68 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     exit 1
   fi
 
+  # The old bucket-based GKE module: an update to the real-time module would destroy its bucket.
+  OLD_GKE_MODULE_ERROR="Deployment '$DEPLOYMENT_NAME' has the old GKE module: remove its old gke_* inputs and apply once with enable_gke_logs = false (see README)."
+  DEPLOYMENT_INPUTS_COMPACT=$(tr -d ' \t\r\n' <<<"${DEPLOYMENT_INPUTS_JSON:-}")
+  DEPLOYMENT_OLD_GKE_INPUTS=false
+  DEPLOYMENT_HAS_GKE_LOGS=false
+  if [[ "$EXISTING_DEPLOYMENT" == true ]]; then
+    grep -qE '"gke_(bucket_name|bucket_location|api_url|streamsec_token)":' <<<"$DEPLOYMENT_INPUTS_COMPACT" &&
+      DEPLOYMENT_OLD_GKE_INPUTS=true
+    grep -q '"enable_gke_logs":{"inputValue":"\{0,1\}true' <<<"$DEPLOYMENT_INPUTS_COMPACT" &&
+      DEPLOYMENT_HAS_GKE_LOGS=true
+  fi
+
+  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true || "$DEPLOYMENT_OLD_GKE_INPUTS" == true ]]; then
+    # 0 = the deployment runs the real-time module, 1 = the old one, 2 = unknown. The applied state
+    # tells, not the ref: a moving ref (e.g. main) may hold newer code than the deployment runs.
+    # The old module always made the org sink "streamsec-gke-audit-logs"; the new one never does.
+    DEPLOYMENT_MODULE_STATUS=2
+    if [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true ]]; then
+      DEPLOYMENT_REVISION=$(gcloud infra-manager deployments describe "$DEPLOYMENT_NAME" \
+          --project="$PROJECT_ID" --location="$REGION" --quiet --format="value(latestRevision)" 2>/dev/null) || DEPLOYMENT_REVISION=""
+      if [[ -n "$DEPLOYMENT_REVISION" ]] &&
+          DEPLOYMENT_ROWS=$(revision_rows "$DEPLOYMENT_PATH" "${DEPLOYMENT_REVISION##*/}" 2>/dev/null) &&
+          [[ -n "$DEPLOYMENT_ROWS" ]]; then
+        DEPLOYMENT_MODULE_STATUS=0
+        grep -qE $'^google_logging_organization_sink\t[^\t]*/sinks/streamsec-gke-audit-logs(\t|$)' <<<"$DEPLOYMENT_ROWS" &&
+          DEPLOYMENT_MODULE_STATUS=1
+      else
+        log_warn "Could not read the state of deployment '$DEPLOYMENT_NAME' to check its GKE module."
+      fi
+    fi
+
+    TARGET_REF_STATUS=0
+    ref_has_realtime_gke "$GIT_REF" || TARGET_REF_STATUS=$?
+    [[ $TARGET_REF_STATUS -eq 2 ]] && log_warn "Could not check that $GIT_REF has the real-time GKE module: $REF_VARIABLES"
+
+    if [[ $TARGET_REF_STATUS -eq 1 ]]; then
+      # An older module reads enable_gke_logs as the old bucket-based pipeline. Old to old changes nothing.
+      if [[ "$ENABLE_GKE_LOGS" == true ]] ||
+          [[ "$DEPLOYMENT_HAS_GKE_LOGS" == true && $DEPLOYMENT_MODULE_STATUS -ne 1 ]]; then
+        log_error "Git ref $GIT_REF has no real-time GKE module: use a --git-ref that has it."
+        exit 1
+      fi
+    else
+      if [[ "$DEPLOYMENT_OLD_GKE_INPUTS" == true || $DEPLOYMENT_MODULE_STATUS -eq 1 ]]; then
+        log_error "$OLD_GKE_MODULE_ERROR"
+        exit 1
+      fi
+    fi
+  fi
+
+  if [[ "$ENABLE_GKE_LOGS" == true || "$DEPLOYMENT_HAS_GKE_LOGS" == true ]] && [[ ${TARGET_REF_STATUS:-0} -ne 1 ]]; then
+    # The GKE invoker binding needs run.services.* in the project role (step 2 adds them).
+    if ! ROLE_PERMS=$(gcloud iam roles describe "$PROJECT_ROLE_ID" --project="$PROJECT_ID" \
+        --format="value(includedPermissions)" 2>/dev/null); then
+      log_warn "Could not read role '$PROJECT_ROLE_ID' to check its run.services.* permissions."
+    elif [[ ";$ROLE_PERMS;" != *";run.services.get;"* || ";$ROLE_PERMS;" != *";run.services.getIamPolicy;"* ||
+            ";$ROLE_PERMS;" != *";run.services.setIamPolicy;"* ]]; then
+      log_error "Role '$PROJECT_ROLE_ID' lacks run.services.* for GKE logs: re-run with --start-from-step 2."
+      exit 1
+    fi
+  fi
+
   log_info "Preview name: $PREVIEW_NAME"
   log_info "Git ref: $GIT_REF"
 
@@ -1537,6 +1639,10 @@ if [[ $START_FROM_STEP -le 6 ]]; then
     fi
   else
     IM_INPUT_VALUES="${IM_INPUT_VALUES},org_id=$ORGANIZATION_ID"
+  fi
+
+  if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+    IM_INPUT_VALUES="${IM_INPUT_VALUES},enable_gke_logs=true"
   fi
 
   if [[ "$SINGLE_PROJECT" == true || "$EXISTING_DEPLOYMENT" == true ]]; then
@@ -1564,6 +1670,9 @@ if [[ $START_FROM_STEP -le 6 ]]; then
 }
 JSONEOF
 )
+    fi
+    if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+      INPUT_VALUES_JSON=$(printf '%s\n' "$INPUT_VALUES_JSON" | set_input_value enable_gke_logs true)
     fi
 
     API_URL="https://config.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/previews?previewId=$PREVIEW_NAME"
@@ -1765,6 +1874,9 @@ JSONEOF
         echo "       org_level_sink=$ORG_LEVEL_SINK$( [[ -n "$ORGANIZATION_ID" ]] && echo "  org_id=$ORGANIZATION_ID" )"
         if [[ "$SINGLE_PROJECT" == true ]]; then
           echo "       include_projects=[\"$PROJECT_ID\"]$( [[ "$PROJECT_ONLY" == true ]] && echo "  sa_project_level_permissions=true" )"
+        fi
+        if [[ "$ENABLE_GKE_LOGS" == true ]]; then
+          echo "       enable_gke_logs=true"
         fi
         echo ""
 

@@ -1,168 +1,249 @@
-data "google_project" "this" {
-  project_id = var.project_id
-}
-
 locals {
-  project_number          = data.google_project.this.number
-  gcs_service_agent_email = "service-${local.project_number}@gs-project-accounts.iam.gserviceaccount.com"
-  secret_resource_path    = "projects/${var.project_id}/secrets/${var.secret_name}/versions/latest"
-  bucket_suffix           = substr(sha256(var.project_id), 0, 8)
-  logs_bucket_name        = "${var.bucket_name}-${local.bucket_suffix}"
-  artifact_object_name    = "gcp-gke-logs-collection.zip"
-}
+  # log_filter.txt is based on lightlytics/gcp-deploymentmanager
+  # code/gke-logs/setup-realtime.sh (LOG_FILTER) @ 7e5cf3c.
+  base_filter = trimspace(file("${path.module}/log_filter.txt"))
 
-#
-# Enable required APIs (minimum set for this workflow)
-#
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "logging.googleapis.com",
-    "monitoring.googleapis.com",
-    "storage.googleapis.com",
-    "cloudfunctions.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "secretmanager.googleapis.com",
-    "pubsub.googleapis.com",
-    "iam.googleapis.com",
-  ])
+  project_ids      = [for p in var.projects : p.project_id]
+  include_projects = distinct(var.include_projects)
+  include_clusters = distinct(var.include_clusters)
+  exclude_clusters = distinct(var.exclude_clusters)
 
-  project            = var.project_id
-  service            = each.value
-  disable_on_destroy = false
-}
-
-#
-# (2) Logs bucket - destination for org sink
-#
-resource "google_storage_bucket" "logs" {
-  name                        = local.logs_bucket_name
-  project                     = var.project_id
-  location                    = var.bucket_location
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  retention_policy {
-    retention_period = 2592000 # 30 days (30 * 24 * 60 * 60)
-    is_locked        = false
+  gke_projects = length(local.include_projects) == 0 ? var.projects : {
+    for k, p in var.projects : k => p if contains(local.include_projects, p.project_id)
   }
 
-  depends_on = [google_project_service.apis]
+  # Keyed by project id. The fallback lets the precondition report a project_for_resources
+  # outside projects; the data sources skip it.
+  deploy_projects = var.org_level_sink ? {
+    (var.project_for_resources) = try(var.projects[var.project_for_resources], { project_id = var.project_for_resources, name = var.project_for_resources })
+  } : local.gke_projects
+
+  apis = [
+    "cloudfunctions.googleapis.com",
+    "run.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "eventarc.googleapis.com",
+    "pubsub.googleapis.com",
+    "logging.googleapis.com",
+    "secretmanager.googleapis.com",
+    "iam.googleapis.com",
+  ]
+
+  project_apis = {
+    for pair in setproduct(keys(local.deploy_projects), local.apis) :
+    "${pair[0]}/${pair[1]}" => { project = local.deploy_projects[pair[0]].project_id, api = pair[1] }
+  }
+
+  filter_clauses = compact([
+    var.org_level_sink && length(local.gke_projects) > 0 ? "(${join(" OR ", [for p in values(local.gke_projects) : "resource.labels.project_id=\"${p.project_id}\""])})" : "",
+    length(local.include_clusters) > 0 ? "(${join(" OR ", [for c in local.include_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
+    length(local.exclude_clusters) > 0 ? "-(${join(" OR ", [for c in local.exclude_clusters : "resource.labels.cluster_name=\"${c}\""])})" : "",
+  ])
+
+  sink_filter = join("\n", concat([local.base_filter], local.filter_clauses))
+  # A separate local, so a failed length check does not print the whole filter.
+  sink_filter_length = length(local.sink_filter)
+
+  # Integrated deploy projects only, so a bad project_for_resources gives only the precondition error.
+  data_projects = { for k, p in local.deploy_projects : k => p if contains(local.project_ids, p.project_id) }
+
+  # One random suffix per module instance, so names never clash with existing resources.
+  suffix      = random_id.suffix.hex
+  secret_name = coalesce(var.secret_name, "streamsec-gke-logs-token-${local.suffix}")
+
+  sink_writer_identities = var.org_level_sink ? {
+    for k in keys(local.deploy_projects) : k => google_logging_organization_sink.this[0].writer_identity
+    } : {
+    for k, s in google_logging_project_sink.this : k => s.writer_identity
+  }
 }
 
-#
-# (3) Org-level logging sink -> writes into the bucket
-# Destination format: storage.googleapis.com/<BUCKET_NAME>
-#
-resource "google_logging_organization_sink" "org_sink" {
-  name        = var.log_sink_name
-  org_id      = var.org_id
-  destination = "storage.googleapis.com/${google_storage_bucket.logs.name}"
-
-  # Include children so it can capture projects/folders under the org.
-  # If you ONLY want org-level logs excluding children, set to false.
-  include_children = true
-
-  filter = <<-EOT
-resource.type="k8s_cluster"
--protoPayload.authenticationInfo.principalEmail=~"system:"
--protoPayload.authenticationInfo.principalEmail=~"@container-engine-robot.iam.gserviceaccount.com"
--protoPayload.methodName="io.k8s.coordination.v1.leases.update"
--protoPayload.methodName="io.k8s.networking.gateway.v1beta1.gatewayclasses.update"
--(protoPayload.methodName="io.k8s.networking.gateway.v1beta1.gatewayclasses.status.update")
-protoPayload.methodName=~""
-EOT
-
-  depends_on = [google_project_service.apis]
+resource "terraform_data" "inputs" {
+  lifecycle {
+    precondition {
+      condition     = !var.org_level_sink || (var.organization_id != null && var.organization_id != "")
+      error_message = "organization_id (root: org_id) is required in org mode."
+    }
+    precondition {
+      condition     = !var.org_level_sink || contains(local.project_ids, var.project_for_resources)
+      error_message = "project_for_resources must be an integrated project in org mode."
+    }
+    precondition {
+      condition     = alltrue([for p in local.include_projects : contains(local.project_ids, p)])
+      error_message = "include_projects (root: gke_include_projects) must only contain integrated projects."
+    }
+    precondition {
+      condition     = var.org_level_sink || length(local.gke_projects) > 0
+      error_message = "Project mode needs at least one GKE project (root: gke_include_projects)."
+    }
+    precondition {
+      condition     = length(setintersection(local.include_clusters, local.exclude_clusters)) == 0
+      error_message = "A cluster name must not be in both gke_include_clusters and gke_exclude_clusters."
+    }
+    precondition {
+      condition     = alltrue([for c in concat(local.include_clusters, local.exclude_clusters) : can(regex("^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$", c))])
+      error_message = "gke_include_clusters / gke_exclude_clusters names must match ^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$."
+    }
+    precondition {
+      condition     = local.sink_filter_length <= 20000
+      error_message = "GKE sink filter too long (${local.sink_filter_length} of 20,000 characters). Set gke_include_projects to the projects with GKE clusters."
+    }
+  }
 }
 
-#
-# Allow the sink's writer identity to write objects into the bucket
-# (writer_identity is created by Logging on sink creation)
-#
-resource "google_storage_bucket_iam_member" "sink_writer_object_creator" {
-  bucket = google_storage_bucket.logs.name
-  role   = "roles/storage.objectCreator"
-  member = google_logging_organization_sink.org_sink.writer_identity
+resource "random_id" "suffix" {
+  byte_length = 4
 }
 
-#
-# (1) Grant Cloud Storage service agent Pub/Sub Publisher (needed for Gen1 bucket triggers)
-#
-resource "google_project_iam_member" "gcs_agent_pubsub_publisher" {
-  project = var.project_id
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${local.gcs_service_agent_email}"
+data "streamsec_host" "this" {}
 
-  depends_on = [google_project_service.apis]
+data "google_project" "this" {
+  for_each   = local.data_projects
+  project_id = each.value.project_id
 }
 
-#
-# (5) Secret Manager secret + version for StreamSec token
-#
-resource "google_secret_manager_secret" "token" {
-  project   = var.project_id
-  secret_id = var.secret_name
+data "streamsec_gcp_project" "this" {
+  for_each = local.data_projects
+  # lookup, not try(): on Terraform 1.5 try() over a map with any unknown value is unknown,
+  # which would defer (and replace) the token of every project, not only the new one.
+  project_id = coalesce(lookup(var.acked_project_ids, each.key, null), each.value.project_id)
+}
 
+resource "google_project_service" "this" {
+  for_each           = local.project_apis
+  project            = each.value.project
+  service            = each.value.api
+  disable_on_destroy = false
+  depends_on         = [terraform_data.inputs]
+}
+
+# One wait for all projects; a project added later changes the trigger, so it waits again.
+resource "time_sleep" "api_propagation" {
+  create_duration = "30s"
+  triggers = {
+    apis = join(",", sort(keys(local.project_apis)))
+  }
+  depends_on = [google_project_service.this]
+}
+
+resource "google_secret_manager_secret" "this" {
+  for_each  = local.deploy_projects
+  project   = each.value.project_id
+  secret_id = local.secret_name
   replication {
     auto {}
   }
-
-  depends_on = [google_project_service.apis]
+  depends_on = [time_sleep.api_propagation]
 }
 
-resource "google_secret_manager_secret_version" "token_v1" {
-  secret      = google_secret_manager_secret.token.id
-  secret_data = var.streamsec_token
+resource "google_secret_manager_secret_version" "this" {
+  for_each    = local.deploy_projects
+  secret      = google_secret_manager_secret.this[each.key].id
+  secret_data = data.streamsec_gcp_project.this[each.key].account_token
 }
 
-#
-# (4) Function service account
-#
-resource "google_service_account" "function_sa" {
-  project      = var.project_id
-  account_id   = "streamsec-gke-logs-fn"
-  display_name = "StreamSec GKE Logs Collection Function"
+resource "google_service_account" "this" {
+  for_each     = local.deploy_projects
+  project      = each.value.project_id
+  account_id   = "streamsec-gke-audit-${local.suffix}"
+  display_name = "Stream Security GKE audit logs"
+  depends_on   = [time_sleep.api_propagation]
 }
 
-# Grant secret access to function SA
-resource "google_secret_manager_secret_iam_member" "fn_sa_secret_accessor" {
-  secret_id = google_secret_manager_secret.token.id
+resource "google_secret_manager_secret_iam_member" "this" {
+  for_each  = local.deploy_projects
+  project   = each.value.project_id
+  secret_id = google_secret_manager_secret.this[each.key].secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.function_sa.email}"
+  member    = "serviceAccount:${google_service_account.this[each.key].email}"
 }
 
-#
-# (6) Cloud Function (Gen1) triggered by GCS object finalize
-# Source zip is read directly from the public StreamSec artifacts bucket
-#
-resource "google_cloudfunctions_function" "collector" {
-  name        = var.function_name
-  project     = var.project_id
-  region      = var.region
-  runtime     = var.function_runtime
-  entry_point = "StorageGKELogsCollection"
+resource "google_pubsub_topic" "this" {
+  for_each   = local.deploy_projects
+  project    = each.value.project_id
+  name       = "streamsec-gke-audit-logs-${local.suffix}"
+  depends_on = [time_sleep.api_propagation]
+}
 
-  service_account_email = google_service_account.function_sa.email
+resource "google_logging_organization_sink" "this" {
+  count            = var.org_level_sink ? 1 : 0
+  name             = "streamsec-gke-audit-logs-pubsub-${local.suffix}"
+  org_id           = var.organization_id
+  destination      = "pubsub.googleapis.com/${google_pubsub_topic.this[var.project_for_resources].id}"
+  filter           = local.sink_filter
+  include_children = true
+}
 
-  # Source zip directly from public artifacts bucket
-  source_archive_bucket = var.source_artifact_bucket
-  source_archive_object = local.artifact_object_name
+resource "google_logging_project_sink" "this" {
+  for_each               = var.org_level_sink ? {} : local.gke_projects
+  project                = each.value.project_id
+  name                   = "streamsec-gke-audit-logs-pubsub-${local.suffix}"
+  destination            = "pubsub.googleapis.com/${google_pubsub_topic.this[each.key].id}"
+  filter                 = local.sink_filter
+  unique_writer_identity = true
+}
 
-  # Trigger on logs bucket
+resource "google_pubsub_topic_iam_member" "sink_publisher" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  topic    = google_pubsub_topic.this[each.key].name
+  role     = "roles/pubsub.publisher"
+  member   = local.sink_writer_identities[each.key]
+}
+
+resource "google_cloudfunctions2_function" "this" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  name     = "stream-sec-gke-logs-pubsub-${local.suffix}"
+  location = var.region
+
+  build_config {
+    runtime         = "nodejs22"
+    entry_point     = "PubSubGKELogsCollection"
+    service_account = var.build_service_account == null ? null : replace(var.build_service_account, "{project}", each.key)
+    source {
+      storage_source {
+        bucket = var.source_bucket
+        object = var.source_object
+      }
+    }
+  }
+
+  service_config {
+    service_account_email = google_service_account.this[each.key].email
+    ingress_settings      = "ALLOW_INTERNAL_ONLY"
+    environment_variables = {
+      API_URL     = data.streamsec_host.this.host
+      SECRET_NAME = "projects/${each.value.project_id}/secrets/${local.secret_name}/versions/latest"
+    }
+  }
+
   event_trigger {
-    event_type = "google.storage.object.finalize"
-    resource   = google_storage_bucket.logs.name
+    trigger_region        = var.region
+    event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic          = google_pubsub_topic.this[each.key].id
+    retry_policy          = "RETRY_POLICY_DO_NOT_RETRY"
+    service_account_email = google_service_account.this[each.key].email
   }
 
-  environment_variables = {
-    API_URL     = var.api_url
-    SECRET_NAME = local.secret_resource_path
-  }
+  depends_on = [google_secret_manager_secret_version.this, google_secret_manager_secret_iam_member.this]
+}
 
-  depends_on = [
-    google_project_service.apis,
-    google_storage_bucket_iam_member.sink_writer_object_creator,
-    google_project_iam_member.gcs_agent_pubsub_publisher,
-    google_secret_manager_secret_iam_member.fn_sa_secret_accessor
-  ]
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
+  for_each = local.deploy_projects
+  project  = each.value.project_id
+  location = var.region
+  name     = google_cloudfunctions2_function.this[each.key].service_config[0].service
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.this[each.key].email}"
+}
+
+resource "google_service_account_iam_member" "pubsub_token_creator" {
+  for_each           = local.deploy_projects
+  service_account_id = google_service_account.this[each.key].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.this[each.key].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  # The Pub/Sub service agent appears once the API is on (the SA waits for it) and the topic exists.
+  depends_on = [google_pubsub_topic.this]
 }

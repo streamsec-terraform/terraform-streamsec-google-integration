@@ -102,6 +102,11 @@ The identity that applies the module needs `serviceusage.services.enable`,
 When `existing_sa_json_file_path` points to a service account from another project, grant
 the permission on that project too.
 
+## Upgrading GKE logs from the bucket-based module
+
+Remove the old inputs (`gke_bucket_name`, `gke_bucket_location`, `gke_api_url`, `gke_streamsec_token`) and apply once with `enable_gke_logs = false` (also in Infrastructure Manager; if the old logs bucket's delete fails, remove its retention policy and empty it), then set it back to `true`.
+`gke_org_level_sink` now follows `org_level_sink`: set `gke_org_level_sink = true` to keep one organization sink.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -145,6 +150,7 @@ the permission on that project too.
 | [streamsec_gcp_project.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project) | resource |
 | [streamsec_gcp_project_ack.this](https://registry.terraform.io/providers/streamsec-terraform/streamsec/latest/docs/resources/gcp_project_ack) | resource |
 | [time_sleep.this](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [google_client_config.current](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
 | [google_cloud_asset_search_all_resources.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/cloud_asset_search_all_resources) | data source |
 | [google_project.this](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
 | [google_service_account.existing](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/service_account) | data source |
@@ -166,15 +172,17 @@ the permission on that project too.
 | <a name="input_excluded_project_strings"></a> [excluded\_project\_strings](#input\_excluded\_project\_strings) | A list of substrings to exclude. Any project whose display name contains one of these strings will be excluded. | `list(string)` | `[]` | no |
 | <a name="input_existing_sa_json_file_path"></a> [existing\_sa\_json\_file\_path](#input\_existing\_sa\_json\_file\_path) | The path to the JSON file for the existing Service Account. | `string` | `null` | no |
 | <a name="input_function_service_account_id"></a> [function\_service\_account\_id](#input\_function\_service\_account\_id) | The account ID of the Service Account to be used for Stream Security Functions. | `string` | `null` | no |
-| <a name="input_gke_api_url"></a> [gke\_api\_url](#input\_gke\_api\_url) | Stream Security API URL for GKE logs collection, e.g. https://app.streamsec.io | `string` | `"https://app.streamsec.io"` | no |
-| <a name="input_gke_bucket_location"></a> [gke\_bucket\_location](#input\_gke\_bucket\_location) | Bucket location/region or multi-region for GKE logs (e.g., US, EU, ASIA, us-central1). | `string` | `"US"` | no |
-| <a name="input_gke_bucket_name"></a> [gke\_bucket\_name](#input\_gke\_bucket\_name) | Base bucket name for GKE audit logs storage (must be globally unique). | `string` | `"gke-audit-logs"` | no |
-| <a name="input_gke_secret_name"></a> [gke\_secret\_name](#input\_gke\_secret\_name) | Secret Manager secret name holding the StreamSec GKE collection token. | `string` | `"streamsec-gke-logs-token"` | no |
-| <a name="input_gke_streamsec_token"></a> [gke\_streamsec\_token](#input\_gke\_streamsec\_token) | StreamSec collection token for GKE logs (stored in Secret Manager). | `string` | `""` | no |
+| <a name="input_gke_build_service_account"></a> [gke\_build\_service\_account](#input\_gke\_build\_service\_account) | Service account that builds the GKE logs function (projects/<project>/serviceAccounts/<email>); {project} is replaced by each deploy project ID. Null uses the project default. | `string` | `null` | no |
+| <a name="input_gke_exclude_clusters"></a> [gke\_exclude\_clusters](#input\_gke\_exclude\_clusters) | GKE cluster names to skip. | `list(string)` | `[]` | no |
+| <a name="input_gke_include_clusters"></a> [gke\_include\_clusters](#input\_gke\_include\_clusters) | GKE cluster names to collect. Empty means all clusters. | `list(string)` | `[]` | no |
+| <a name="input_gke_include_projects"></a> [gke\_include\_projects](#input\_gke\_include\_projects) | Projects to collect GKE logs from. Empty means all integrated projects. | `list(string)` | `[]` | no |
+| <a name="input_gke_org_level_sink"></a> [gke\_org\_level\_sink](#input\_gke\_org\_level\_sink) | Use an organization-level log sink for GKE. Null follows org\_level\_sink. Set false for project sinks (no org\_id needed). | `bool` | `null` | no |
+| <a name="input_gke_region"></a> [gke\_region](#input\_gke\_region) | Region for the GKE logs Cloud Function. Null uses the provider region, then us-central1. | `string` | `null` | no |
+| <a name="input_gke_secret_name"></a> [gke\_secret\_name](#input\_gke\_secret\_name) | Secret Manager secret name holding the StreamSec GKE collection token. Null: streamsec-gke-logs-token-<random suffix>. | `string` | `null` | no |
 | <a name="input_grant_function_service_account_roles"></a> [grant\_function\_service\_account\_roles](#input\_grant\_function\_service\_account\_roles) | Boolean to determine if the Function Service Account should be granted the necessary roles. | `bool` | `false` | no |
 | <a name="input_include_projects"></a> [include\_projects](#input\_include\_projects) | A list of projects to include from the Organization Integration. If not set, all projects will be included. | `list(string)` | `[]` | no |
 | <a name="input_log_sink_filter"></a> [log\_sink\_filter](#input\_log\_sink\_filter) | The filter to apply to the log sink. (use only if you have more than 100 projects) | `string` | `""` | no |
-| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create\_sa without sa\_project\_level\_permissions), org-wide project discovery (empty include\_projects), an org-level log sink, GKE logs, or org-level response permissions. | `string` | `null` | no |
+| <a name="input_org_id"></a> [org\_id](#input\_org\_id) | The Organization ID. Needed for organization-scoped operations: org-level SA bindings (create\_sa without sa\_project\_level\_permissions), org-wide project discovery (empty include\_projects), an org-level log sink, an org-level GKE log sink, or org-level response permissions. | `string` | `null` | no |
 | <a name="input_org_level_sink"></a> [org\_level\_sink](#input\_org\_level\_sink) | If true, create a single org-level log sink, topic, and function. Otherwise, create per-project. | `bool` | `true` | no |
 | <a name="input_project_for_resources"></a> [project\_for\_resources](#input\_project\_for\_resources) | The project ID to use for resources. Required if org\_level\_sink is true. | `string` | `""` | no |
 | <a name="input_project_for_sa"></a> [project\_for\_sa](#input\_project\_for\_sa) | The project to create the Service Account in (if not set and create\_sa is true, will take provider project id). | `string` | `null` | no |
