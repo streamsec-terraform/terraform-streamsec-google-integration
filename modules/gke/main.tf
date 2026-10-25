@@ -63,27 +63,27 @@ resource "terraform_data" "inputs" {
   lifecycle {
     precondition {
       condition     = !var.org_level_sink || (var.organization_id != null && var.organization_id != "")
-      error_message = "organization_id is required when org_level_sink is true."
+      error_message = "organization_id (root: org_id) is required in org mode."
     }
     precondition {
       condition     = !var.org_level_sink || contains(local.project_ids, var.project_for_resources)
-      error_message = "project_for_resources must be an integrated project (one of projects) when org_level_sink is true."
+      error_message = "project_for_resources must be an integrated project in org mode."
     }
     precondition {
       condition     = alltrue([for p in local.include_projects : contains(local.project_ids, p)])
-      error_message = "include_projects must only contain integrated projects."
+      error_message = "include_projects (root: gke_include_projects) must only contain integrated projects."
     }
     precondition {
       condition     = var.org_level_sink || length(local.gke_projects) > 0
-      error_message = "Project mode needs at least one GKE project."
+      error_message = "Project mode needs at least one GKE project (root: gke_include_projects)."
     }
     precondition {
       condition     = length(setintersection(local.include_clusters, local.exclude_clusters)) == 0
-      error_message = "A cluster name must not be in both include_clusters and exclude_clusters."
+      error_message = "A cluster name must not be in both gke_include_clusters and gke_exclude_clusters."
     }
     precondition {
       condition     = alltrue([for c in concat(local.include_clusters, local.exclude_clusters) : can(regex("^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$", c))])
-      error_message = "Cluster names must match ^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$."
+      error_message = "gke_include_clusters / gke_exclude_clusters names must match ^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$."
     }
     precondition {
       condition     = local.sink_filter_length <= 20000
@@ -107,7 +107,7 @@ data "streamsec_gcp_project" "this" {
   for_each = local.data_projects
   # lookup, not try(): on Terraform 1.5 try() over a map with any unknown value is unknown,
   # which would defer (and replace) the token of every project, not only the new one.
-  project_id = lookup(var.acked_project_ids, each.key, each.value.project_id)
+  project_id = coalesce(lookup(var.acked_project_ids, each.key, null), each.value.project_id)
 }
 
 resource "google_project_service" "this" {
