@@ -478,19 +478,22 @@ abandoned_integration() {
   printf '{\r\n  "enable_gke_logs": {\r\n    "inputValue": "false"\r\n  },\r\n  "include_projects": {\r\n    "inputValue": ["p1", "p,2"]\r\n  }\r\n}\r\n' >"$FAKE_DIR/input-values"
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
-  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 1 ]
+  # One enable_gke_logs in each request: the preview and the update.
+  [ "$(grep -o enable_gke_logs "$FAKE_DIR/curl.body" | wc -l)" -eq 2 ]
   grep -q '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body"
   grep -q '"inputValue": \["p1", "p,2"\]' "$FAKE_DIR/curl.body"
 }
 
-@test "--enable-gke-logs: the next steps tell to set enable_gke_logs on the deployment" {
+@test "--enable-gke-logs: new deployment next steps list it; an existing deployment's update applies it" {
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
   [[ "$output" == *"enable_gke_logs=true"* ]]
   deployment streamsec-integration ACTIVE
+  : >"$FAKE_DIR/curl.body"
   run_setup --enable-gke-logs
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Also set the input enable_gke_logs = true"* ]]
+  grep -q -- "-X PATCH" "$FAKE_DIR/curl.log"
+  [ "$(grep -c '"enable_gke_logs": {"inputValue": "true"}' "$FAKE_DIR/curl.body")" -eq 2 ]
 }
 
 @test "--enable-gke-logs stops before the preview on a ref without the real-time GKE module" {
@@ -530,14 +533,6 @@ abandoned_integration() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"Git ref v0.0.0 has no real-time GKE module"* ]]
   refute_preview
-}
-
-@test "--enable-gke-logs: no 'Also set' step when the deployment already has enable_gke_logs" {
-  deployment streamsec-integration ACTIVE
-  printf '{\n  "enable_gke_logs": {\n    "inputValue": "true"\n  }\n}\n' >"$FAKE_DIR/input-values"
-  run_setup --enable-gke-logs
-  [ "$status" -eq 0 ]
-  [[ "$output" != *"Also set the input enable_gke_logs"* ]]
 }
 
 @test "GKE logs stop when the project role lacks run.services.get" {
@@ -599,7 +594,8 @@ abandoned_integration() {
   [[ "$output" == *"Could not read deployment"* ]]
   grep -q 'previews?previewId=' "$FAKE_DIR/curl.log"
   echo v2.30.0 >"$FAKE_DIR/deployment-ref"
+  : >"$FAKE_DIR/curl.log"
   run_setup
   [ "$status" -eq 0 ]
-  [[ "$output" != *"old bucket-based"* ]]
+  [[ "$output" != *"has the old GKE module"* ]]
 }

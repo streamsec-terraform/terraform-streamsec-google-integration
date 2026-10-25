@@ -98,7 +98,11 @@ case "$*" in
       fi
     fi
     # The deployment's git ref: $FAKE_DIR/deployment-ref, or none.
-    if [[ "$*" == *gitSource.ref* ]]; then cat "$FAKE_DIR/deployment-ref" 2>/dev/null || true; fi ;;
+    if [[ "$*" == *gitSource.ref* ]]; then cat "$FAKE_DIR/deployment-ref" 2>/dev/null || true; fi
+    rev="$4/revisions/r-1"; grep -q -- "-X PATCH" "$FAKE_DIR/curl.log" 2>/dev/null && rev="$4/revisions/r-2"
+    [[ "$*" == *"value(state,latestRevision)"* ]] && echo "ACTIVE $rev"
+    [[ "$*" == *"value(latestRevision)"* ]] && echo "$rev"
+    ;;
   # resources: "<revision path>\t<type>\t<id>\t<intent>\t<state>"
   "infra-manager resources list"*) rows_for resources "$(flag revision "$@")" ;;
   # revisions: "<deployment path>\t<revision id>", newest first
