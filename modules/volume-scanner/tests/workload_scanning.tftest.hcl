@@ -200,7 +200,7 @@ run "keeps_the_disk_scanning_permissions" {
   }
 }
 
-# DEV-23837: GKE images come from the Stream inventory, so the kind needs no
+# GKE images come from the Stream inventory, so the kind needs no
 # GCP API, only registry access to pull the images. On its own it still gets
 # that access, and nothing of Cloud Run's.
 run "gke_images_only" {

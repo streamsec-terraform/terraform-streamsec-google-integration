@@ -12,7 +12,7 @@ variables {
 # With neither timeout nor max_retries set, Cloud Run runs the orchestrator on
 # its defaults: 600s per attempt and 3 retries. The orchestrator waits for its
 # Batch workers, which take longer than that, so every scheduled run was killed
-# mid-wait and each retry rescanned the whole fleet from scratch (DEV-22980).
+# mid-wait and each retry rescanned the whole fleet from scratch.
 run "orchestrator_outlives_its_workers" {
   command = plan
 
@@ -39,7 +39,7 @@ run "orchestrator_outlives_its_workers" {
   }
 }
 
-# Unset reads as protected: the provider defaults it to true (DEV-23759).
+# Unset reads as protected: the provider defaults it to true.
 run "orchestrator_can_be_deleted" {
   command = plan
 

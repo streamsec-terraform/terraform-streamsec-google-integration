@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "integration_id" {
-  description = "Stable, non-secret integration identifier supplied by the Lightlytics wizard/backend. It is sanitized and hashed to make module-owned resource names unique within a project."
+  description = "Stable, non-secret integration identifier supplied by the Stream Security console. It is sanitized and hashed to make module-owned resource names unique within a project."
   type        = string
 
   validation {
@@ -97,7 +97,7 @@ variable "connector_cidr" {
 }
 
 variable "firewall_secret_names" {
-  description = "Comma-delimited Secret Manager version resource names for firewall API keys, as emitted by the Lightlytics wizard."
+  description = "Comma-delimited Secret Manager version resource names for firewall API keys, as emitted by the Stream Security console."
   type        = string
   default     = ""
 
