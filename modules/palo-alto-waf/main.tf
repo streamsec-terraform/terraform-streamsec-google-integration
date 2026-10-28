@@ -112,7 +112,7 @@ resource "terraform_data" "secret_contract" {
         for version_name in local.firewall_versions :
         contains([var.project_id, tostring(data.google_project.this.number)], split("/", version_name)[1])
       ])
-      error_message = "firewall_secret_names must reference secrets in project_id. The #22440 Infrastructure Manager runner has no IAM authority in other projects."
+      error_message = "firewall_secret_names must reference secrets in project_id. The console's Infrastructure Manager runner has no IAM authority in other projects."
     }
   }
 }
@@ -184,7 +184,7 @@ resource "time_sleep" "build_iam_propagation" {
   create_duration = "2m"
 }
 
-# The #22440 runner has Editor (including serviceAccounts.actAs) plus project
+# The console's runner has Editor (including serviceAccounts.actAs) plus project
 # IAM administration, but not resource-level Artifact Registry, Cloud Run, or
 # Secret Manager setIamPolicy. Bootstrap only the six policy permissions this
 # module needs.

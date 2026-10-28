@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "integration_id" {
-  description = "Stable, non-secret integration identifier supplied by the Lightlytics wizard/backend."
+  description = "Stable, non-secret integration identifier supplied by the Stream Security console."
   type        = string
 
   validation {
