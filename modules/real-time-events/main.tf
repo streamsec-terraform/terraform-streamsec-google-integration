@@ -27,7 +27,7 @@ resource "google_logging_organization_sink" "this" {
   filter = var.log_sink_filter != "" ? var.log_sink_filter : "${join(" OR ", [
     for project in var.projects :
     "(logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"projects/${project.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\")"
-  ])} OR (logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Fdata_access\") AND NOT protoPayload.methodName=~\"(?i).list\" AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
+  ])} OR (logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"organizations/${var.organization_id}/logs/cloudaudit.googleapis.com%2Fdata_access\") AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
   org_id           = var.organization_id
   depends_on       = [google_pubsub_topic.this]
   include_children = true
@@ -37,7 +37,7 @@ resource "google_logging_project_sink" "this" {
   for_each    = var.org_level_sink ? {} : { for k, v in var.projects : k => v }
   name        = try(each.value.log_sink_name, var.log_sink_name)
   destination = "pubsub.googleapis.com/projects/${each.value.project_id}/topics/${google_pubsub_topic.this[each.key].name}"
-  filter      = "(logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR (logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\" AND NOT protoPayload.methodName=~\"(?i).list\")) AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
+  filter      = "(logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Factivity\" OR logName=\"projects/${each.value.project_id}/logs/cloudaudit.googleapis.com%2Fdata_access\") AND protoPayload.methodName:* AND protoPayload.authenticationInfo.principalEmail:* AND NOT resource.type=\"k8s_cluster\""
   project     = each.value.project_id
   depends_on  = [google_pubsub_topic.this]
 }
