@@ -12,7 +12,7 @@ run "acknowledgement_contract" {
     project_id              = "stream-test-123"
     region                  = "us-central1"
     stream_api_url          = "https://tenant.streamsec.io"
-    stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+    stream_customer_id      = "0123456789abcdef01234567"
     stream_ack_token        = "test-ack-token"
     stream_collection_token = "test-collection-token"
     stream_template_version = "v2.12.0"
@@ -29,8 +29,8 @@ run "acknowledgement_contract" {
   }
 
   assert {
-    condition     = jsondecode(local.stream_ack_payload).customer_id == "66fb95548de1fcbdf0ca10e5"
-    error_message = "The acknowledgement payload must carry the customer id, which selects the tenant database."
+    condition     = jsondecode(local.stream_ack_payload).customer_id == "0123456789abcdef01234567"
+    error_message = "The acknowledgement payload must carry the customer id, which identifies the workspace."
   }
 
   assert {
@@ -56,7 +56,7 @@ run "normalises_a_trailing_slash_on_the_api_url" {
     project_id              = "stream-test-123"
     region                  = "us-central1"
     stream_api_url          = "https://tenant.streamsec.io/"
-    stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+    stream_customer_id      = "0123456789abcdef01234567"
     stream_ack_token        = "test-ack-token"
     stream_collection_token = "test-collection-token"
     stream_template_version = "v2.12.0"
@@ -78,7 +78,7 @@ run "omits_an_empty_template_version" {
     project_id              = "stream-test-123"
     region                  = "us-central1"
     stream_api_url          = "https://tenant.streamsec.io"
-    stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+    stream_customer_id      = "0123456789abcdef01234567"
     stream_ack_token        = "test-ack-token"
     stream_collection_token = "test-collection-token"
     stream_template_version = ""

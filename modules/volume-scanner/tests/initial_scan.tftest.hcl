@@ -23,7 +23,7 @@ variables {
   project_id              = "stream-test-123"
   region                  = "europe-west1"
   stream_api_url          = "http://127.0.0.1:9"
-  stream_customer_id      = "66fb95548de1fcbdf0ca10e5"
+  stream_customer_id      = "0123456789abcdef01234567"
   stream_ack_token        = "test-ack-token"
   stream_collection_token = "test-collection-token"
 }

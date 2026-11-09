@@ -18,7 +18,7 @@ module "streamforce_plugin" {
 
   project_id       = "my-gcp-project"
   region           = "us-central1"
-  plugin_id        = "6a4e3eff29e9d8a573640711"
+  plugin_id        = "<plugin-id>"
   artifact_url     = "https://<stream-artifact-host>/plugins/<...>.zip"
   plugin_token     = var.plugin_token   # sensitive
   platform_url     = "https://acme.stream.security"

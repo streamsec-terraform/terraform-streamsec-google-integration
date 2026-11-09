@@ -2,8 +2,8 @@ project_id = "my-gcp-project-id"
 region     = "us-central1"
 
 # REQUIRED. Full Stream Security collection URL (scheme included). The function appends
-# /api/v1/collection/gcp-audit-log to it. Set to your environment's host, e.g.
-# https://app.streamsec.io or https://tenant1.staging.streamsec.io.
+# /api/v1/collection/gcp-audit-log to it. Set to your workspace's host, e.g.
+# https://app.streamsec.io.
 api_url = "https://app.streamsec.io"
 
 # Shared token secret. These must match the real-time-events module that creates the secret
