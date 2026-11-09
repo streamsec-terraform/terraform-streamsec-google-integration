@@ -40,7 +40,7 @@ variable "region" {
 }
 
 # Populated by the Stream Security UI — the scan service account email to grant
-# roles/workflows.invoker so LL can invoke Cloud Workflows from the backend.
+# roles/workflows.invoker so Stream Security can invoke Cloud Workflows.
 variable "workflow_invoker_service_account" {
   description = "Service account email to grant roles/workflows.invoker permission."
   type        = string

@@ -2,7 +2,7 @@
 Stream Security — GCP Vertex AI BigQuery Log Collector
 
 Polls BigQuery for new Vertex AI request-response logging rows,
-converts them to GCP audit log JSON format, and POSTs to ms_collection's
+converts them to GCP audit log JSON format, and POSTs them to the Stream API's
 /collection/gcp-audit-log endpoint.
 """
 
@@ -419,7 +419,7 @@ def row_to_gcp_audit_log(row: dict) -> dict:
 
 
 def send_log(session: requests.Session, log: dict) -> bool:
-    """POST a single GCP audit log JSON object to ms_collection."""
+    """POST a single GCP audit log JSON object to the Stream API."""
     response = session.post(COLLECTION_URL, json=log, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
     return True

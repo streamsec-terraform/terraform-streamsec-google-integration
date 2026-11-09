@@ -30,7 +30,7 @@ run "acknowledgement_contract" {
 
   assert {
     condition     = jsondecode(local.stream_ack_payload).customer_id == "0123456789abcdef01234567"
-    error_message = "The acknowledgement payload must carry the customer id, which selects the tenant database."
+    error_message = "The acknowledgement payload must carry the customer id, which identifies the workspace."
   }
 
   assert {

@@ -172,7 +172,7 @@ def check(name, cond, detail=""):
     results.append((name, cond, detail))
     print(("PASS  " if cond else "FAIL  ") + name + (f"   [{detail}]" if detail and not cond else ""))
 
-# ---------------------------------------------------------------- 1. THE BUG: late arrival
+# ---------------------------------------------------------------- 1. late arrival
 
 reset([row("A", 0), row("B", 1), row("C", 0.5, visible_min=6)])
 b1, c1, s1 = poll(ts(minutes=5))
@@ -184,7 +184,7 @@ check("late-arrival: watermark not dragged back", b2["new_watermark"] == b1["new
       f'{b1["new_watermark"]} -> {b2["new_watermark"]}')
 check("late-arrival: catch-up-only poll still returns 200", c2 == 200, str(c2))
 
-# same scenario with the sweep disabled reproduces the original data loss
+# the same scenario with the sweep disabled misses the late row
 reset([row("A", 0), row("B", 1), row("C", 0.5, visible_min=6)], lookback=0)
 poll(ts(minutes=5))
 _, _, s_no = poll(ts(minutes=10))

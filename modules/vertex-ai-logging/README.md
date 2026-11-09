@@ -32,7 +32,7 @@ Cloud Scheduler ──► Cloud Function (2nd Gen)
 The function posts to `<api_url>/api/v1/collection/gcp-audit-log`.
 
 - `api_url` is **required** and must be the full URL including scheme, e.g. `https://app.streamsec.io`
-  (or a non-prod host such as `https://tenant1.staging.streamsec.io`).
+  (or your workspace's own URL, if it differs).
 - Resource names are prefixed with `name_prefix` (default `streamsec`): `streamsec-vertex-ai-collector`,
   `streamsec-vertex-ai-poll`, etc. The BigQuery dataset uses the same prefix with underscores
   (`streamsec_<bigquery_dataset>`, e.g. `streamsec_vertex_ai_logs`), since dataset IDs disallow hyphens.
@@ -49,7 +49,7 @@ module "vertex_ai_logging" {
   region     = "us-central1"
 
   # REQUIRED. Full Stream Security collection URL (scheme included).
-  api_url = "https://app.streamsec.io" # e.g. https://tenant1.staging.streamsec.io for non-prod
+  api_url = "https://app.streamsec.io" # or your workspace's own URL
 
   # Shared token secret (created by real-time-events). Match its inputs so the derived
   # secret version path resolves to the same secret. The module reads, never creates, it.
@@ -89,8 +89,8 @@ terraform apply -var="project_id=my-gcp-project" -var="api_url=https://app.strea
   -var="secret_name=streamsec-vtx-token-app"
 
 # a second pipeline in the same project
-terraform apply -var="project_id=my-gcp-project" -var="api_url=https://demo.streamsec.io" \
-  -var="name_prefix=streamsec-demo" -var="secret_name=streamsec-vtx-token-demo" \
+terraform apply -var="project_id=my-gcp-project" -var="api_url=https://acme.streamsec.io" \
+  -var="name_prefix=streamsec-acme" -var="secret_name=streamsec-vtx-token-acme" \
   -var="manage_apis=false"
 ```
 
