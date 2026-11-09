@@ -43,8 +43,8 @@ locals {
   }
 
   # role_file_paths is empty: every role JSON is at its canonical path under
-  # templates/gcp_roles, so the file(...) reads below use each.value.role_file
-  # directly.
+  # templates/gcp_roles, so the lookups in the file(...) reads below fall
+  # through to each.value.role_file.
   role_file_paths = {}
 
   # Determine the project where service accounts will be created
