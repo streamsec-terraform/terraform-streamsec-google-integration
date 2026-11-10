@@ -96,8 +96,10 @@ resource "google_project_iam_member" "deployer" {
 resource "time_sleep" "deployer_iam_propagation" {
   count = var.deployment_service_account_email == "" ? 0 : 1
 
-  depends_on      = [google_project_iam_member.deployer]
-  create_duration = "30s"
+  depends_on = [google_project_iam_member.deployer]
+  # A first Infra Manager apply with 30s failed on the build repository's setIamPolicy with 403:
+  # the runner's new custom role was not effective yet. IAM changes take up to two minutes.
+  create_duration = "2m"
 }
 
 # --- Delivery: Cloud Storage -> Eventarc -> the function ---

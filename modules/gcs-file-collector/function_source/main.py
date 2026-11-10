@@ -18,8 +18,11 @@ Runtime env:
 import base64
 import logging
 
-# Cloud Functions gen2 leaves the root logger at WARNING, so logging.info would be dropped.
+# Cloud Functions gen2 leaves the root logger at WARNING, so logging.info would be dropped. With
+# execution-id logging, functions-framework has also given it a handler before importing this
+# module, which makes basicConfig a no-op: set the level on its own as well.
 logging.basicConfig(level=logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
 
 import os
 

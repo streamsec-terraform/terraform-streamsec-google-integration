@@ -180,6 +180,21 @@ def test_does_not_retry_a_failure_that_would_repeat(storage_client, collection, 
     assert f"gs://audit-logs/a1.json.gz returned {status}" in caplog.text
 
 
+def test_logs_at_info_when_the_framework_configured_logging_first(monkeypatch):
+    # With execution-id logging, functions-framework gives the root logger a handler at WARNING
+    # before it imports main, which makes logging.basicConfig a no-op.
+    import importlib
+    import logging
+
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [logging.StreamHandler()])
+    monkeypatch.setattr(root, "level", logging.WARNING)
+
+    importlib.reload(main)
+
+    assert root.getEffectiveLevel() == logging.INFO
+
+
 def test_raises_when_the_endpoint_cannot_be_reached(storage_client, collection, monkeypatch):
     put(storage_client, "a1.json.gz", AUDIT_LOG)
     collection.close()
