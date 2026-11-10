@@ -58,7 +58,17 @@ deploy() {
   run bash "$BATS_TEST_TMPDIR/deploy.sh" --project acme-logs --bucket "$BUCKET" --api-url https://acme.streamsec.io --yes --ref v1.0.0
   [ "$status" -ne 0 ]
   [[ "$output" == *"Could not download"* ]]
-  refute_called "functions deploy"
+  refute_called "services enable|secrets (create|versions add)|add-iam-policy-binding|service-accounts create|functions deploy"
+}
+
+@test "stops before any change when the release is not a collector release" {
+  mkdir -p "$BATS_TEST_TMPDIR/release/terraform-streamsec-google-integration-2.24.0/modules/gke"
+  tar -czf "$FAKE_DIR/source.tar.gz" -C "$BATS_TEST_TMPDIR/release" .
+  cp "$DEPLOY" "$BATS_TEST_TMPDIR/deploy.sh"
+  run bash "$BATS_TEST_TMPDIR/deploy.sh" --project acme-logs --bucket "$BUCKET" --api-url https://acme.streamsec.io --yes --ref v2.24.0
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"has no modules/gcs-file-collector"* ]]
+  refute_called "services enable|secrets (create|versions add)|add-iam-policy-binding|service-accounts create|functions deploy"
 }
 
 @test "keeps the collection token off the command line, in Secret Manager" {

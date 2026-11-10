@@ -158,6 +158,27 @@ run "a_second_bucket_gets_its_own_collector" {
     condition     = output.function_name != run.first_collector.function_name && google_service_account.collector.account_id == "ss-col-github-audit-6eb8e0"
     error_message = "Collectors for two buckets must not share resources."
   }
+  # The identities, grants and build resources were replaced, so the IAM waits run again.
+  assert {
+    condition     = time_sleep.iam_propagation.triggers["collector"] == "github-audit-6eb8e0"
+    error_message = "The IAM wait must run again when the collector's resources are replaced."
+  }
+}
+
+run "waits_for_iam_again_in_another_region" {
+  variables {
+    region                           = "europe-west1"
+    deployment_service_account_email = "infra-manager@acme-logs.iam.gserviceaccount.com"
+  }
+
+  assert {
+    condition     = time_sleep.iam_propagation.triggers["region"] == "europe-west1"
+    error_message = "The build repository and source bucket move with the region, so the IAM wait must run again."
+  }
+  assert {
+    condition     = time_sleep.deployer_iam_propagation[0].triggers["role"] == google_project_iam_custom_role.deployer[0].role_id
+    error_message = "The runner's custom role must be waited for whenever it is replaced."
+  }
 }
 
 run "names_fit_gcp_limits_for_a_long_endpoint" {

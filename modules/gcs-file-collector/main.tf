@@ -100,6 +100,12 @@ resource "time_sleep" "deployer_iam_propagation" {
   # A first Infra Manager apply with 30s failed on the build repository's setIamPolicy with 403:
   # the runner's new custom role was not effective yet. IAM changes take up to two minutes.
   create_duration = "2m"
+
+  # A sleep waits only when it is created: wait again whenever the role is replaced.
+  triggers = {
+    role   = google_project_iam_custom_role.deployer[0].role_id
+    runner = var.deployment_service_account_email
+  }
 }
 
 # --- Delivery: Cloud Storage -> Eventarc -> the function ---
@@ -266,6 +272,14 @@ resource "time_sleep" "iam_propagation" {
   # grant that is not effective yet, and Eventarc refuses a Cloud Storage trigger until the
   # service agent can publish; the Cloud Functions provider retries neither.
   create_duration = "2m"
+
+  # A sleep waits only when it is created. The identities, their grants and the build
+  # resources are named from the suffix (endpoint and bucket) and placed in the region, so a
+  # change to either replaces them: wait again then too.
+  triggers = {
+    collector = local.resource_suffix
+    region    = var.region
+  }
 }
 
 resource "google_cloudfunctions2_function" "collector" {

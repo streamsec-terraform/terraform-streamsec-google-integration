@@ -203,6 +203,8 @@ install() {
   [ "$bucket_project" = "$project_number" ] ||
     die "Bucket $BUCKET is not in project $PROJECT_ID. Run this with --project set to the bucket's project."
   location=$(printf '%s' "$location" | tr '[:upper:]' '[:lower:]')
+  # Before any change: a release that can't be downloaded or has no collector stops here
+  source=$(function_source)
 
   step "This will set up, in project $PROJECT_ID:"
   info "Secret:           $SECRET, holding the collection token"
@@ -258,7 +260,6 @@ install() {
   info "Cloud Storage can publish the bucket's events"
 
   step "Deploying function $FUNCTION (takes a few minutes)"
-  source=$(function_source)
   if ! deploy "$source" "$location"; then
     "$created" || die "Deploying $FUNCTION failed."
     # A first build can start before the new builder's permissions apply
