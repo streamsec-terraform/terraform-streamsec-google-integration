@@ -1,6 +1,6 @@
 # waf-gcp — Stream WAF/NGFW poller for GCP
 
-Cloud Functions (2nd gen) port of `azure/functions/waf-azure`. Polls Palo Alto / Fortinet
+Cloud Functions (2nd gen) port of the Stream Security WAF poller for Azure Functions. Polls Palo Alto / Fortinet
 firewalls reachable from the customer's VPC and posts their config to Stream.
 
 ## Layout
@@ -8,7 +8,7 @@ firewalls reachable from the customer's VPC and posts their config to Stream.
 | Path | Role |
 |---|---|
 | `main.py` | HTTP entrypoint `poll` → `waf.waf_collector.collect_fw_list()` |
-| `waf/` | `azure/functions/waf-azure/waf/`, ruff-formatted. Differs in `utils.get_secret_value` (Secret Manager instead of Key Vault), `waf_collector.send_fw_to_stream` (gzip branch from the AWS Lambda), and the service modules no longer log the firewall API key |
+| `waf/` | The Azure Function's `waf` package, ruff-formatted. Differs in `utils.get_secret_value` (Secret Manager instead of Key Vault), `waf_collector.send_fw_to_stream` (gzip branch from the AWS Lambda), and the service modules no longer log the firewall API key |
 | `requirements.txt` | `functions-framework`, `google-cloud-secret-manager`, `urllib3` (pinned) |
 
 ## Runtime contract

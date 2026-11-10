@@ -112,13 +112,13 @@ succeed; this module does not create or publish release tags.
 ### Pre-release fixed-name migration and failed-revision recovery
 
 This required input intentionally changes every module-owned fixed name. There
-is no safe in-place migration for the existing pre-release demo deployments:
+is no safe in-place migration for existing pre-release deployments:
 several GCP resources require replacement when renamed, and guessing ownership
 could delete an unrelated production resource. Do not add a default
 `integration_id`, a state move, or an automatic deletion to conceal that
 replacement.
 
-Before updating a demo deployment made from a pre-release revision, inspect its
+Before updating a deployment made from a pre-release revision, inspect its
 Terraform/Infrastructure Manager state and plan. If the old resources are in a
 healthy deployment's state, use that deployment's normal destroy/recreate
 lifecycle and review every planned replacement. If a failed revision left
@@ -131,8 +131,7 @@ Infrastructure Manager cannot import/adopt a
 left by a failed run. A retry with `--import-existing-resources` can therefore
 fail with `no importable resource found`. Do not broadly delete resources to
 clear this error: preserve resources in state, healthy resources, and anything
-not proven to belong to the failed revision. In particular, the active lab
-connector `<existing-connector>` must never be deleted.
+not proven to belong to the failed revision.
 
 1. List the deployment revisions and inspect the failed revision. Keep the
    Infrastructure Manager location distinct from the workload resource region.
@@ -193,7 +192,7 @@ connector `<existing-connector>` must never be deleted.
    ```
 
    Apply the same ownership standard before removing any other old fixed-name
-   demo resource: the `streamsec-palo-waf` runtime service account,
+   resource: the `streamsec-palo-waf` runtime service account,
    `streamsec-palo-waf-build` build account,
    `streamsec-palo-waf-poll` Scheduler job,
    `streamsec-palo-waf-builds` Artifact Registry repository,
@@ -201,8 +200,7 @@ connector `<existing-connector>` must never be deleted.
    `streamsec-palo-waf-src-<PROJECT_NUMBER>` bucket, or
    `streamsecPaloWafDeployer` custom role. Check the exact project and region,
    inspect labels and descriptions where supported, and ensure no healthy
-   deployment or function references the candidate. Never delete
-   `<existing-connector>`.
+   deployment or function references the candidate.
 
 4. If a connector CIDR collision caused the failure, select an unused,
    network-aligned `/28` in the target VPC. Verify that its network address is
