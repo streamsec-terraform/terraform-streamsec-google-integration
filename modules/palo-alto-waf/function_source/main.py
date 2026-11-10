@@ -1,6 +1,6 @@
 """Stream Security WAF/NGFW poller for GCP (Cloud Functions 2nd gen).
 
-Same `waf` package as the Azure Function (azure/functions/waf-azure); only the
+Same `waf` package as the Azure Function; only the
 trigger (HTTP, invoked by Cloud Scheduler every 5 minutes) and the secret
 backend (Secret Manager, see waf/utils.py) differ.
 

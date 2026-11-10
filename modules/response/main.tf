@@ -42,13 +42,9 @@ locals {
     name => group[0]
   }
 
-  # role_file_paths previously worked around two role JSONs that had been
-  # committed at broken nested paths in the monorepo
-  # (shared/gcp_remove_iam_role_from_instance.json and
-  # shared/remediation/gcp_roles/gcp_enable_versioning_for_storage_bucket_role.json).
-  # Those are now at the canonical path alongside the others, so the map
-  # collapses to identity and we can just use each.value.role_file directly
-  # in the file(...) reads below.
+  # role_file_paths is empty: every role JSON is at its canonical path under
+  # templates/gcp_roles, so the lookups in the file(...) reads below fall
+  # through to each.value.role_file.
   role_file_paths = {}
 
   # Determine the project where service accounts will be created
