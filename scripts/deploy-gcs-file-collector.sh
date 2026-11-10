@@ -134,7 +134,11 @@ parse_args() {
 set_names() {
   local slug hash
   slug=$(printf '%s' "${API_URL_SUFFIX//\//-}" | cut -c1-12 | sed 's/^-*//; s/-*$//')
-  hash=$(printf '%s' "$API_URL_SUFFIX|$BUCKET" | sha256sum | cut -c1-6)
+  if command -v sha256sum >/dev/null; then
+    hash=$(printf '%s' "$API_URL_SUFFIX|$BUCKET" | sha256sum | cut -c1-6)
+  else
+    hash=$(printf '%s' "$API_URL_SUFFIX|$BUCKET" | shasum -a 256 | cut -c1-6)
+  fi
   SUFFIX="$slug-$hash"
   FUNCTION="streamsec-$SUFFIX"
   SERVICE_ACCOUNT="ss-col-$SUFFIX@$PROJECT_ID.iam.gserviceaccount.com"
@@ -156,22 +160,30 @@ create_service_account() {
 }
 
 grant_project_role() {
-  retry gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "$1" --role "$2" --condition=None --quiet
+  retry gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "$1" --role "$2" --condition="${3:-None}" --quiet
 }
 
-# The function_source next to this script in a checkout, or else the one of release $REF.
+# What the builder may touch in Cloud Storage: only the buckets Cloud Functions builds from, as in
+# modules/gcs-file-collector, not every bucket of the project.
+build_objects_condition() {
+  local buckets="resource.name.startsWith('projects/_/buckets/gcf-v2-sources-$1-')"
+  buckets+=" || resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-$1-')"
+  buckets+=" || resource.name.startsWith('projects/_/buckets/run-sources-$PROJECT_ID-')"
+  echo "expression=resource.type == 'storage.googleapis.com/Object' && ($buckets),title=CollectorFunctionBuildObjects"
+}
+
+# The function_source next to this script in a checkout, or else the one of release $REF,
+# downloaded into WORK_DIR.
 function_source() {
-  local here="" dir archive
+  local here="" dir archive="$WORK_DIR/source.tar.gz"
   [ -f "${BASH_SOURCE[0]}" ] && here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   if [ -n "$here" ] && [ -f "$here/../modules/gcs-file-collector/function_source/main.py" ]; then
     echo "$here/../modules/gcs-file-collector/function_source"
     return
   fi
-  dir=$(mktemp -d)
-  archive="$dir/source.tar.gz"
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" -o "$archive" || die "Could not download $REPO at $REF."
-  tar -xzf "$archive" -C "$dir"
-  dir=$(find "$dir" -type d -path '*/modules/gcs-file-collector/function_source' | head -n 1)
+  tar -xzf "$archive" -C "$WORK_DIR"
+  dir=$(find "$WORK_DIR" -type d -path '*/modules/gcs-file-collector/function_source' | head -n 1)
   [ -n "$dir" ] || die "$REPO at $REF has no modules/gcs-file-collector."
   echo "$dir"
 }
@@ -179,8 +191,12 @@ function_source() {
 install() {
   local described location bucket_project project_number token storage_agent source state created=false
 
+  WORK_DIR=$(mktemp -d)
+  trap 'rm -rf "$WORK_DIR"' EXIT
+  # stderr apart, so that a warning is not read as the bucket's location
   described=$(gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT_ID" --raw \
-    --format='value(location,projectNumber)' 2>&1) || die "Cannot read bucket $BUCKET: $described"
+    --format='value(location,projectNumber)' 2>"$WORK_DIR/error") ||
+    die "Cannot read bucket $BUCKET: $(cat "$WORK_DIR/error")"
   read -r location bucket_project <<<"$described"
   project_number=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
   # Eventarc delivers Cloud Storage events only to triggers in the bucket's project
@@ -232,7 +248,10 @@ install() {
   info "The collector can read gs://$BUCKET"
   grant_project_role "serviceAccount:$SERVICE_ACCOUNT" roles/eventarc.eventReceiver
   info "The collector can receive the bucket's events"
-  grant_project_role "serviceAccount:$BUILD_SERVICE_ACCOUNT" roles/cloudbuild.builds.builder
+  grant_project_role "serviceAccount:$BUILD_SERVICE_ACCOUNT" roles/logging.logWriter
+  grant_project_role "serviceAccount:$BUILD_SERVICE_ACCOUNT" roles/artifactregistry.writer
+  grant_project_role "serviceAccount:$BUILD_SERVICE_ACCOUNT" roles/storage.objectUser \
+    "$(build_objects_condition "$project_number")"
   info "The builder can build the function"
   storage_agent=$(gcloud storage service-agent --project "$PROJECT_ID")
   grant_project_role "serviceAccount:$storage_agent" roles/pubsub.publisher
@@ -297,7 +316,7 @@ uninstall() {
     info "Function $FUNCTION not found in $REGION, skipping"
   fi
   if gcloud secrets describe "$SECRET" --project "$PROJECT_ID" >/dev/null 2>&1; then
-    gcloud secrets delete "$SECRET" --project "$PROJECT_ID" --quiet >/dev/null 2>&1
+    quiet gcloud secrets delete "$SECRET" --project "$PROJECT_ID" --quiet
     info "Deleted secret $SECRET"
   else
     info "Secret $SECRET not found, skipping"
@@ -308,15 +327,18 @@ uninstall() {
       --member "serviceAccount:$SERVICE_ACCOUNT" --role roles/storage.objectViewer || true
     quiet gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
       --member "serviceAccount:$SERVICE_ACCOUNT" --role roles/eventarc.eventReceiver --condition=None || true
-    gcloud iam service-accounts delete "$SERVICE_ACCOUNT" --project "$PROJECT_ID" --quiet >/dev/null 2>&1
+    quiet gcloud iam service-accounts delete "$SERVICE_ACCOUNT" --project "$PROJECT_ID" --quiet
     info "Deleted service account $SERVICE_ACCOUNT"
   else
     info "Service account $SERVICE_ACCOUNT not found, skipping"
   fi
   if service_account_exists "$BUILD_SERVICE_ACCOUNT"; then
-    quiet gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
-      --member "serviceAccount:$BUILD_SERVICE_ACCOUNT" --role roles/cloudbuild.builds.builder --condition=None || true
-    gcloud iam service-accounts delete "$BUILD_SERVICE_ACCOUNT" --project "$PROJECT_ID" --quiet >/dev/null 2>&1
+    for role in roles/logging.logWriter roles/artifactregistry.writer roles/storage.objectUser; do
+      # --all: the storage.objectUser binding has a condition
+      quiet gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
+        --member "serviceAccount:$BUILD_SERVICE_ACCOUNT" --role "$role" --all || true
+    done
+    quiet gcloud iam service-accounts delete "$BUILD_SERVICE_ACCOUNT" --project "$PROJECT_ID" --quiet
     info "Deleted service account $BUILD_SERVICE_ACCOUNT"
   else
     info "Service account $BUILD_SERVICE_ACCOUNT not found, skipping"

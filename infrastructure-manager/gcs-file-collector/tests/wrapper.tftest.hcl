@@ -29,7 +29,7 @@ run "deploys_the_collector_as_the_console_command_expects" {
     error_message = "The wrapper must pass the tenant URL and endpoint through."
   }
   assert {
-    condition     = module.gcs_file_collector.function_name == "streamsec-github-audit-${substr(sha256("github-audit|acme-github-audit"), 0, 6)}"
+    condition     = module.gcs_file_collector.function_name == "streamsec-github-audit-a9abc0"
     error_message = "The console names the Infrastructure Manager deployment after the function."
   }
 }

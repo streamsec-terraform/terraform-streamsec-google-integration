@@ -28,7 +28,8 @@ import requests
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
-GZIP_MAGIC = b"\x1f\x8b"
+# gzip with deflate, what the endpoint's "H4sI" check accepts
+GZIP_MAGIC = b"\x1f\x8b\x08"
 REQUEST_TIMEOUT_SECONDS = 30
 # Client errors that can succeed on a later delivery; any other 4xx (a revoked token, a
 # payload too large) would fail the same way every time.

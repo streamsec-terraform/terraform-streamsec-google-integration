@@ -27,10 +27,10 @@ locals {
   }, var.labels)
 }
 
+# Read while planning, with no depends_on, so that a bucket in another project stops the plan
+# before anything changes. Cloud Storage is on in any project that holds the bucket.
 data "google_storage_bucket" "logs" {
   name = var.bucket_name
-
-  depends_on = [time_sleep.api_propagation]
 }
 
 resource "terraform_data" "bucket_contract" {
@@ -51,6 +51,8 @@ resource "google_service_account" "collector" {
   account_id   = local.service_account_id
   display_name = "Stream Security file collector"
   description  = "Reads files written to gs://${var.bucket_name} and sends them to Stream Security."
+
+  depends_on = [time_sleep.api_propagation]
 }
 
 resource "google_service_account" "build" {
@@ -58,6 +60,8 @@ resource "google_service_account" "build" {
   account_id   = local.build_account_id
   display_name = "Stream Security file collector builder"
   description  = "Builds the file collector image without relying on a default service account."
+
+  depends_on = [time_sleep.api_propagation]
 }
 
 # The runner Infrastructure Manager uses has Editor plus project IAM administration, but not
@@ -99,17 +103,23 @@ resource "time_sleep" "deployer_iam_propagation" {
 # --- Delivery: Cloud Storage -> Eventarc -> the function ---
 
 # Cloud Storage publishes the bucket's events to the Pub/Sub topic Eventarc creates for the
-# trigger, as the project's Cloud Storage service agent.
+# trigger, as the project's Cloud Storage service agent. Every Cloud Storage trigger in the
+# project shares this grant, so destroying the collector that holds it takes it from all of them;
+# see grant_storage_agent_publisher.
 data "google_storage_project_service_account" "this" {
+  count = var.grant_storage_agent_publisher ? 1 : 0
+
   project = var.project_id
 
   depends_on = [time_sleep.api_propagation]
 }
 
 resource "google_project_iam_member" "storage_agent_publisher" {
+  count = var.grant_storage_agent_publisher ? 1 : 0
+
   project = var.project_id
   role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${data.google_storage_project_service_account.this.email_address}"
+  member  = "serviceAccount:${data.google_storage_project_service_account.this[0].email_address}"
 }
 
 resource "google_project_iam_member" "collector_event_receiver" {

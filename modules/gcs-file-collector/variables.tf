@@ -43,6 +43,17 @@ variable "stream_collection_token" {
   description = "Collection token of the Stream Security integration, shown in its integration panel."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.stream_collection_token)) > 0
+    error_message = "stream_collection_token must not be empty."
+  }
+}
+
+variable "grant_storage_agent_publisher" {
+  description = "Grant the project's Cloud Storage service agent roles/pubsub.publisher, which every Cloud Storage trigger in the project needs. Destroying this module then revokes it for all of them, so set false when the project has other Cloud Storage triggers or collectors, and grant it once outside any deployment."
+  type        = bool
+  default     = true
 }
 
 variable "function_timeout_seconds" {

@@ -27,7 +27,11 @@ as `{"data": "<base64 of the object>"}` to
   (`roles/eventarc.eventReceiver`) and is the only identity allowed to invoke the function
 - A build service account, so builds do not depend on a default service account
 - `roles/pubsub.publisher` for the project's Cloud Storage service agent, which publishes
-  the bucket's events
+  the bucket's events. Every Cloud Storage trigger in the project shares this grant, so
+  destroying the deployment that holds it takes it from all of them. With more than one
+  collector, or other Cloud Storage triggers in the project, set
+  `grant_storage_agent_publisher = false` and grant it once outside any deployment. The
+  Infrastructure Manager path does this: the console's setup step grants it.
 - Secret Manager secret for the collection token
 - Python 3.12 Gen2 Cloud Function (`collect`) with an Eventarc trigger on the bucket,
   in the bucket's location
@@ -37,7 +41,8 @@ as `{"data": "<base64 of the object>"}` to
   IAM policies of the bucket, the build repository, the Cloud Run service and the secret
 
 The bucket must be in `project_id`: Eventarc delivers Cloud Storage events only to
-triggers in the bucket's project. The module checks this before it changes anything.
+triggers in the bucket's project. The module reads the bucket while planning, so a bucket
+in another project stops the plan before anything changes.
 Resource names carry the endpoint and a hash of the endpoint and bucket, so one project
 can run a collector per bucket.
 
@@ -97,6 +102,7 @@ python -m pytest tests                          # the function; needs function_s
 | `function_timeout_seconds` | Timeout of one file's delivery | `120` |
 | `max_instance_count` | Function instances delivering at once | `10` |
 | `manage_apis` | Enable the APIs the collector needs | `true` |
+| `grant_storage_agent_publisher` | Grant the Cloud Storage service agent `roles/pubsub.publisher`; see above | `true` |
 | `deployment_service_account_email` | Account Terraform runs as when it lacks resource-level setIamPolicy (the Infrastructure Manager runner) | `""` |
 | `labels` | Labels added to the resources | `{}` |
 

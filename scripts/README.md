@@ -341,8 +341,11 @@ STREAMSEC_COLLECTION_TOKEN=<token> bash <(curl -fsSL https://raw.githubuserconte
 Run from outside a checkout, it downloads the function code of `--ref` (default `main`), so
 pass the release the script itself was fetched from. `--api-url-suffix` picks the collection
 endpoint (default `github-audit`), and `--region` the function's region (default
-`us-central1`). `--uninstall` removes the function, the secret, the two service accounts and
-their access to the bucket.
+`us-central1`). Like the module, it gives the build service account only log writing, Artifact
+Registry writing, and object access to the buckets Cloud Functions builds from. `--uninstall`
+removes the function, the secret, the two service accounts and their bindings. It leaves the
+Cloud Storage service agent's `roles/pubsub.publisher`, which every Cloud Storage trigger in
+the project shares.
 
 ---
 

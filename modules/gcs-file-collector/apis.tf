@@ -4,6 +4,7 @@ resource "google_project_service" "required" {
     "cloudbuild.googleapis.com",
     "cloudfunctions.googleapis.com",
     "eventarc.googleapis.com",
+    "iam.googleapis.com",
     "pubsub.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",

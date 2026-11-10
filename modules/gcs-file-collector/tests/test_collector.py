@@ -145,6 +145,15 @@ def test_skips_an_object_that_is_not_gzip(storage_client, collection):
     assert collection.requests == []
 
 
+def test_skips_gzip_magic_that_is_not_deflate(storage_client, collection):
+    # The endpoint unpacks a payload only when its base64 starts with "H4sI": 1f 8b 08.
+    put(storage_client, "odd.gz", b"\x1f\x8b\x00" + AUDIT_LOG[3:])
+
+    main.collect(object_finalized("odd.gz"))
+
+    assert collection.requests == []
+
+
 def test_skips_an_object_deleted_before_it_was_read(storage_client, collection):
     main.collect(object_finalized("gone.json.gz"))
 

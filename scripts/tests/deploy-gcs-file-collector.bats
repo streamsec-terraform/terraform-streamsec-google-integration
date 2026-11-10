@@ -5,8 +5,9 @@ load helpers
 
 DEPLOY="$BATS_TEST_DIRNAME/../deploy-gcs-file-collector.sh"
 BUCKET=acme-github-audit
-# The names modules/gcs-file-collector gives the collector of github-audit on $BUCKET
-SUFFIX="github-audit-$(printf '%s' "github-audit|$BUCKET" | sha256sum | cut -c1-6)"
+# The names modules/gcs-file-collector gives the collector of github-audit on $BUCKET (its tests
+# expect the same literal)
+SUFFIX=github-audit-a9abc0
 FUNCTION="streamsec-$SUFFIX"
 SA="ss-col-$SUFFIX@acme-logs.iam.gserviceaccount.com"
 BUILD_SA="ss-bld-$SUFFIX@acme-logs.iam.gserviceaccount.com"
@@ -86,9 +87,31 @@ deploy() {
   called "storage buckets add-iam-policy-binding gs://$BUCKET --member serviceAccount:$SA --role roles/storage.objectViewer"
   called "projects add-iam-policy-binding acme-logs --member serviceAccount:$SA --role roles/eventarc.eventReceiver"
   called "projects add-iam-policy-binding acme-logs --member serviceAccount:service-123456789@gs-project-accounts.iam.gserviceaccount.com --role roles/pubsub.publisher"
-  called "projects add-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/cloudbuild.builds.builder"
+  called "projects add-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/logging.logWriter --condition=None"
+  called "projects add-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/artifactregistry.writer --condition=None"
+  refute_called "cloudbuild.builds.builder"
   called "functions add-invoker-policy-binding $FUNCTION --project acme-logs --region us-central1 --member serviceAccount:$SA"
   assert_called_before "storage buckets add-iam-policy-binding" "functions deploy"
+}
+
+@test "lets the builder touch only the buckets Cloud Functions builds from" {
+  deploy
+  [ "$status" -eq 0 ]
+  local condition="expression=resource.type == 'storage.googleapis.com/Object' && ("
+  condition+="resource.name.startsWith('projects/_/buckets/gcf-v2-sources-123456789-') || "
+  condition+="resource.name.startsWith('projects/_/buckets/gcf-v2-uploads-123456789-') || "
+  condition+="resource.name.startsWith('projects/_/buckets/run-sources-acme-logs-')),title=CollectorFunctionBuildObjects"
+  grep -qF -- "--member serviceAccount:$BUILD_SA --role roles/storage.objectUser --condition=$condition --quiet" \
+    "$FAKE_DIR/gcloud.log"
+}
+
+@test "a warning on the bucket's stderr is not read as its location" {
+  printf '#!/usr/bin/env bash\necho "WARNING: a newer gcloud is available" >&2\nexec "%s/bin/gcloud" "$@"\n' \
+    "$BATS_TEST_DIRNAME" >"$BATS_TEST_TMPDIR/gcloud"
+  chmod +x "$BATS_TEST_TMPDIR/gcloud"
+  PATH="$BATS_TEST_TMPDIR:$PATH" deploy
+  [ "$status" -eq 0 ]
+  called "functions deploy .*--trigger-location us-central1 "
 }
 
 @test "refuses a bucket in another project before changing anything" {
@@ -147,7 +170,17 @@ deploy() {
     "storage buckets remove-iam-policy-binding gs://$BUCKET --member serviceAccount:$SA --role roles/storage.objectViewer" \
     "projects remove-iam-policy-binding acme-logs --member serviceAccount:$SA --role roles/eventarc.eventReceiver" \
     "service-accounts delete $SA" \
-    "projects remove-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/cloudbuild.builds.builder" \
+    "projects remove-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/logging.logWriter --all" \
+    "projects remove-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/artifactregistry.writer --all" \
+    "projects remove-iam-policy-binding acme-logs --member serviceAccount:$BUILD_SA --role roles/storage.objectUser --all" \
     "service-accounts delete $BUILD_SA"
   [ "$(cat "$FAKE_DIR/existing")" = "bucket:$BUCKET" ]
+}
+
+@test "--uninstall reports a removal that fails" {
+  exist "sa:$SA" "sa:$BUILD_SA"
+  echo "sa:$SA" >"$FAKE_DIR/fail-delete"
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --uninstall --yes
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAILED_PRECONDITION: in use"* ]]
 }

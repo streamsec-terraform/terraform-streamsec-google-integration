@@ -28,6 +28,16 @@ variables {
   stream_collection_token = "collection-token"
 }
 
+run "reads_the_bucket_at_plan_so_its_checks_run_before_any_change" {
+  # First, on empty state as on a first deploy, when nothing it might depend on exists yet.
+  command = plan
+
+  assert {
+    condition     = google_cloudfunctions2_function.collector.event_trigger[0].trigger_region == "us"
+    error_message = "The bucket must be read while planning, not deferred to the apply."
+  }
+}
+
 run "delivers_each_new_object_in_the_bucket_to_the_function" {
   assert {
     condition     = google_cloudfunctions2_function.collector.event_trigger[0].event_type == "google.cloud.storage.object.v1.finalized"
@@ -60,7 +70,7 @@ run "delivers_each_new_object_in_the_bucket_to_the_function" {
     error_message = "The collector must be able to read the bucket's objects."
   }
   assert {
-    condition     = google_project_iam_member.storage_agent_publisher.member == "serviceAccount:service-123456789012@gs-project-accounts.iam.gserviceaccount.com"
+    condition     = google_project_iam_member.storage_agent_publisher[0].member == "serviceAccount:service-123456789012@gs-project-accounts.iam.gserviceaccount.com"
     error_message = "The Cloud Storage service agent must be able to publish the bucket's events."
   }
 }
@@ -111,9 +121,30 @@ run "refuses_a_gs_url_for_the_bucket" {
   expect_failures = [var.bucket_name]
 }
 
+run "refuses_an_empty_token" {
+  command = plan
+
+  variables {
+    stream_collection_token = " "
+  }
+
+  expect_failures = [var.stream_collection_token]
+}
+
+run "leaves_the_shared_storage_agent_grant_to_the_project_when_asked" {
+  variables {
+    grant_storage_agent_publisher = false
+  }
+
+  assert {
+    condition     = length(google_project_iam_member.storage_agent_publisher) == 0
+    error_message = "With grant_storage_agent_publisher = false the module must not own the project-wide grant."
+  }
+}
+
 run "first_collector" {
   assert {
-    condition     = output.function_name == "streamsec-github-audit-${substr(sha256("github-audit|acme-github-audit"), 0, 6)}"
+    condition     = output.function_name == "streamsec-github-audit-a9abc0"
     error_message = "Unexpected function name; scripts/deploy-gcs-file-collector.sh derives the same one."
   }
 }
@@ -124,7 +155,7 @@ run "a_second_bucket_gets_its_own_collector" {
   }
 
   assert {
-    condition     = output.function_name != run.first_collector.function_name && google_service_account.collector.account_id == "ss-col-github-audit-${substr(sha256("github-audit|acme-gitlab-audit"), 0, 6)}"
+    condition     = output.function_name != run.first_collector.function_name && google_service_account.collector.account_id == "ss-col-github-audit-6eb8e0"
     error_message = "Collectors for two buckets must not share resources."
   }
 }

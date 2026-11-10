@@ -15,4 +15,6 @@ module "gcs_file_collector" {
 
   # The console's setup always executes Terraform as this Infra Manager runner.
   deployment_service_account_email = "infra-manager@${var.project_id}.iam.gserviceaccount.com"
+  # The console's setup grants it once, so deleting one deployment cannot take it from the rest.
+  grant_storage_agent_publisher = false
 }
