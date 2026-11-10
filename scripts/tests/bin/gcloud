@@ -73,6 +73,9 @@ if [[ -n "$verb" ]]; then
   if [[ "$kind" == *-sink && "$*" == *"value(destination)"* ]]; then
     cat "$FAKE_DIR/sink-destination" 2>/dev/null || echo "pubsub.googleapis.com/projects/p1/topics/stream-security-events-topic"
   fi
+  if [[ "$kind" == function2 && "$*" == *"value(state)"* ]]; then
+    cat "$FAKE_DIR/function-state" 2>/dev/null || echo ACTIVE
+  fi
   exit 0
 fi
 
@@ -116,5 +119,27 @@ case "$*" in
     sa=$(flag iam-account "$@")
     [[ -f "$FAKE_DIR/keys" ]] && awk -F'\t' -v s="$sa" '$1 == s { print $2 }' "$FAKE_DIR/keys" ;;
   "pubsub topics list-subscriptions "*) [[ -f "$FAKE_DIR/subscriptions" ]] && cat "$FAKE_DIR/subscriptions" ;;
+  # What a secret is given on stdin: $FAKE_DIR/secret-data-NAME.
+  "secrets create "*"--data-file=-"*) cat >>"$FAKE_DIR/secret-data-$3" ;;
+  "secrets versions add "*"--data-file=-"*) cat >>"$FAKE_DIR/secret-data-$4" ;;
+  # A bucket exists while "bucket:NAME" is in $FAKE_DIR/existing; $FAKE_DIR/bucket-NAME holds its
+  # "<location>\t<project number>", by default in us-central1 of project 123456789.
+  "storage buckets describe gs://"*)
+    bucket=${4#gs://}
+    if ! has "bucket:$bucket"; then
+      echo "ERROR: (gcloud.storage.buckets.describe) gs://$bucket not found: 404." >&2
+      exit 1
+    fi
+    cat "$FAKE_DIR/bucket-$bucket" 2>/dev/null || printf 'US-CENTRAL1\t123456789\n' ;;
+  "storage service-agent"*) echo "service-123456789@gs-project-accounts.iam.gserviceaccount.com" ;;
+  # $FAKE_DIR/deploy-failures: how many deploys fail before one succeeds.
+  "functions deploy "*)
+    failures=$(cat "$FAKE_DIR/deploy-failures" 2>/dev/null || echo 0)
+    if [[ "$failures" -gt 0 ]]; then
+      echo $((failures - 1)) >"$FAKE_DIR/deploy-failures"
+      echo "ERROR: (gcloud.functions.deploy) Build failed: permission denied" >&2
+      exit 1
+    fi
+    echo "function2:$3" >>"$FAKE_DIR/existing" ;;
 esac
 exit 0

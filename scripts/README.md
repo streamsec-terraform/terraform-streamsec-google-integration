@@ -317,11 +317,41 @@ non-interactive mode, etc.).
 
 ---
 
-## Tests
+## deploy-gcs-file-collector.sh
 
-`tests/` runs both scripts against a fake `gcloud` and `curl` (`tests/bin`), with
-[bats](https://github.com/bats-core/bats-core). From the repository root:
+Deploys the [file collector](../modules/gcs-file-collector/README.md) with gcloud only, for
+those who do not deploy through Infrastructure Manager or Terraform: a function that sends
+every file written to a Cloud Storage bucket to Stream Security, such as the audit log
+GitHub Enterprise streams into the bucket. It deploys the module's `function_source` and
+gives its resources the module's names. It is idempotent; a re-run with
+`STREAMSEC_COLLECTION_TOKEN` set stores that token as a new version of the secret.
+
+The collection token is read from `STREAMSEC_COLLECTION_TOKEN`, or asked for without
+echo, so it never appears on a command line. Run it in Cloud Shell, or anywhere gcloud
+runs as an owner of the bucket's project:
 
 ```bash
-docker run --rm -v "$PWD/scripts:/code" bats/bats:1.11.1 /code/tests
+STREAMSEC_COLLECTION_TOKEN=<token> bash <(curl -fsSL https://raw.githubusercontent.com/streamsec-terraform/terraform-streamsec-google-integration/<release>/scripts/deploy-gcs-file-collector.sh) \
+    --project acme-logs \
+    --bucket acme-github-audit \
+    --api-url https://acme.streamsec.io \
+    --ref <release>
+```
+
+Run from outside a checkout, it downloads the function code of `--ref` (default `main`), so
+pass the release the script itself was fetched from. `--api-url-suffix` picks the collection
+endpoint (default `github-audit`), and `--region` the function's region (default
+`us-central1`). `--uninstall` removes the function, the secret, the two service accounts and
+their access to the bucket.
+
+---
+
+## Tests
+
+`tests/` runs the scripts against a fake `gcloud` and `curl` (`tests/bin`), with
+[bats](https://github.com/bats-core/bats-core). From the repository root (the
+`deploy-gcs-file-collector.sh` tests deploy the module's `function_source`):
+
+```bash
+docker run --rm -v "$PWD:/code" bats/bats:1.11.1 /code/scripts/tests
 ```

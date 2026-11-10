@@ -15,6 +15,12 @@ if [[ "$*" == *raw.githubusercontent.com* ]]; then
     echo 'variable "gke_org_level_sink" {}'
   exit 0
 fi
+# A release archive: $FAKE_DIR/source.tar.gz, or a 404.
+if [[ "$*" == *codeload.github.com* ]]; then
+  [[ -f "$FAKE_DIR/source.tar.gz" ]] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
+  while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "$FAKE_DIR/source.tar.gz" "$2"; shift; done
+  exit 0
+fi
 to_file=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
