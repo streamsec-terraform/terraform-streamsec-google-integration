@@ -26,6 +26,7 @@ PROJECT_ID=""
 BUCKET=""
 API_URL=""
 API_URL_SUFFIX=github-audit
+COLLECTOR_ID=""
 REGION=us-central1
 REF=main
 UNINSTALL=false
@@ -44,6 +45,9 @@ Options:
   --bucket NAME           Bucket the files are written to (without gs://)
   --api-url URL           The URL you open Stream Security at, e.g. https://app.streamsec.io
   --api-url-suffix NAME   Stream Security collection endpoint (default: $API_URL_SUFFIX)
+  --collector-id ID       Give this collector resources of its own on a bucket another
+                          collector also uses, e.g. a second Stream Security workspace
+                          (default: none, one collector per bucket)
   --region REGION         Region of the function (default: $REGION)
   --ref REF               Release of $REPO to deploy the function from,
                           when this script does not run from a checkout of it (default: $REF)
@@ -110,6 +114,7 @@ parse_args() {
       --bucket) BUCKET=${2:-}; shift 2 ;;
       --api-url) API_URL=${2:-}; shift 2 ;;
       --api-url-suffix) API_URL_SUFFIX=${2:-}; shift 2 ;;
+      --collector-id) COLLECTOR_ID=${2:-}; shift 2 ;;
       --region) REGION=${2:-}; shift 2 ;;
       --ref) REF=${2:-}; shift 2 ;;
       --uninstall) UNINSTALL=true; shift ;;
@@ -123,6 +128,7 @@ parse_args() {
   [[ "$BUCKET" =~ ^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$ ]] || die "--bucket must be a bucket name without gs://, got '$BUCKET'."
   [[ "$API_URL_SUFFIX" =~ ^[a-z0-9]+([/-][a-z0-9]+)*$ ]] || die "--api-url-suffix must be a collection endpoint such as github-audit."
   [[ "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || die "--region must be a GCP region such as us-central1."
+  [[ "$COLLECTOR_ID" =~ ^[A-Za-z0-9_-]{0,64}$ ]] || die "--collector-id must be up to 64 letters, digits, _ or -."
   if ! "$UNINSTALL"; then
     [[ "$API_URL" =~ ^https://[^/[:space:]]+/?$ ]] || die "--api-url must be the https:// URL you open Stream Security at."
     API_URL=${API_URL%/}
@@ -130,14 +136,16 @@ parse_args() {
   fi
 }
 
-# The names modules/gcs-file-collector gives: one collector per endpoint and bucket.
+# The names modules/gcs-file-collector gives: one collector per endpoint and bucket, and per
+# collector ID when one is given.
 set_names() {
-  local slug hash
+  local slug hash key="$API_URL_SUFFIX|$BUCKET"
+  [ -n "$COLLECTOR_ID" ] && key+="|$COLLECTOR_ID"
   slug=$(printf '%s' "${API_URL_SUFFIX//\//-}" | cut -c1-12 | sed 's/^-*//; s/-*$//')
   if command -v sha256sum >/dev/null; then
-    hash=$(printf '%s' "$API_URL_SUFFIX|$BUCKET" | sha256sum | cut -c1-6)
+    hash=$(printf '%s' "$key" | sha256sum | cut -c1-6)
   else
-    hash=$(printf '%s' "$API_URL_SUFFIX|$BUCKET" | shasum -a 256 | cut -c1-6)
+    hash=$(printf '%s' "$key" | shasum -a 256 | cut -c1-6)
   fi
   SUFFIX="$slug-$hash"
   FUNCTION="streamsec-$SUFFIX"
@@ -286,7 +294,7 @@ On a first install, deliveries in the first minutes can fail with 403 while Goog
 new service account's permissions. Eventarc retries them, so those files arrive a little later.
 
 To remove this setup:
-  bash deploy-gcs-file-collector.sh --project $PROJECT_ID --bucket $BUCKET --api-url-suffix $API_URL_SUFFIX --region $REGION --uninstall
+  bash deploy-gcs-file-collector.sh --project $PROJECT_ID --bucket $BUCKET --api-url-suffix $API_URL_SUFFIX --region $REGION ${COLLECTOR_ID:+--collector-id $COLLECTOR_ID }--uninstall
 EOF
 }
 

@@ -34,6 +34,17 @@ run "deploys_the_collector_as_the_console_command_expects" {
   }
 }
 
+run "passes_the_collector_id_through" {
+  variables {
+    collector_id = "6123d08a995aa9a2a3f71c81"
+  }
+
+  assert {
+    condition     = module.gcs_file_collector.function_name == "streamsec-github-audit-58951c"
+    error_message = "The console names the deployment after the function, so the wrapper must pass the collector ID on."
+  }
+}
+
 run "lets_the_infrastructure_manager_runner_set_resource_iam" {
   # Without the runner's custom role, the first apply fails on the bucket's setIamPolicy.
   assert {

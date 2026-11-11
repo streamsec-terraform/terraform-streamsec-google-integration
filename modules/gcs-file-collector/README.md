@@ -44,7 +44,11 @@ The bucket must be in `project_id`: Eventarc delivers Cloud Storage events only 
 triggers in the bucket's project. The module reads the bucket while planning, so a bucket
 in another project stops the plan before anything changes.
 Resource names carry the endpoint and a hash of the endpoint and bucket, so one project
-can run a collector per bucket.
+can run a collector per bucket. To run more than one collector of the same endpoint on one
+bucket, for example for two Stream Security workspaces that both collect the bucket, give
+each a `collector_id`. It is added to the hash, so each gets resources of its own and each
+receives every file. Without it the names are unchanged from v2.25.0, so existing
+collectors are not replaced.
 
 ## Ways to deploy
 
@@ -99,6 +103,7 @@ python -m pytest tests                          # the function; needs function_s
 | `stream_api_url` | The URL you open Stream Security at | |
 | `stream_collection_token` | Collection token of the integration (sensitive) | |
 | `region` | Region of the function and its build resources | `us-central1` |
+| `collector_id` | Gives this collector resources of its own on a bucket another collector also uses, e.g. a Stream Security workspace's ID | `""` |
 | `function_timeout_seconds` | Timeout of one file's delivery | `120` |
 | `max_instance_count` | Function instances delivering at once | `10` |
 | `manage_apis` | Enable the APIs the collector needs | `true` |

@@ -3,10 +3,12 @@ data "google_project" "this" {
 }
 
 locals {
-  # One collector per endpoint and bucket, so a project can run several side by side.
+  # One collector per endpoint and bucket, so a project can run several side by side, and per
+  # collector_id when one is given. Without it the names are those of v2.25.0.
   # scripts/deploy-gcs-file-collector.sh derives the same names.
   endpoint_slug   = trim(substr(replace(var.api_url_suffix, "/", "-"), 0, 12), "-")
-  resource_suffix = "${local.endpoint_slug}-${substr(sha256("${var.api_url_suffix}|${var.bucket_name}"), 0, 6)}"
+  name_key        = join("|", compact([var.api_url_suffix, var.bucket_name, var.collector_id]))
+  resource_suffix = "${local.endpoint_slug}-${substr(sha256(local.name_key), 0, 6)}"
 
   function_name      = "streamsec-${local.resource_suffix}"
   service_account_id = "ss-col-${local.resource_suffix}"

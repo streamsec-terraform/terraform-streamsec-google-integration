@@ -10,6 +10,7 @@ module "gcs_file_collector" {
   region                  = var.region
   bucket_name             = var.bucket_name
   api_url_suffix          = var.api_url_suffix
+  collector_id            = var.collector_id
   stream_api_url          = var.stream_api_url
   stream_collection_token = var.stream_collection_token
 
