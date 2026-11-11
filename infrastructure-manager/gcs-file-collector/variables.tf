@@ -33,6 +33,7 @@ variable "collector_id" {
   description = "Gives this collector names of its own on a bucket other collectors also use, e.g. the Stream Security workspace's ID. Empty: one collector per bucket."
   type        = string
   default     = ""
+  nullable    = false
 }
 
 variable "stream_api_url" {

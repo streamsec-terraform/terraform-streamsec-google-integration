@@ -276,8 +276,8 @@ resource "time_sleep" "iam_propagation" {
   create_duration = "2m"
 
   # A sleep waits only when it is created. The identities, their grants and the build
-  # resources are named from the suffix (endpoint and bucket) and placed in the region, so a
-  # change to either replaces them: wait again then too.
+  # resources are named from the suffix (endpoint, bucket and collector_id) and placed in the
+  # region, so a change to either replaces them: wait again then too.
   triggers = {
     collector = local.resource_suffix
     region    = var.region

@@ -48,7 +48,11 @@ can run a collector per bucket. To run more than one collector of the same endpo
 bucket, for example for two Stream Security workspaces that both collect the bucket, give
 each a `collector_id`. It is added to the hash, so each gets resources of its own and each
 receives every file. Without it the names are unchanged from v2.25.0, so existing
-collectors are not replaced.
+collectors are not replaced. Give the ID to the new collector only: setting or changing
+`collector_id` on an existing one renames, and so replaces, all of its resources, and files
+written during the replacement are not delivered. Each collector adds a notification to the
+bucket, and Cloud Storage lets at most 10 notifications fire for the same event, so a bucket
+takes at most 10 collectors.
 
 ## Ways to deploy
 

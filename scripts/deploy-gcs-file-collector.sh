@@ -128,7 +128,9 @@ parse_args() {
   [[ "$BUCKET" =~ ^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$ ]] || die "--bucket must be a bucket name without gs://, got '$BUCKET'."
   [[ "$API_URL_SUFFIX" =~ ^[a-z0-9]+([/-][a-z0-9]+)*$ ]] || die "--api-url-suffix must be a collection endpoint such as github-audit."
   [[ "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || die "--region must be a GCP region such as us-central1."
-  [[ "$COLLECTOR_ID" =~ ^[A-Za-z0-9_-]{0,64}$ ]] || die "--collector-id must be up to 64 letters, digits, _ or -."
+  # Not starting with -, so a forgotten value doesn't swallow the next flag
+  [[ "$COLLECTOR_ID" =~ ^([A-Za-z0-9][A-Za-z0-9_-]{0,63})?$ ]] ||
+    die "--collector-id must be up to 64 letters, digits, _ or -, starting with a letter or digit."
   if ! "$UNINSTALL"; then
     [[ "$API_URL" =~ ^https://[^/[:space:]]+/?$ ]] || die "--api-url must be the https:// URL you open Stream Security at."
     API_URL=${API_URL%/}
@@ -215,6 +217,7 @@ install() {
   source=$(function_source)
 
   step "This will set up, in project $PROJECT_ID:"
+  info "Collector ID:     ${COLLECTOR_ID:-none}"
   info "Secret:           $SECRET, holding the collection token"
   info "Service accounts: $SERVICE_ACCOUNT (reads gs://$BUCKET)"
   info "                  $BUILD_SERVICE_ACCOUNT (builds the function)"
@@ -313,6 +316,8 @@ deploy() {
 
 uninstall() {
   step "This will remove, from project $PROJECT_ID:"
+  # Without the ID it was installed with, this is another collector on the bucket
+  info "Collector ID:     ${COLLECTOR_ID:-none}"
   info "Function $FUNCTION in $REGION, secret $SECRET,"
   info "service accounts $SERVICE_ACCOUNT and $BUILD_SERVICE_ACCOUNT, and their access to gs://$BUCKET"
   confirm "Continue?"
@@ -354,7 +359,7 @@ uninstall() {
   fi
 
   echo
-  echo "Done. Files written to gs://$BUCKET are no longer sent to Stream Security."
+  echo "Done. This collector no longer sends files written to gs://$BUCKET to Stream Security."
 }
 
 main() {

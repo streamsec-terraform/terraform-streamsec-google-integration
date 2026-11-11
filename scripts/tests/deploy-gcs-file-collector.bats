@@ -217,3 +217,19 @@ deploy() {
   [[ "$output" == *"--collector-id must be"* ]]
   [ ! -s "$FAKE_DIR/gcloud.log" ]
 }
+
+@test "refuses a --collector-id that starts with a dash instead of taking the next flag" {
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --api-url https://acme.streamsec.io --collector-id --yes
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--collector-id must be"* ]]
+  [ ! -s "$FAKE_DIR/gcloud.log" ]
+}
+
+@test "the install and uninstall summaries show the collector ID" {
+  deploy --collector-id 6123d08a995aa9a2a3f71c81
+  [[ "$output" == *"Collector ID:     6123d08a995aa9a2a3f71c81"* ]]
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --uninstall --yes
+  [[ "$output" == *"Collector ID:     none"* ]]
+  # Other collectors on the bucket may still send its files
+  [[ "$output" == *"This collector no longer sends files written to gs://$BUCKET"* ]]
+}
