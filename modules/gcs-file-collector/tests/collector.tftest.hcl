@@ -149,6 +149,51 @@ run "first_collector" {
   }
 }
 
+run "a_collector_id_gives_the_same_bucket_a_separate_collector" {
+  # e.g. a second Stream workspace collecting from the same bucket
+  variables {
+    collector_id = "6123d08a995aa9a2a3f71c81"
+  }
+
+  assert {
+    condition     = output.function_name == "streamsec-github-audit-58951c" && google_service_account.collector.account_id == "ss-col-github-audit-58951c"
+    error_message = "A collector ID must give the collector names of its own."
+  }
+}
+
+run "refuses_a_collector_id_that_is_not_an_id" {
+  command = plan
+
+  variables {
+    collector_id = "workspace 1;"
+  }
+
+  expect_failures = [var.collector_id]
+}
+
+run "refuses_a_collector_id_that_starts_with_a_dash" {
+  # The script would read it as a flag
+  command = plan
+
+  variables {
+    collector_id = "-6123d08a"
+  }
+
+  expect_failures = [var.collector_id]
+}
+
+run "a_null_collector_id_keeps_the_names_without_one" {
+  # e.g. passed through as try(x.id, null)
+  variables {
+    collector_id = null
+  }
+
+  assert {
+    condition     = output.function_name == "streamsec-github-audit-a9abc0"
+    error_message = "A null collector_id must mean none."
+  }
+}
+
 run "a_second_bucket_gets_its_own_collector" {
   variables {
     bucket_name = "acme-gitlab-audit"

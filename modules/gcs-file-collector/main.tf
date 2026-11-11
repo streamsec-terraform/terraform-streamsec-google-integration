@@ -3,10 +3,12 @@ data "google_project" "this" {
 }
 
 locals {
-  # One collector per endpoint and bucket, so a project can run several side by side.
+  # One collector per endpoint and bucket, so a project can run several side by side, and per
+  # collector_id when one is given. Without it the names are those of v2.25.0.
   # scripts/deploy-gcs-file-collector.sh derives the same names.
   endpoint_slug   = trim(substr(replace(var.api_url_suffix, "/", "-"), 0, 12), "-")
-  resource_suffix = "${local.endpoint_slug}-${substr(sha256("${var.api_url_suffix}|${var.bucket_name}"), 0, 6)}"
+  name_key        = join("|", compact([var.api_url_suffix, var.bucket_name, var.collector_id]))
+  resource_suffix = "${local.endpoint_slug}-${substr(sha256(local.name_key), 0, 6)}"
 
   function_name      = "streamsec-${local.resource_suffix}"
   service_account_id = "ss-col-${local.resource_suffix}"
@@ -274,8 +276,8 @@ resource "time_sleep" "iam_propagation" {
   create_duration = "2m"
 
   # A sleep waits only when it is created. The identities, their grants and the build
-  # resources are named from the suffix (endpoint and bucket) and placed in the region, so a
-  # change to either replaces them: wait again then too.
+  # resources are named from the suffix (endpoint, bucket and collector_id) and placed in the
+  # region, so a change to either replaces them: wait again then too.
   triggers = {
     collector = local.resource_suffix
     region    = var.region

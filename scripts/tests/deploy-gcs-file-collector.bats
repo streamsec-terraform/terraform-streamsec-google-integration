@@ -194,3 +194,42 @@ deploy() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"FAILED_PRECONDITION: in use"* ]]
 }
+
+@test "--collector-id gives the same bucket a collector of its own, named as by the module" {
+  deploy --collector-id 6123d08a995aa9a2a3f71c81
+  [ "$status" -eq 0 ]
+  called "functions deploy streamsec-github-audit-58951c "
+  called "secrets create streamsec-collector-token-github-audit-58951c "
+  refute_called "$FUNCTION"
+}
+
+@test "--uninstall with --collector-id removes only that collector" {
+  exist "function2:$FUNCTION" "function2:streamsec-github-audit-58951c"
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --collector-id 6123d08a995aa9a2a3f71c81 --uninstall --yes
+  [ "$status" -eq 0 ]
+  called "functions delete streamsec-github-audit-58951c "
+  refute_called "functions delete $FUNCTION "
+}
+
+@test "refuses a --collector-id that is not an ID" {
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --api-url https://acme.streamsec.io --yes --collector-id "ws 1;"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--collector-id must be"* ]]
+  [ ! -s "$FAKE_DIR/gcloud.log" ]
+}
+
+@test "refuses a --collector-id that starts with a dash instead of taking the next flag" {
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --api-url https://acme.streamsec.io --collector-id --yes
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--collector-id must be"* ]]
+  [ ! -s "$FAKE_DIR/gcloud.log" ]
+}
+
+@test "the install and uninstall summaries show the collector ID" {
+  deploy --collector-id 6123d08a995aa9a2a3f71c81
+  [[ "$output" == *"Collector ID:     6123d08a995aa9a2a3f71c81"* ]]
+  run bash "$DEPLOY" --project acme-logs --bucket "$BUCKET" --uninstall --yes
+  [[ "$output" == *"Collector ID:     none"* ]]
+  # Other collectors on the bucket may still send its files
+  [[ "$output" == *"This collector no longer sends files written to gs://$BUCKET"* ]]
+}

@@ -29,6 +29,19 @@ variable "api_url_suffix" {
   }
 }
 
+variable "collector_id" {
+  description = "Distinguishes collectors of the same endpoint on the same bucket, such as two Stream Security workspaces collecting one bucket: each gets resources of its own. Leave empty for one collector per bucket (the names of v2.25.0)."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    # Not starting with -, which the script would read as a flag
+    condition     = can(regex("^([A-Za-z0-9][A-Za-z0-9_-]{0,63})?$", var.collector_id))
+    error_message = "collector_id must be up to 64 letters, digits, _ or -, starting with a letter or digit."
+  }
+}
+
 variable "stream_api_url" {
   description = "The URL you open Stream Security at, e.g. https://app.streamsec.io."
   type        = string
