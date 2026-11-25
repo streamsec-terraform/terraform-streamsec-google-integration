@@ -66,6 +66,10 @@ run "delivers_each_new_object_in_the_bucket_to_the_function" {
     error_message = "The collector's identity must be able to invoke the function."
   }
   assert {
+    condition     = google_cloudfunctions2_function.collector.service_config[0].ingress_settings == "ALLOW_INTERNAL_ONLY"
+    error_message = "Only the trigger calls the function, so it must not be reachable from the internet."
+  }
+  assert {
     condition     = google_storage_bucket_iam_member.collector_reader.bucket == "acme-github-audit" && google_storage_bucket_iam_member.collector_reader.role == "roles/storage.objectViewer"
     error_message = "The collector must be able to read the bucket's objects."
   }

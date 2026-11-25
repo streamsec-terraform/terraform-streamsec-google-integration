@@ -30,6 +30,7 @@ deploy() {
   called "functions deploy $FUNCTION --gen2 --project acme-logs --region us-central1 --runtime python312 .*--entry-point collect"
   called "functions deploy .*--trigger-event-filters type=google.cloud.storage.object.v1.finalized --trigger-event-filters bucket=$BUCKET --trigger-location us "
   called "functions deploy .*--trigger-service-account $SA --retry "
+  called "functions deploy .*--service-account $SA --ingress-settings internal-only "
   called "functions deploy .*--set-env-vars API_URL=https://acme.streamsec.io,API_URL_SUFFIX=github-audit --set-secrets API_TOKEN=$SECRET:latest"
   called "functions deploy .*--build-service-account projects/acme-logs/serviceAccounts/$BUILD_SA"
   [[ "$output" == *"Function $FUNCTION is ACTIVE"* ]]
