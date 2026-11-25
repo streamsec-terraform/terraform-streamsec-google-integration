@@ -311,8 +311,11 @@ resource "google_cloudfunctions2_function" "collector" {
     min_instance_count    = 0
     max_instance_count    = var.max_instance_count
     service_account_email = google_service_account.collector.email
-    # Requests still need run.invoker, which only the collector's own identity has.
-    ingress_settings = "ALLOW_ALL"
+    # Only the Eventarc trigger calls the function. Cloud Run counts it as internal traffic,
+    # since it is in the function's project (see bucket_contract) and uses the default run.app
+    # URL, so the endpoint is not reachable from the internet. Requests still need run.invoker,
+    # which only the collector's own identity has.
+    ingress_settings = "ALLOW_INTERNAL_ONLY"
 
     environment_variables = {
       API_URL        = trimsuffix(var.stream_api_url, "/")

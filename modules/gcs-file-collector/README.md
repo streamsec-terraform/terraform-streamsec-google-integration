@@ -34,7 +34,8 @@ as `{"data": "<base64 of the object>"}` to
   Infrastructure Manager path does this: the console's setup step grants it.
 - Secret Manager secret for the collection token
 - Python 3.12 Gen2 Cloud Function (`collect`) with an Eventarc trigger on the bucket,
-  in the bucket's location
+  in the bucket's location. Its ingress is internal-only: the trigger, which is in the same
+  project, reaches it, and the internet does not
 - Source archive bucket; the archive is named by its content, so a new release of the
   code redeploys the function
 - With `deployment_service_account_email`, a custom role that lets that account set the

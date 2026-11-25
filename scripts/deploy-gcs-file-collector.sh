@@ -306,7 +306,7 @@ deploy() {
     --runtime "$RUNTIME" --source "$1" --entry-point collect \
     --trigger-event-filters "type=$EVENT_TYPE" --trigger-event-filters "bucket=$BUCKET" \
     --trigger-location "$2" --trigger-service-account "$SERVICE_ACCOUNT" --retry \
-    --service-account "$SERVICE_ACCOUNT" \
+    --service-account "$SERVICE_ACCOUNT" --ingress-settings internal-only \
     --build-service-account "projects/$PROJECT_ID/serviceAccounts/$BUILD_SERVICE_ACCOUNT" \
     --memory 512Mi --timeout 120s --max-instances 10 \
     --set-env-vars "API_URL=$API_URL,API_URL_SUFFIX=$API_URL_SUFFIX" \
